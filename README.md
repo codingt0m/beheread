@@ -1,5 +1,7 @@
 # Beheread
 
+Version actuelle : voir [`version.py`](version.py) (affichée aussi dans l'info-bulle du logo, en haut à gauche de la bibliothèque).
+
 Application de bureau pour Windows 10/11, 100% locale et hors-ligne, pour lire des mangas au format CBZ (archives ZIP), CBR (archives RAR) et EPUB (les EPUB étant eux-mêmes des archives ZIP, leurs images sont lues comme des pages de manga).
 
 Stack : Python 3 + PySide6 (Qt). Choix motivé par la simplicité d'installation (un seul `pip install`), de bonnes performances d'affichage d'images (rendu natif Qt) et un support Windows solide.
@@ -86,15 +88,16 @@ Dès qu'un dossier est ajouté ou rafraîchi, l'auteur et la date de sortie de c
 
 1. **ComicInfo.xml** (priorité 1, 100% hors ligne) : si l'archive contient un fichier `ComicInfo.xml` (standard ComicRack/ComicTagger) à sa racine, ses champs `Writer`/`Penciller`/`Author`, `Year`/`Month`/`Day` sont utilisés directement — aucune requête réseau n'est faite si ces informations suffisent.
 2. **Google Books** (priorité 2) : à défaut, recherche combinant le nom de série (déduit du nom de fichier) et le numéro de tome, pour retrouver la date de sortie de l'édition physique précise (la couverture affichée reste toujours la première page de l'archive, aucune image externe n'est utilisée).
-3. **AniList** (priorité 3, repli) : si Google Books ne trouve rien, recherche sur le seul nom de série via l'API AniList (GraphQL, gratuite), qui gère bien les titres traduits/synonymes (y compris français). Le résultat, propre à la série, est alors partagé par tous ses tomes.
+3. **AniList** (priorité 3) : si Google Books ne trouve rien, recherche sur le seul nom de série via l'API AniList (GraphQL, gratuite), qui gère bien les titres traduits/synonymes (y compris français). Le résultat, propre à la série, est alors partagé par tous ses tomes.
+4. **MangaDex** (priorité 4, dernier recours) : si AniList ne trouve rien non plus, recherche sur le seul nom de série via l'API MangaDex (catalogue plus large : œuvres de niche, séries indépendantes/françaises, webtoons...). Comme AniList, le résultat est propre à la série et partagé par tous ses tomes ; MangaDex expose aussi la langue d'origine, utilisée pour affiner la détection automatique du sens de lecture (manga/manhwa/manhua).
 
 Chaque couche n'est interrogée que si la précédente n'a rien donné d'exploitable. Le résultat (avec sa source) est mis en cache localement dans `meta_cache.json` : un tome/une série n'est interrogé qu'une seule fois.
 
 Limites à connaître :
-* Google Books et AniList ne documentent pas forcément un tome précis dans une édition française — la date obtenue via AniList (repli série) est celle de la première publication de la série entière, pas du tome lu.
+* Google Books, AniList et MangaDex ne documentent pas forcément un tome précis dans une édition française — la date obtenue via un repli série (AniList/MangaDex) est celle de la première publication de la série entière, pas du tome lu.
 * La recherche se base sur le nom de fichier ; un titre traduit qui ne correspond à rien d'indexé peut ne rien trouver, ou (rarement) trouver la mauvaise œuvre.
-* Nécessite une connexion internet pour les couches 2 et 3. Sans connexion (ou en cas d'erreur), l'application continue de fonctionner normalement : l'auteur reste simplement vide pour les mangas concernés, et la recherche sera retentée à la prochaine session (les échecs réseau ne sont pas mis en cache, contrairement aux recherches sans résultat).
-* L'API Google Books sans clé a un quota anonyme assez bas et partagé par adresse IP (des erreurs "trop de requêtes" sont possibles sur certains réseaux) ; l'application se rabat alors automatiquement sur AniList.
+* Nécessite une connexion internet pour les couches 2 à 4. Sans connexion (ou en cas d'erreur), l'application continue de fonctionner normalement : l'auteur reste simplement vide pour les mangas concernés, et la recherche sera retentée à la prochaine session (les échecs réseau ne sont pas mis en cache, contrairement aux recherches sans résultat).
+* L'API Google Books sans clé a un quota anonyme assez bas et partagé par adresse IP (des erreurs "trop de requêtes" sont possibles sur certains réseaux) ; l'application se rabat alors automatiquement sur AniList puis MangaDex.
 * Les requêtes sont volontairement espacées pour rester polies envers ces API publiques ; l'auteur affiché se remplit progressivement au fur et à mesure que les réponses arrivent.
 
 Détection de série : basée uniquement sur le nom de fichier (marqueurs "Tome", "Vol", "#", ou numéro final). Un fichier sans numéro détecté reste affiché individuellement. À la fin d'un tome, si un tome suivant est détecté dans le même dossier, le lecteur propose d'enchaîner directement dessus (touche Entrée) sans repasser par la bibliothèque.
@@ -174,6 +177,8 @@ Supprimer ce dossier réinitialise l'application. Aucune donnée ne quitte votre
 manga-reader/
   Lancer le lecteur.vbs  Lancement en un double-clic, sans console
   main.py              Point d'entrée, fenêtre principale, bascule de theme
+  version.py           Numero de version de l'application (SemVer)
+  applogging.py        Journalisation fichier (beheread.log) pour diagnostiquer les echecs silencieux
   theme.py             Palettes clair/sombre partagees par l'interface
   icons.py             Icones vectorielles du header, dessinees avec QPainter
   icon.ico             Icone de l'application
@@ -187,9 +192,10 @@ manga-reader/
   hotkey.py            Raccourci clavier global Windows (touche « boss » Ctrl+Alt+C)
   archive_handler.py   Ouverture CBZ/CBR/EPUB en mémoire, détection de format
   series.py            Detection serie/tome par nom de fichier, tome suivant
-  metadata.py          Cascade ComicInfo.xml -> Google Books -> AniList (+ recherche au niveau série)
+  metadata.py          Cascade ComicInfo.xml -> Google Books -> AniList -> MangaDex (+ recherche au niveau série)
   googlebooks.py       Client API Google Books (date de sortie par tome)
   anilist.py           Client API AniList (repli metadonnees serie)
+  mangadex.py          Client API MangaDex (dernier repli metadonnees serie, catalogue de niche)
   storage.py           Persistance (identité par contenu, écritures différées)
   tests/               Tests unitaires (pytest) de la logique pure
   requirements.txt     Dépendances Python (utilisation normale)
@@ -211,5 +217,4 @@ pytest
 * "Aucun outil de decompression RAR n'a ete trouve" : voir la section "Support CBR" ci-dessus.
 * Une vignette reste grise : l'archive est probablement corrompue ou vide ; ouvrez-la pour voir le message d'erreur détaillé.
 * L'application ne se lance pas : vérifier `python --version` (3.10 minimum) et réinstaller les dépendances avec `pip install -r requirements.txt`.
-#   b e h e r e a d  
- 
+* Pour tout comportement anormal (métadonnées qui n'arrivent jamais, dossier qui ne se rafraîchit plus tout seul...), consulter `beheread.log` dans `%APPDATA%\MangaReaderPy` : les échecs silencieux (réseau, disque, archive corrompue) y sont désormais tous consignés avec leur détail.
