@@ -1,0 +1,3 @@
+PySide6>=6.5
+rarfile>=4.1
+send2trash>=1.8

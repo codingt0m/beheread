@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Artefacts de build PyInstaller (regeneres par `pyinstaller beheread.spec`)
+build/
+dist/
+
+# Reglages Claude Code locaux a la machine (permissions personnelles)
+.claude/settings.local.json
