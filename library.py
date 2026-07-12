@@ -1279,12 +1279,22 @@ class LibraryWidget(QWidget):
             return
         self.mangaActivated.emit(item.data(ROLE_PATH))
 
+    def _series_paths(self, key):
+        """Chemins de tous les tomes du dossier de serie `key` (memes membres
+        que ceux affiches par le dossier : regroupement automatique, tomes
+        detaches exclus)."""
+        grp = self._group_entries(self._entries).get(key) or []
+        return [e["path"] for e in grp]
+
     # ----- menu contextuel (clic droit), simple ou multi-selection -----
     def _show_context_menu(self, pos):
         item = self.list.itemAt(pos)
-        # les dossiers de serie (et en-tetes) n'ont pas d'actions par tome :
-        # on entre dedans pour agir sur un tome precis
-        if item is None or item.data(ROLE_IS_HEADER) or item.data(ROLE_IS_SERIES):
+        if item is None or item.data(ROLE_IS_HEADER):
+            return
+        # dossier de serie : pas d'action par tome (il en represente plusieurs),
+        # mais on permet de supprimer la serie entiere d'un coup.
+        if item.data(ROLE_IS_SERIES):
+            self._show_series_context_menu(item, pos)
             return
         if item not in self.list.selectedItems():
             self.list.clearSelection()
@@ -1363,6 +1373,22 @@ class LibraryWidget(QWidget):
             self._show_in_explorer(items[0].data(ROLE_PATH))
         elif chosen == act_delete:
             self._delete_many([it.data(ROLE_PATH) for it in items])
+
+    def _show_series_context_menu(self, item, pos):
+        """Menu contextuel d'un dossier de serie : suppression de tous ses
+        tomes en une fois (la confirmation liste les fichiers concernes)."""
+        key = item.data(ROLE_SERIES_KEY)
+        paths = self._series_paths(key)
+        if not paths:
+            return
+        n = len(paths)
+        display = self._series_display_name.get(key) or item.text()
+
+        menu = QMenu(self)
+        act_delete = menu.addAction(f"Supprimer la serie ({n} tomes)...")
+        chosen = menu.exec(self.list.viewport().mapToGlobal(pos))
+        if chosen == act_delete:
+            self._delete_many(paths, series_label=display)
 
     # ----- regroupement automatique en serie (detachement par clic droit) -----
     def _is_grouped_in_series(self, path):
@@ -1481,7 +1507,10 @@ class LibraryWidget(QWidget):
                 self.store.remove_series_meta(normalize_name(e["series"]))
         self._rebuild_list()
 
-    def _delete_many(self, paths):
+    def _delete_many(self, paths, series_label=None):
+        """Supprime les fichiers donnes (corbeille si send2trash est dispo,
+        sinon suppression definitive). `series_label` : si fourni, la
+        confirmation annonce la suppression de toute une serie."""
         # suppression vers la corbeille si send2trash est disponible (repli sur
         # une suppression definitive sinon)
         try:
@@ -1491,7 +1520,13 @@ class LibraryWidget(QWidget):
         to_trash = send2trash is not None
 
         verb = "Mettre a la corbeille" if to_trash else "Supprimer definitivement"
-        if len(paths) == 1:
+        if series_label:
+            title = "Mettre a la corbeille" if to_trash else "Supprimer la serie"
+            names = "\n".join(f"- {Path(p).stem}" for p in paths[:10])
+            if len(paths) > 10:
+                names += f"\n... et {len(paths) - 10} de plus"
+            message = (f"{verb} les {len(paths)} tomes de \"{series_label}\" ?\n\n{names}")
+        elif len(paths) == 1:
             title = "Mettre a la corbeille" if to_trash else "Supprimer le manga"
             message = f"{verb} \"{Path(paths[0]).stem}\" ?\n\n{paths[0]}"
         else:
