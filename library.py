@@ -21,7 +21,7 @@ from PySide6.QtWidgets import (QDialog, QFrame, QHBoxLayout, QInputDialog,
 import metadata
 import theme
 from archive_handler import Archive
-from series import normalize_name, parse_series
+from series import normalize_name, parse_series, parse_series_ex
 from storage import Store
 
 # modules extraits (voir chacun) : constantes de rendu, delegates, dialogues et
@@ -615,7 +615,11 @@ class LibraryWidget(QWidget):
             if e["volume"] is None:
                 singles.append(e)
                 continue
-            key = (normalize_name(e["series"]), e["volume"])
+            # la NATURE du numero fait partie de la cle : un chapitre et un tome
+            # de meme numero (ou un numero nu, d'identite fragile) sont des
+            # contenus distincts a ne pas fusionner - seuls de vrais doublons de
+            # tome relie ("Berserk Volume 42" et "Berserk_T42") se rejoignent.
+            key = (normalize_name(e["series"]), e.get("kind"), e["volume"])
             groups.setdefault(key, []).append(e)
 
         def read_rank(e):
@@ -666,7 +670,7 @@ class LibraryWidget(QWidget):
         entries = []
         for p in paths:
             stem = Path(p).stem
-            sname, svolume = parse_series(stem)
+            sname, svolume, skind = parse_series_ex(stem)
             # regroupement : un tome peut etre detache de tout regroupement
             # automatique (clic droit)
             override = self.store.series_override(p)
@@ -676,11 +680,20 @@ class LibraryWidget(QWidget):
             elif override:
                 sname = override
             entries.append({"path": p, "title": stem, "series": sname,
-                            "volume": svolume, "added": added.get(p, 0),
-                            "detached": detached})
+                            "volume": svolume, "kind": skind,
+                            "added": added.get(p, 0), "detached": detached})
         entries = self._dedupe_by_series_volume(entries)
         self._set_entries(entries)
         self.store.save_library_index(entries)
+        # scan reel termine : purge les vignettes/empreintes orphelines (fichiers
+        # supprimes ou sortis des dossiers sources depuis le dernier scan). Base
+        # sur `paths` (tous les contenus distincts presents), pas sur `entries`
+        # (deja fusionnees par serie/tome), pour ne pas purger le cache d'une
+        # release deduplifiee mais toujours sur le disque.
+        try:
+            self.store.purge_orphan_caches(paths)
+        except Exception:
+            logging.warning("Purge des caches orphelins en echec", exc_info=True)
         self._update_watches()
         self._rebuild_list()
 
@@ -1365,6 +1378,11 @@ class LibraryWidget(QWidget):
 
     # caracteres interdits dans un nom de fichier sous Windows
     _INVALID_NAME_CHARS = set('<>:"/\\|?*')
+    # noms de peripheriques reserves par Windows (insensibles a la casse, avec
+    # ou sans extension) : un fichier ne peut pas s'appeler ainsi.
+    _RESERVED_NAMES = {"con", "prn", "aux", "nul",
+                       *(f"com{i}" for i in range(1, 10)),
+                       *(f"lpt{i}" for i in range(1, 10))}
 
     def _rename_tome(self, path: str):
         """Renomme le vrai fichier sur le disque (l'extension est conservee).
@@ -1385,6 +1403,13 @@ class LibraryWidget(QWidget):
                 self, "Nom invalide",
                 'Un nom de fichier ne peut pas contenir les caracteres :\n'
                 '< > : " / \\ | ? *')
+            return
+        # "CON", "NUL", "COM1"... sont reserves par Windows, meme avec extension
+        if new_stem.split(".")[0].lower() in self._RESERVED_NAMES:
+            QMessageBox.warning(
+                self, "Nom invalide",
+                f'"{new_stem}" est un nom reserve par Windows et ne peut pas '
+                "etre utilise comme nom de fichier.")
             return
 
         target = p.with_name(new_stem + p.suffix)

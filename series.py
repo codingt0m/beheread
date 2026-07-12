@@ -28,6 +28,24 @@ _VOLUME_PATTERNS = [
     _TRAILING_NUMBER,   # numero final sans marqueur explicite
 ]
 
+# Marqueurs de CHAPITRE (unite plus fine qu'un tome relie). Le regroupement et
+# l'enchainement traitent volontairement un chapitre comme un "tome" (webtoons
+# et scans numerotes par chapitre), mais la DEDUPLICATION doit les distinguer :
+# "One Piece Chapitre 5" et "One Piece Tome 5" sont des contenus differents et
+# ne doivent pas s'ecraser l'un l'autre (cf. LibraryWidget._dedupe_by_series_volume).
+_CHAPTER_MARKER = re.compile(r"(?i)^(?:chapitre|chapter|chap|ch)")
+
+
+def _volume_kind(pattern, match) -> str:
+    """Nature du numero extrait, pour la deduplication : "chapter" (marqueur de
+    chapitre), "bare" (numero final sans marqueur, identite fragile) ou
+    "volume" (tome/vol/#, unite reliee habituelle)."""
+    if pattern is _TRAILING_NUMBER:
+        return "bare"
+    if pattern is _VOLUME_PATTERNS[0] and _CHAPTER_MARKER.match(match.group(0)):
+        return "chapter"
+    return "volume"
+
 # Mentions d'edition/format qui ne font pas partie du titre ("Intégrale
 # Deluxe", "Édition originale", "Perfect Edition", etc.) - retirees pour eviter
 # des cles de serie fragmentees et pour ne pas polluer la recherche de
@@ -121,6 +139,15 @@ def _clean_name(name: str) -> str:
 def parse_series(stem: str):
     """Retourne (nom_de_serie, numero_de_tome). numero_de_tome vaut None si
     aucun numero n'a pu etre extrait (le fichier est alors sa propre serie)."""
+    name, number, _ = parse_series_ex(stem)
+    return name, number
+
+
+def parse_series_ex(stem: str):
+    """Comme parse_series, mais renvoie aussi la NATURE du numero
+    (voir _volume_kind) : (nom_de_serie, numero, kind). `kind` vaut None quand
+    aucun numero n'est trouve. Utilise par la deduplication, qui doit
+    distinguer un chapitre d'un tome relie la ou le regroupement les confond."""
     # supprime un suffixe de doublon ajoute par l'OS/le navigateur lors d'un
     # second telechargement (ex. "fichier(1).cbz", "fichier (2).cbz") : ce
     # n'est jamais une partie du vrai titre, mais laisse tel quel il pollue
@@ -150,6 +177,7 @@ def parse_series(stem: str):
             # une resolution ("Edition 2020", "1920"), pas a un numero de tome
             if pattern is _TRAILING_NUMBER and number > 999:
                 continue
+            kind = _volume_kind(pattern, m)
             name = _clean_name(text[:m.start()] + text[m.end():])
             # le numero peut apparaitre deux fois ("Choujin X T07 - Tome 7") :
             # purge les marqueurs explicites redondants portant le meme numero
@@ -160,8 +188,8 @@ def parse_series(stem: str):
                     break
                 name = _clean_name(name[:m2.start()] + name[m2.end():])
             if name:
-                return name, number
-    return (candidates[0] if candidates else stem).strip(), None
+                return name, number, kind
+    return (candidates[0] if candidates else stem).strip(), None, None
 
 
 def normalize_name(name: str) -> str:

@@ -128,3 +128,45 @@ def test_flush_persists_debounced_writes(store, tmp_path):
     data = json.loads(prog_file.read_text(encoding="utf-8"))
     key = store.key_for(path)
     assert data[key]["page"] == 1
+
+
+def test_purge_orphan_caches_removes_stale_thumbnail(store, tmp_path):
+    """Purge une vignette dont le fichier source a disparu, et conserve celle
+    d'un fichier toujours present."""
+    kept = _make_manga(tmp_path, "kept.cbz", b"kept-content")
+    gone = _make_manga(tmp_path, "gone.cbz", b"gone-content")
+    kept_thumb = store.thumb_path(kept)
+    gone_thumb = store.thumb_path(gone)
+    kept_thumb.write_bytes(b"jpeg")
+    gone_thumb.write_bytes(b"jpeg")
+
+    store.purge_orphan_caches([kept])
+
+    assert kept_thumb.exists()
+    assert not gone_thumb.exists()
+
+
+def test_purge_orphan_caches_drops_stale_fingerprint(store, tmp_path):
+    """L'empreinte indexee par chemin d'un fichier disparu est retiree."""
+    kept = _make_manga(tmp_path, "kept.cbz", b"kept-content")
+    gone = _make_manga(tmp_path, "gone.cbz", b"gone-content")
+    store.key_for(kept)   # renseigne le cache d'empreintes
+    store.key_for(gone)
+    assert gone in store._fp
+
+    store.purge_orphan_caches([kept])
+
+    assert gone not in store._fp
+    assert kept in store._fp
+
+
+def test_purge_orphan_caches_keeps_progress(store, tmp_path):
+    """Garde-fou : la progression (indexee par contenu) n'est jamais purgee,
+    meme pour un fichier absent du scan (disque reseau deconnecte)."""
+    gone = _make_manga(tmp_path, "gone.cbz", b"gone-content")
+    store.set_progress(gone, 3, 10, False)
+    key = store.key_for(gone)
+
+    store.purge_orphan_caches([])   # aucun fichier present
+
+    assert store.progress.get(key, {}).get("page") == 3

@@ -28,7 +28,9 @@ exe = EXE(
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
-    upx=True,
+    # UPX desactive : la compression declenche frequemment des faux positifs
+    # antivirus sur les .exe PyInstaller, pour un gain de taille marginal.
+    upx=False,
     upx_exclude=[],
     runtime_tmpdir=None,
     console=False,          # app graphique : pas de fenetre console

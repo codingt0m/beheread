@@ -2,7 +2,7 @@
 
 Version actuelle : voir [`version.py`](version.py) (affichée aussi dans l'info-bulle du logo, en haut à gauche de la bibliothèque).
 
-Application de bureau pour Windows 10/11, 100% locale et hors-ligne, pour lire des mangas au format CBZ (archives ZIP), CBR (archives RAR) et EPUB (les EPUB étant eux-mêmes des archives ZIP, leurs images sont lues comme des pages de manga).
+Application de bureau pour Windows 10/11 pour lire des mangas au format CBZ (archives ZIP), CBR (archives RAR) et EPUB (les EPUB étant eux-mêmes des archives ZIP, leurs images sont lues comme des pages de manga). La lecture, la bibliothèque et toutes les données restent **100% locales** ; seul l'enrichissement automatique des métadonnées (auteur, date de sortie) interroge des API publiques en ligne — il transmet pour cela le nom de série déduit du nom de fichier, et l'application fonctionne normalement sans connexion (voir [Métadonnées](#métadonnées-auteur-date-de-sortie)).
 
 Stack : Python 3 + PySide6 (Qt). Choix motivé par la simplicité d'installation (un seul `pip install`), de bonnes performances d'affichage d'images (rendu natif Qt) et un support Windows solide.
 
