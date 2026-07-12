@@ -110,6 +110,25 @@ def test_single_volume_series_is_its_own_group(store):
     assert len(next(iter(groups.values()))) == 1
 
 
+def test_series_paths_gathers_all_volumes(store):
+    """Le menu contextuel d'un dossier de serie supprime TOUS ses tomes :
+    _series_paths doit rassembler tous les membres de la serie (regroupement
+    automatique), en excluant les tomes detaches et les autres series."""
+    lib = _FakeLibrary(store)
+    lib._entries = [
+        _entry("Berserk T01", "Berserk", 1),
+        _entry("berserk-02", "berserk", 2),
+        _entry("Berserk T03", "Berserk", 3),
+        _entry("One Piece T01", "One Piece", 1),
+    ]
+    lib._entries[2]["detached"] = True   # tome sorti de la serie : exclu
+    lib._group_entries = LibraryWidget._group_entries.__get__(lib)
+
+    paths = LibraryWidget._series_paths(lib, "berserk")
+
+    assert set(paths) == {"/x/Berserk T01.cbz", "/x/berserk-02.cbz"}
+
+
 def _progress(store, group):
     return LibraryWidget._series_progress(_FakeLibrary(store), group)
 
