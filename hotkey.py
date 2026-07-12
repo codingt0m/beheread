@@ -70,5 +70,5 @@ class GlobalHotkey(QAbstractNativeEventFilter):
             try:
                 self._user32.UnregisterHotKey(None, self._id)
             except Exception:
-                pass
+                logging.debug("Desenregistrement du raccourci global en echec", exc_info=True)
             self._registered = False

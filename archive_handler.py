@@ -26,6 +26,24 @@ from pathlib import Path
 IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp"}
 SUPPORTED_EXTS = {".cbz", ".cbr", ".zip", ".rar", ".epub"}
 
+# Garde-fou anti "bombe de decompression" : les archives proviennent de
+# sources non fiables (telechargements). Un membre de quelques Ko peut se
+# decompresser en plusieurs Go et epuiser la memoire. On refuse de lire une
+# page dont la taille DECOMPRESSEE annoncee depasse ce plafond (200 Mo : tres
+# au-dessus de toute page de scan legitime, meme en haute definition).
+MAX_PAGE_BYTES = 200 * 1024 * 1024
+
+# Meme logique pour ComicInfo.xml : un fichier de metadonnees legitime pese
+# quelques Ko. Au-dela, on ignore (evite de charger un XML piege en memoire).
+MAX_COMICINFO_BYTES = 4 * 1024 * 1024
+
+# Une declaration DOCTYPE est le prerequis des attaques XML classiques
+# (expansion d'entites facon "billion laughs", XXE). ComicInfo.xml n'en a
+# jamais besoin ; dans un XML bien forme, la sequence "<!DOCTYPE" ne peut
+# apparaitre que comme un vrai DOCTYPE dans le prologue. On rejette donc tout
+# document qui en contient (defense en profondeur, sans dependance externe).
+_DOCTYPE_RE = re.compile(rb"<!DOCTYPE", re.IGNORECASE)
+
 _rarfile = None
 _rar_error = None
 
@@ -134,9 +152,25 @@ class Archive:
     def __len__(self):
         return len(self.pages)
 
+    def _guard_size(self, name: str, limit: int):
+        """Refuse une entree dont la taille decompressee annoncee depasse
+        `limit` (garde-fou anti bombe de decompression). La taille est lue dans
+        l'en-tete de l'archive, sans rien decompresser."""
+        try:
+            info = self._ar.getinfo(name)
+            size = getattr(info, "file_size", 0) or 0
+        except Exception:
+            size = 0   # en-tete illisible : on laisse la lecture tenter sa chance
+        if size > limit:
+            raise ArchiveError(
+                f"Entree anormalement volumineuse ignoree ({size} octets) :\n"
+                f"{name}\ndans {self.path}")
+
     def read_page(self, index: int) -> bytes:
+        name = self.pages[index]
+        self._guard_size(name, MAX_PAGE_BYTES)
         with self._lock:
-            return self._ar.read(self.pages[index])
+            return self._ar.read(name)
 
     def read_first_page(self) -> bytes:
         return self.read_page(0)
@@ -155,8 +189,15 @@ class Archive:
         if target is None:
             return None
         try:
+            self._guard_size(target, MAX_COMICINFO_BYTES)
             with self._lock:
                 raw = self._ar.read(target)
+            if _DOCTYPE_RE.search(raw):
+                # DOCTYPE present : refus par principe (anti expansion d'entites
+                # / XXE). Un ComicInfo.xml legitime n'en contient jamais.
+                logging.warning("ComicInfo.xml avec DOCTYPE ignore (securite) dans %s",
+                                self.path)
+                return None
             root = ET.fromstring(raw)
         except Exception:
             # ComicInfo.xml present mais illisible/mal forme : la cascade de
@@ -214,7 +255,7 @@ class Archive:
         try:
             self._ar.close()
         except Exception:
-            pass
+            logging.debug("Fermeture d'archive en echec : %s", self.path, exc_info=True)
 
 
 def scan_folder(folder: str):

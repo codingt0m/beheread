@@ -209,6 +209,47 @@ class Store:
             self._fp[new_path] = entry
             self._schedule("fp")
 
+    # ------------------------------------------------------------ nettoyage des caches
+    def purge_orphan_caches(self, current_paths):
+        """Retire du disque les vignettes en cache et les empreintes indexees
+        par chemin qui ne correspondent plus a aucun fichier de la
+        bibliotheque. N'est appele qu'a la fin d'un vrai scan (pas au demarrage
+        offline) : `current_paths` reflete alors l'ensemble reel des fichiers.
+
+        Volontairement conservateur : on ne touche NI a la progression, NI aux
+        metadonnees, NI aux regroupements manuels (indexes par contenu). Un
+        fichier momentanement absent - disque reseau deconnecte, cle USB
+        retiree - ne doit pas perdre sa progression de lecture. Seuls des caches
+        regenerables (vignette) ou recalculables (empreinte par chemin) sont
+        purges."""
+        current_paths = {str(Path(p)) for p in current_paths}
+
+        # empreintes indexees par chemin : retire celles dont le chemin a disparu
+        stale = [p for p in self._fp if p not in current_paths]
+        if stale:
+            for p in stale:
+                self._fp.pop(p, None)
+            self._schedule("fp")
+
+        # vignettes : garde uniquement les fichiers attendus pour les tomes
+        # actuels (le nom encode l'empreinte de contenu + le facteur d'echelle)
+        try:
+            wanted = {self.thumb_path(p).name for p in current_paths}
+        except Exception:
+            logging.warning("Purge des vignettes ignoree (calcul des noms impossible)",
+                            exc_info=True)
+            return
+        try:
+            existing = list(self.thumb_dir.glob("*.jpg"))
+        except OSError:
+            return
+        for f in existing:
+            if f.name not in wanted:
+                try:
+                    f.unlink()
+                except OSError:
+                    logging.debug("Vignette orpheline non supprimee : %s", f, exc_info=True)
+
     # ------------------------------------------------------------ dossiers sources
     def folders(self):
         return list(self.settings.get("folders", []))

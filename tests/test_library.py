@@ -189,12 +189,25 @@ def test_featured_next_to_read_skips_gap(store, tmp_path):
 
 # ----- doublons "meme tome, releases differentes" (series.py + progression) -----
 
-def _entry_p(path, title, series, volume):
-    return {"path": path, "title": title, "series": series, "volume": volume, "added": 0}
+def _entry_p(path, title, series, volume, kind="volume"):
+    return {"path": path, "title": title, "series": series, "volume": volume,
+            "kind": kind, "added": 0}
 
 
 def _dedupe_sv(store, entries):
     return LibraryWidget._dedupe_by_series_volume(_FakeLibrary(store), entries)
+
+
+def test_chapter_and_volume_same_number_do_not_collapse(store, tmp_path):
+    """Un chapitre et un tome relie de meme numero sont des contenus distincts :
+    la deduplication ne doit pas en masquer un (regression : ils partageaient la
+    meme cle (serie, numero) et l'un disparaissait de la bibliotheque)."""
+    a = _make_manga(tmp_path, "One Piece Chapitre 5.cbz", b"chapitre-scan")
+    b = _make_manga(tmp_path, "One Piece Tome 5.cbz", b"tome-relie")
+    entries = [_entry_p(a, "One Piece Chapitre 5", "One Piece", 5, kind="chapter"),
+              _entry_p(b, "One Piece Tome 5", "One Piece", 5, kind="volume")]
+    result = _dedupe_sv(store, entries)
+    assert len(result) == 2
 
 
 def test_same_series_volume_different_files_collapse(store, tmp_path):

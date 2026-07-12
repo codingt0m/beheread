@@ -35,6 +35,28 @@ def test_parse_series_strips_leading_zeros():
     assert parse_series("Naruto Tome 007")[1] == 7
 
 
+@pytest.mark.parametrize("stem, expected_kind", [
+    ("Berserk Volume 42", "volume"),
+    ("Berserk_T42", "volume"),
+    ("Berserk #38", "volume"),
+    ("One Piece Chapitre 5", "chapter"),
+    ("One Piece chap 1001", "chapter"),
+    ("Berserk_ch0364", "chapter"),
+    ("Bleach 07", "bare"),          # numero final sans marqueur : identite fragile
+    ("Area 51", "bare"),
+    ("Akira", None),               # aucun numero
+])
+def test_parse_series_ex_reports_kind(stem, expected_kind):
+    """parse_series_ex expose la NATURE du numero (chapitre vs tome vs numero
+    nu), utilisee par la deduplication pour ne pas fusionner des contenus
+    distincts de meme numero. Le couple (nom, numero) reste identique a
+    parse_series."""
+    from series import parse_series_ex
+    name, number, kind = parse_series_ex(stem)
+    assert (name, number) == parse_series(stem)
+    assert kind == expected_kind
+
+
 @pytest.mark.parametrize("stem, expected_name, expected_vol", [
     # tags de release (team, edition, qualite) : varient d'une release a
     # l'autre et doivent disparaitre du nom de serie extrait
