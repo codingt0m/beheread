@@ -59,6 +59,60 @@ def test_duplicate_across_two_source_folders(store, tmp_path):
     assert len(_dedupe(store, [a, b])) == 1
 
 
+# ---------------------------------------------------------- fichiers cloud
+
+def test_scan_worker_excludes_cloud_placeholders(store, tmp_path, monkeypatch):
+    """Les espaces reserves cloud (iCloud/OneDrive non telecharges) doivent
+    etre ecartes du scan SANS etre lus (leur lecture forcerait un
+    telechargement bloquant) et renvoyes a part pour la file de
+    telechargement en arriere-plan."""
+    import lib_workers
+    from lib_workers import ScanWorker
+
+    folder = tmp_path / "src"
+    folder.mkdir()
+    local = _make_manga(folder, "local.cbz", b"contenu-local")
+    cloud = _make_manga(folder, "cloud.cbz", b"contenu-cloud")
+    monkeypatch.setattr(lib_workers, "is_cloud_placeholder",
+                        lambda p: str(p).endswith("cloud.cbz"))
+
+    results = []
+    worker = ScanWorker(store, [str(folder)])
+    worker.signals.done.connect(lambda paths, cloud_paths:
+                                results.append((paths, cloud_paths)))
+    worker.run()
+
+    (paths, cloud_paths), = results
+    assert paths == [local]
+    assert cloud_paths == [cloud]
+
+
+def test_hydrate_worker_reads_whole_file_and_reports_success(tmp_path):
+    """Le HydrateWorker lit le fichier en entier (c'est ce qui force le
+    fournisseur cloud a le telecharger) et signale le succes."""
+    from lib_workers import HydrateWorker
+
+    path = _make_manga(tmp_path, "cloud.cbz", b"contenu-a-hydrater")
+    results = []
+    worker = HydrateWorker(path)
+    worker.signals.done.connect(lambda p, ok: results.append((p, ok)))
+    worker.run()
+    assert results == [(path, True)]
+
+
+def test_hydrate_worker_reports_failure_on_missing_file(tmp_path):
+    """Fichier disparu / telechargement impossible : echec signale, sans
+    exception (le tome restera simplement absent cette session)."""
+    from lib_workers import HydrateWorker
+
+    path = str(tmp_path / "absent.cbz")
+    results = []
+    worker = HydrateWorker(path)
+    worker.signals.done.connect(lambda p, ok: results.append((p, ok)))
+    worker.run()
+    assert results == [(path, False)]
+
+
 def test_representative_choice_is_stable_across_refreshes(store, tmp_path):
     """Le meme fichier doit rester le representant affiche d'un
     rafraichissement a l'autre (pas de "saut" arbitraire dans la liste)."""

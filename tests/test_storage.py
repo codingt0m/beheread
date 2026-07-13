@@ -70,6 +70,47 @@ def test_legacy_path_keyed_progress_migrates(store, tmp_path):
     assert key.startswith("c1:")
 
 
+def test_key_for_cloud_placeholder_never_reads_content(store, tmp_path, monkeypatch):
+    """Un fichier cloud non telecharge (iCloud/OneDrive) ne doit JAMAIS etre
+    lu : la moindre lecture declencherait son telechargement complet et
+    bloquant. key_for doit se replier sur le chemin sans ouvrir le fichier."""
+    path = _make_manga(tmp_path, "cloud.cbz")
+    monkeypatch.setattr(storage, "is_cloud_placeholder", lambda p: True)
+
+    def _forbidden(p):
+        raise AssertionError("le contenu d'un espace reserve cloud a ete lu")
+    monkeypatch.setattr(storage, "_compute_fingerprint", _forbidden)
+
+    assert store.key_for(path) == path
+    # le repli n'est pas memorise : une fois le fichier en local, l'empreinte
+    # reelle doit etre calculee
+    assert path not in store._fp
+
+
+def test_placeholder_progress_migrates_once_downloaded(store, tmp_path, monkeypatch):
+    """La progression enregistree pendant que le fichier etait un espace
+    reserve cloud (cle = chemin) doit etre retrouvee et reindexee par contenu
+    une fois le fichier telecharge en local (meme mecanisme que la migration
+    des entrees heritees)."""
+    path = _make_manga(tmp_path, "cloud.cbz")
+    monkeypatch.setattr(storage, "is_cloud_placeholder", lambda p: True)
+    store.set_progress(path, 3, 10, False)
+    assert path in store.progress   # indexee par chemin tant que non local
+
+    monkeypatch.setattr(storage, "is_cloud_placeholder", lambda p: False)
+    assert store.get_progress(path) == (3, 10, False)
+    assert path not in store.progress
+    assert store.key_for(path).startswith("c1:")
+
+
+def test_is_cloud_placeholder_false_for_regular_file(store, tmp_path):
+    """Un fichier ordinaire present sur le disque n'est pas un espace reserve
+    (et un chemin inexistant non plus : pas de faux positif bloquant)."""
+    path = _make_manga(tmp_path, "local.cbz")
+    assert storage.is_cloud_placeholder(path) is False
+    assert storage.is_cloud_placeholder(str(tmp_path / "absent.cbz")) is False
+
+
 def test_reader_offset(store, tmp_path):
     path = _make_manga(tmp_path, "a.cbz")
     assert store.get_reader_offset(path) == 0
