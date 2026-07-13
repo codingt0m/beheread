@@ -12,7 +12,7 @@ from PySide6.QtGui import QImage
 import metadata
 from archive_handler import Archive, scan_folder
 from lib_constants import THUMB_H, THUMB_SCALE, THUMB_W
-from storage import Store
+from storage import Store, is_cloud_placeholder
 
 
 class _ThumbSignals(QObject):
@@ -103,7 +103,8 @@ class SeriesMetaWorker(QRunnable):
 
 
 class _ScanSignals(QObject):
-    done = Signal(list)   # liste des chemins scannes et dedupliques par contenu
+    # chemins locaux (dedupliques par contenu), chemins cloud non telecharges
+    done = Signal(list, list)
 
 
 class ScanWorker(QRunnable):
@@ -112,7 +113,13 @@ class ScanWorker(QRunnable):
     bibliotheque, ce travail (rglob + lecture de 64 Ko par fichier nouveau)
     prend plusieurs secondes et figerait l'interface s'il tournait sur l'UI.
     Le calcul des empreintes remplit au passage le cache de la Store, si bien
-    que la finalisation cote UI (parse des noms, overrides) reste instantanee."""
+    que la finalisation cote UI (parse des noms, overrides) reste instantanee.
+
+    Les fichiers cloud non telecharges (iCloud Drive/OneDrive) sont ecartes du
+    resultat SANS etre lus (lire un seul octet forcerait leur telechargement
+    complet) et renvoyes a part : la bibliotheque les met en file de
+    telechargement en arriere-plan, et ils apparaitront au rescan suivant une
+    fois leur contenu en local."""
 
     def __init__(self, store: Store, folders):
         super().__init__()
@@ -123,6 +130,7 @@ class ScanWorker(QRunnable):
     def run(self):
         seen = set()
         paths = []
+        cloud = []
         for folder in self.folders:
             try:
                 found = scan_folder(folder)
@@ -130,8 +138,12 @@ class ScanWorker(QRunnable):
                 logging.warning("Scan impossible du dossier %s", folder, exc_info=True)
                 found = []
             for p in found:
-                if p not in seen:
-                    seen.add(p)
+                if p in seen:
+                    continue
+                seen.add(p)
+                if is_cloud_placeholder(p):
+                    cloud.append(p)
+                else:
                     paths.append(p)
         # deduplication par contenu (remplit le cache d'empreintes de la Store)
         kept = {}
@@ -144,7 +156,39 @@ class ScanWorker(QRunnable):
             if key not in kept:
                 kept[key] = p
                 result.append(p)
-        self.signals.done.emit(result)
+        self.signals.done.emit(result, cloud)
+
+
+class _HydrateSignals(QObject):
+    done = Signal(str, bool)     # chemin, succes
+
+
+class HydrateWorker(QRunnable):
+    """Force le telechargement d'un fichier cloud (iCloud Drive/OneDrive) en
+    le lisant en entier par blocs, hors du thread UI : le fournisseur cloud
+    hydrate le fichier au fil de la lecture. Le contenu lu est jete - seul
+    l'effet de bord (fichier desormais present en local) nous interesse."""
+
+    CHUNK = 1024 * 1024
+
+    def __init__(self, path: str):
+        super().__init__()
+        self.path = path
+        self.signals = _HydrateSignals()
+
+    def run(self):
+        ok = False
+        try:
+            with open(self.path, "rb") as f:
+                while f.read(self.CHUNK):
+                    pass
+            ok = True
+        except OSError:
+            # hors ligne, quota iCloud, fichier disparu... : non bloquant, le
+            # tome restera simplement absent de la bibliotheque cette session
+            logging.warning("Telechargement cloud impossible pour %s",
+                            self.path, exc_info=True)
+        self.signals.done.emit(self.path, ok)
 
 
 # ---------------------------------------------------------- gestion des dossiers

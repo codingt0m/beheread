@@ -35,7 +35,9 @@ from lib_constants import (GRID_GAP, ROLE_AUTHOR_TEXT,
 from lib_delegates import ListDelegate, MangaDelegate
 from lib_dialogs import FolderManagerDialog
 from version import __version__
-from lib_workers import (MetaWorker, ScanWorker, SeriesMetaWorker, ThumbWorker)
+from lib_workers import (HydrateWorker, MetaWorker, ScanWorker,
+                         SeriesMetaWorker, ThumbWorker)
+from storage import is_cloud_placeholder
 import icons
 
 
@@ -220,6 +222,17 @@ class LibraryWidget(QWidget):
         self._scanning = False
         self._scan_again = False
         self._scan_worker = None
+
+        # telechargement en arriere-plan des tomes cloud non presents en local
+        # (iCloud Drive/OneDrive) : pool dedie et limite pour ne pas saturer le
+        # reseau ni monopoliser les threads des vignettes. Les tomes concernes
+        # sont absents de la bibliotheque tant qu'ils ne sont pas en local, et
+        # apparaissent au rescan declenche a la fin de chaque telechargement.
+        self.hydrate_pool = QThreadPool()
+        self.hydrate_pool.setMaxThreadCount(2)
+        self._hydrate_workers = {}          # path -> worker en vol
+        self._hydrate_pending = set()
+        self._hydrate_failed_session = set()   # echecs : pas retente avant redemarrage
 
         self._search_text = ""
         self._group_series = bool(store.library_pref("group_series", False))
@@ -653,19 +666,45 @@ class LibraryWidget(QWidget):
         self._scan_worker = worker   # garde une reference (sinon GC)
         self.pool.start(worker)
 
-    def _on_scan_done(self, paths):
+    def _on_scan_done(self, paths, cloud_paths):
         self._scanning = False
         self._scan_worker = None
-        self._apply_scan_results(paths)
+        self._apply_scan_results(paths, cloud_paths)
+        # tomes cloud non telecharges : mis en file de telechargement en
+        # arriere-plan, ils apparaitront dans la bibliotheque une fois en local
+        self._queue_hydration(cloud_paths)
         # une demande de rescan est arrivee pendant celui-ci : on la traite
         if self._scan_again:
             self.refresh()
 
-    def _apply_scan_results(self, paths):
+    # ----- telechargement des tomes cloud (iCloud Drive / OneDrive) -----
+    def _queue_hydration(self, cloud_paths):
+        for p in cloud_paths:
+            if p in self._hydrate_pending or p in self._hydrate_failed_session:
+                continue
+            self._hydrate_pending.add(p)
+            worker = HydrateWorker(p)
+            worker.signals.done.connect(self._on_hydrated)
+            self._hydrate_workers[p] = worker   # garde une reference (sinon GC)
+            self.hydrate_pool.start(worker)
+
+    def _on_hydrated(self, path, ok):
+        self._hydrate_pending.discard(path)
+        self._hydrate_workers.pop(path, None)
+        if ok:
+            # fichier desormais en local : un rescan (debounce, coalesce
+            # plusieurs telechargements termines) le fera apparaitre
+            self._watch_timer.start()
+        else:
+            self._hydrate_failed_session.add(path)
+
+    def _apply_scan_results(self, paths, cloud_paths=()):
         """Finalise un scan (cote UI) : construit les entrees a partir des
         chemins dedupliques, persiste l'index, met a jour la surveillance et
         reconstruit la liste. Les empreintes ayant deja ete calculees par le
-        worker, key_for/series_override ne touchent ici que le cache."""
+        worker, key_for/series_override ne touchent ici que le cache.
+        `cloud_paths` : tomes presents mais non telecharges (espaces reserves
+        cloud), exclus de l'affichage mais proteges de la purge des caches."""
         added = self.store.ensure_added(paths)
         entries = []
         for p in paths:
@@ -689,9 +728,11 @@ class LibraryWidget(QWidget):
         # supprimes ou sortis des dossiers sources depuis le dernier scan). Base
         # sur `paths` (tous les contenus distincts presents), pas sur `entries`
         # (deja fusionnees par serie/tome), pour ne pas purger le cache d'une
-        # release deduplifiee mais toujours sur le disque.
+        # release deduplifiee mais toujours sur le disque. Les tomes repasses
+        # en espace reserve cloud ("Liberer de l'espace") sont toujours la :
+        # leurs empreintes/vignettes ne doivent pas etre purgees non plus.
         try:
-            self.store.purge_orphan_caches(paths)
+            self.store.purge_orphan_caches(list(paths) + list(cloud_paths))
         except Exception:
             logging.warning("Purge des caches orphelins en echec", exc_info=True)
         self._update_watches()
@@ -705,10 +746,17 @@ class LibraryWidget(QWidget):
         """Affiche immediatement le dernier instantane connu de la bibliotheque
         (offline-first) : la fenetre est consultable des le demarrage, sans
         attendre le scan disque (qui reconcilie ensuite en arriere-plan). Les
-        fichiers disparus depuis seront retires a la fin du scan."""
+        fichiers disparus depuis seront retires a la fin du scan.
+
+        Les tomes redevenus de simples espaces reserves cloud depuis le dernier
+        scan ("Liberer de l'espace" iCloud/OneDrive) sont ecartes : les afficher
+        declencherait la lecture de leur contenu (vignette, empreinte) et donc
+        un telechargement bloquant. Le scan qui suit les remettra en file de
+        telechargement en arriere-plan."""
         index = self.store.load_library_index()
         entries = [e for e in index
-                   if isinstance(e, dict) and e.get("path") and "title" in e]
+                   if isinstance(e, dict) and e.get("path") and "title" in e
+                   and not is_cloud_placeholder(e["path"])]
         if entries:
             self._set_entries(entries)
             self._rebuild_list()

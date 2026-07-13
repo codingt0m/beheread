@@ -33,6 +33,31 @@ from lib_constants import THUMB_SCALE
 SAVE_DELAY = 0.6          # secondes d'inactivite avant une ecriture differee
 FP_HEAD = 65536           # octets de tete lus pour l'empreinte de contenu
 
+# Attributs Windows des fichiers "cloud" (iCloud Drive, OneDrive) dont le
+# contenu n'est PAS present sur le disque : le fichier n'est qu'un espace
+# reserve, et la moindre lecture (meme 1 octet) declenche son telechargement
+# complet et bloquant par le fournisseur cloud. On doit donc les detecter
+# AVANT toute ouverture (os.stat suffit et ne declenche rien).
+_FILE_ATTRIBUTE_OFFLINE = 0x00001000
+_FILE_ATTRIBUTE_RECALL_ON_OPEN = 0x00040000
+_FILE_ATTRIBUTE_RECALL_ON_DATA_ACCESS = 0x00400000
+_CLOUD_PLACEHOLDER_ATTRS = (_FILE_ATTRIBUTE_OFFLINE
+                            | _FILE_ATTRIBUTE_RECALL_ON_OPEN
+                            | _FILE_ATTRIBUTE_RECALL_ON_DATA_ACCESS)
+
+
+def is_cloud_placeholder(path) -> bool:
+    """True si le fichier est un espace reserve cloud non telecharge (iCloud
+    Drive / OneDrive "libere de l'espace") : son contenu n'est pas en local et
+    l'ouvrir forcerait un telechargement bloquant. Base uniquement sur les
+    attributs retournes par os.stat, sans jamais ouvrir le fichier."""
+    try:
+        st = os.stat(path)
+    except OSError:
+        return False
+    attrs = getattr(st, "st_file_attributes", 0)   # absent hors Windows
+    return bool(attrs & _CLOUD_PLACEHOLDER_ATTRS)
+
 
 def data_dir() -> Path:
     if sys.platform == "win32":
@@ -189,6 +214,13 @@ class Store:
         cached = self._fp.get(path)
         if cached and cached.get("m") == st.st_mtime_ns and cached.get("s") == st.st_size:
             return cached["k"]
+        # fichier cloud non telecharge : lire son contenu declencherait un
+        # telechargement complet et bloquant. Repli temporaire sur le chemin
+        # (non memorise) ; l'empreinte reelle sera calculee une fois le fichier
+        # en local, et les caches indexes par chemin migreront a ce moment-la
+        # (meme mecanisme que les entrees heritees, cf. _progress_entry).
+        if is_cloud_placeholder(path):
+            return path
         try:
             key = _compute_fingerprint(path)
         except OSError:
