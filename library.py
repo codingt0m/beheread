@@ -722,8 +722,15 @@ class LibraryWidget(QWidget):
                             "volume": svolume, "kind": skind,
                             "added": added.get(p, 0), "detached": detached})
         entries = self._dedupe_by_series_volume(entries)
-        self._set_entries(entries)
-        self.store.save_library_index(entries)
+        # Ne reconstruit la liste QUE si le contenu a change. Pendant le
+        # telechargement des tomes cloud, chaque bloc ecrit sur le disque
+        # reveille la surveillance des dossiers, qui relance un scan : sans ce
+        # garde, la grille entiere etait videe et re-remplie a chaque scan
+        # (clignotement permanent) alors que rien de visible n'avait change.
+        changed = entries != self._entries
+        if changed:
+            self._set_entries(entries)
+            self.store.save_library_index(entries)
         # scan reel termine : purge les vignettes/empreintes orphelines (fichiers
         # supprimes ou sortis des dossiers sources depuis le dernier scan). Base
         # sur `paths` (tous les contenus distincts presents), pas sur `entries`
@@ -736,7 +743,15 @@ class LibraryWidget(QWidget):
         except Exception:
             logging.warning("Purge des caches orphelins en echec", exc_info=True)
         self._update_watches()
-        self._rebuild_list()
+        if changed:
+            # rafraichissement d'arriere-plan : on conserve la position de
+            # defilement (l'utilisateur est peut-etre en train de parcourir la
+            # grille pendant qu'un tome telecharge apparait)
+            sb = self.list.verticalScrollBar()
+            pos = sb.value()
+            self._rebuild_list()
+            self.list.doItemsLayout()   # force le calcul de la plage de defilement
+            sb.setValue(pos)
 
     def _set_entries(self, entries):
         self._entries = entries
@@ -772,9 +787,6 @@ class LibraryWidget(QWidget):
         l'arborescence, avec un plafond pour ne pas saturer sur des racines
         gigantesques."""
         try:
-            current = self._watcher.directories()
-            if current:
-                self._watcher.removePaths(current)
             dirs = []
             seen = set()
             for folder in self.store.folders():
@@ -788,6 +800,14 @@ class LibraryWidget(QWidget):
                         break
                 if len(dirs) >= 2000:
                     break
+            # deja a jour : ne pas desinstaller/reinstaller la surveillance
+            # (appele apres CHAQUE scan, y compris ceux declenches en rafale
+            # pendant le telechargement des tomes cloud)
+            current = self._watcher.directories()
+            if set(dirs) == set(current):
+                return
+            if current:
+                self._watcher.removePaths(current)
             if dirs:
                 self._watcher.addPaths(dirs)
         except Exception:
