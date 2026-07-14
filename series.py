@@ -21,19 +21,33 @@ def _remove_accents(text: str) -> str:
 # Marqueurs explicites de tome, du plus specifique au plus generique.
 # Le separateur entre le marqueur et le numero peut etre un espace, un point,
 # un tiret ou un underscore (ex. "Volume 12", "vol.45", "volume-11").
-_TRAILING_NUMBER = re.compile(r"(?:^|[\s\-_])0*(\d+)\s*$")
+# Le numero accepte une partie decimale ("ch385.5", chapitres bonus) : sans
+# elle, ".5" resterait dans le nom de serie et casserait le regroupement.
+# Marqueurs couverts : francais (tome, chapitre, n°), anglais (volume,
+# chapter, episode), espagnol (tomo) et abreviations scene (t, v, ch, ep, #).
+# "v" et "t" n'exigent pas de separateur mais exigent un chiffre juste apres
+# (modulo separateurs), donc "Vinland Saga" ou "Choujin X" ne matchent pas.
+_TRAILING_NUMBER = re.compile(r"(?:^|[\s\-_.])0*(\d+(?:\.\d+)?)\s*$")
 _VOLUME_PATTERNS = [
-    re.compile(r"(?i)\b(?:tome|vol(?:ume)?|chapitre|chap|ch|t)[\s\-_.]*0*(\d+)\b"),
-    re.compile(r"#[\s\-_]*0*(\d+)\b"),
+    re.compile(r"(?i)\b(?:tome|tomo|vol(?:ume)?|chapitre|chapter|chap|ch|"
+               r"ep(?:isode)?|t|v|n[°º])[\s\-_.]*0*(\d+(?:\.\d+)?)\b"),
+    re.compile(r"#[\s\-_]*0*(\d+(?:\.\d+)?)\b"),
     _TRAILING_NUMBER,   # numero final sans marqueur explicite
 ]
+
+
+def _to_number(text: str):
+    """Numero extrait par les regex ci-dessus : int en regle generale, float
+    pour les chapitres decimaux ("385.5")."""
+    return float(text) if "." in text else int(text)
 
 # Marqueurs de CHAPITRE (unite plus fine qu'un tome relie). Le regroupement et
 # l'enchainement traitent volontairement un chapitre comme un "tome" (webtoons
 # et scans numerotes par chapitre), mais la DEDUPLICATION doit les distinguer :
 # "One Piece Chapitre 5" et "One Piece Tome 5" sont des contenus differents et
 # ne doivent pas s'ecraser l'un l'autre (cf. LibraryWidget._dedupe_by_series_volume).
-_CHAPTER_MARKER = re.compile(r"(?i)^(?:chapitre|chapter|chap|ch)")
+# "episode" (webtoons) est une unite de type chapitre, pas un tome relie.
+_CHAPTER_MARKER = re.compile(r"(?i)^(?:chapitre|chapter|chap|ch|ep(?:isode)?)")
 
 
 def _volume_kind(pattern, match) -> str:
@@ -75,11 +89,21 @@ _EDITION_TERMS = re.compile(
     r"anniversaire|prestige|definitive|reedition)\b")
 
 # Mentions de langue accolees au titre (frequentes sur les EPUB/scans
-# multi-langues, ex. "Chainsaw Man T01 French") : ne font pas partie du titre
-# et doivent disparaitre pour que les tomes d'une meme serie se regroupent
-# quelle que soit la langue de l'edition qui les a fournis.
+# multi-langues, ex. "Chainsaw Man T01 French", "Berserk Chapitre 386 ENG") :
+# ne font pas partie du titre et doivent disparaitre pour que les tomes d'une
+# meme serie se regroupent quelle que soit la langue de l'edition.
+# Couvre les noms complets ET les codes courts scene (ENG, FR, JAP...).
+# Volontairement absents car ce sont des mots frequents de vrais titres :
+# "en", "de", "it", "es", "us" (prepositions/pronoms francais ou anglais).
 _LANGUAGE_TERMS = re.compile(
-    r"(?i)\b(?:french|francais|anglais|english|vf|vo|vostfr)\b")
+    r"(?i)\b(?:"
+    r"french|francais|anglais|english|espagnol|spanish|italien|italian|"
+    r"allemand|german|japonais|japanese|portugais|portuguese|russe|russian|"
+    r"coreen|korean|chinois|chinese|"
+    r"vf|vo|vostfr|vosta|multi|bilingue|bilingual|"
+    r"fra|fre|fr|eng|jap|jpn|jp|esp|spa|ita|ger|deu|rus|kor|por|"
+    r"scans?|scantrad"
+    r")\b")
 _EDITION_PATTERNS = (_EDITION_PHRASE, _EDITION_TERMS, _LANGUAGE_TERMS)
 
 
@@ -164,15 +188,20 @@ def parse_series_ex(stem: str):
     # release, puis dans la version brute en repli : un titre entierement
     # entre crochets (ex. "[Oshi no Ko] T03") ne doit pas etre vide apres
     # nettoyage, et un numero peut se cacher dans un groupe legitime.
+    # Repli intermediaire : version aussi debarrassee des mentions d'edition/
+    # langue NON parenthesees ("Berserk 386 ENG", "Bleach 07 VF") - sans
+    # marqueur explicite, le numero n'est reconnu qu'en toute fin de nom, et
+    # un code de langue final le masquait completement.
     bare = _strip_release_junk(work)
-    candidates = [c for c in dict.fromkeys((bare, work)) if c]
+    plain = re.sub(r"\s{2,}", " ", _strip_edition_terms(bare)).strip(" -_.")
+    candidates = [c for c in dict.fromkeys((bare, plain, work)) if c]
 
     for text in candidates:
         for pattern in _VOLUME_PATTERNS:
             m = pattern.search(text)
             if not m:
                 continue
-            number = int(m.group(1))
+            number = _to_number(m.group(1))
             # un numero final a 4 chiffres et plus ressemble a une annee ou a
             # une resolution ("Edition 2020", "1920"), pas a un numero de tome
             if pattern is _TRAILING_NUMBER and number > 999:
@@ -184,7 +213,7 @@ def parse_series_ex(stem: str):
             # (jamais les numeros nus : "Area 51" doit rester intact)
             while name:
                 m2 = _VOLUME_PATTERNS[0].search(name) or _VOLUME_PATTERNS[1].search(name)
-                if not m2 or int(m2.group(1)) != number:
+                if not m2 or _to_number(m2.group(1)) != number:
                     break
                 name = _clean_name(name[:m2.start()] + name[m2.end():])
             if name:
@@ -194,9 +223,10 @@ def parse_series_ex(stem: str):
 
 def normalize_name(name: str) -> str:
     """Normalise un nom de serie pour la comparaison : insensible a la
-    casse, aux tirets/underscores utilises comme espaces (frequents dans les
-    noms de fichiers type "gloutons-dragons") et a la ponctuation (ex. "&")."""
-    s = name.casefold()
+    casse, aux accents ("Pokémon" vs "Pokemon"), aux tirets/underscores
+    utilises comme espaces (frequents dans les noms de fichiers type
+    "gloutons-dragons") et a la ponctuation (ex. "&")."""
+    s = _remove_accents(name).casefold()
     s = re.sub(r"[\-_]+", " ", s)
     s = re.sub(r"[^\w\s]", " ", s, flags=re.UNICODE)
     s = re.sub(r"\s+", " ", s).strip()

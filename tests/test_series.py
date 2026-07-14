@@ -110,6 +110,26 @@ def test_parse_series_ex_reports_kind(stem, expected_kind):
     ("Chainsaw_Man_T01_French", "Chainsaw Man", 1),
     ("One Piece Tome 5 VF", "One Piece", 5),
     ("Naruto T02 VOSTFR", "Naruto", 2),
+    # codes de langue courts (scene) apres le numero : cas reel "Berserk
+    # Chapitre 386 ENG" qui creait une serie "Berserk ENG" distincte
+    ("Berserk Chapitre 386 ENG", "Berserk", 386),
+    ("Berserk Chapter 387 ENG", "Berserk", 387),   # marqueur anglais complet
+    ("One Piece Tome 5 FR", "One Piece", 5),
+    # numero SANS marqueur masque par un code de langue final : le numero
+    # n'est reconnu qu'en fin de nom, la mention doit etre retiree avant
+    ("Berserk 386 ENG", "Berserk", 386),
+    ("Bleach 07 VF", "Bleach", 7),
+    # marqueurs scene supplementaires : "v01", points comme separateurs, "n°"
+    ("Naruto v01", "Naruto", 1),
+    ("Bakuman v.05", "Bakuman", 5),
+    ("Berserk.v01.FR", "Berserk", 1),
+    ("Lucky Luke n°12", "Lucky Luke", 12),
+    ("Solo Leveling Episode 110", "Solo Leveling", 110),
+    # chapitre decimal (chapitres bonus) : le ".5" ne doit pas polluer le nom
+    ("Berserk ch385.5", "Berserk", 385.5),
+    # titres commencant par "Ch"/"V" : jamais confondus avec un marqueur
+    ("Choujin X T06", "Choujin X", 6),
+    ("Vinland Saga 12", "Vinland Saga", 12),
 ])
 def test_parse_series_release_junk(stem, expected_name, expected_vol):
     name, vol = parse_series(stem)
@@ -140,11 +160,26 @@ def test_language_tag_does_not_split_series():
     assert series_key("Chainsaw_Man_T01_French") == series_key("Chainsaw Man 12")
 
 
+def test_language_code_after_chapter_groups_with_series():
+    """Cas reel : "Berserk Chapitre 386 ENG" doit rejoindre la serie Berserk
+    au meme titre que les releases FR bracketees et les tomes relies."""
+    from series import series_key
+    variants = [
+        "Berserk T01 (Miura) (2004) [Digital-1699] [Manga FR] (PapriKa+)",
+        "Berserk_ch0385[FR][FMTEAM]",
+        "Berserk Chapitre 386 ENG",
+        "Berserk Chapter 387 ENG",
+        "Berserk 388 FR",
+    ]
+    assert {series_key(v) for v in variants} == {"berserk"}
+
+
 @pytest.mark.parametrize("a, b", [
     ("Gloutons & Dragons", "gloutons-dragons"),
     ("One_Piece", "one piece"),
     ("  Naruto  ", "naruto"),
     ("L'Attaque des Titans", "l attaque des titans"),
+    ("Pokémon", "pokemon"),   # accents replies pour la comparaison
 ])
 def test_normalize_name_equivalence(a, b):
     assert normalize_name(a) == normalize_name(b)
