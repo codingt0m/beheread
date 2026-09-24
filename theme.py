@@ -15,7 +15,7 @@ DARK = {
     "button": "#262a32",
     "button_hover": "#333844",
     "hud_bg": "rgba(15, 17, 22, 190)",
-    "reader_bg": "#101216",
+    "reader_bg": "#000000",
     "list_bg": "#1b1e24",
     "cover_placeholder": "#2b2f36",
     "cover_text": "#6c7380",
