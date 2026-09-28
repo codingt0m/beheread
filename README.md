@@ -1,30 +1,29 @@
 # Beheread
 
-Version actuelle : voir [`version.py`](version.py) (affichée aussi dans l'info-bulle du logo, en haut à gauche de la bibliothèque).
+Version actuelle : voir [`beheread/version.py`](beheread/version.py) (affichée aussi dans l'info-bulle du logo, en haut à gauche de la bibliothèque).
 
-Application de bureau pour Windows 10/11 pour lire des mangas au format CBZ (archives ZIP), CBR (archives RAR) et EPUB (les EPUB étant eux-mêmes des archives ZIP, leurs images sont lues comme des pages de manga). La lecture, la bibliothèque et toutes les données restent **100% locales** ; seul l'enrichissement automatique des métadonnées (auteur, date de sortie) interroge des API publiques en ligne — il transmet pour cela le nom de série déduit du nom de fichier, et l'application fonctionne normalement sans connexion (voir [Métadonnées](#métadonnées-auteur-date-de-sortie)).
+Application de bureau pour Windows 10/11 pour lire des mangas au format CBZ (archives ZIP), CBR (archives RAR), EPUB (les EPUB étant eux-mêmes des archives ZIP, leurs images sont lues comme des pages de manga) et PDF (pages rendues à la demande). La lecture, la bibliothèque et toutes les données restent **locales**. Deux fonctions optionnelles, désactivées tant que vous ne les activez pas, utilisent le réseau : l'enrichissement des métadonnées (auteur, date de sortie ; voir [Métadonnées](#métadonnées-auteur-date-de-sortie)) et le suivi de lecture AniList. L'application fonctionne normalement sans connexion.
 
 Stack : Python 3 + PySide6 (Qt). Choix motivé par la simplicité d'installation (un seul `pip install`), de bonnes performances d'affichage d'images (rendu natif Qt) et un support Windows solide.
 
 ## Installation
 
-1. Installer Python 3.10 ou plus récent depuis https://www.python.org/downloads/
-   Pendant l'installation, cocher la case "Add Python to PATH".
+**Pour lire** : lancer `Beheread-Setup-<version>.exe` (produit par `build.bat`, voir plus bas). L'installation se fait pour l'utilisateur courant, **sans droits administrateur** : dans `%LOCALAPPDATA%\Programs\Beheread`, avec un raccourci dans le menu Démarrer et, si l'option est cochée, l'ouverture des fichiers CBZ, CBR et EPUB par Beheread (Beheread est aussi proposé dans « Ouvrir avec » pour les PDF, sans devenir leur lecteur par défaut). Une désinstallation classique (Paramètres Windows > Applications) retire l'application et ses associations ; vos données de lecture sont conservées.
 
-2. Ouvrir un terminal (touche Windows, taper "cmd", Entrée), se placer dans le dossier de l'application, puis installer les dépendances :
+**Pour développer** : installer Python 3.10 ou plus récent (https://www.python.org/downloads/, case "Add Python to PATH" cochée), puis dans le dossier du projet :
 
 ```
-cd chemin\vers\manga-reader
-pip install -r requirements.txt
+pip install -r requirements.txt          # utilisation
+pip install -r requirements-dev.txt      # + tests, construction de l'exe
 ```
 
-Cela installe PySide6 (interface graphique) et rarfile (lecture des RAR).
+Cela installe PySide6 (interface graphique ; son module QtPdf assure la lecture des PDF), rarfile (lecture des RAR) et send2trash (corbeille).
 
 ## Support CBR (obligatoire uniquement pour les vrais fichiers RAR)
 
 Les CBZ fonctionnent sans rien d'autre. Pour les CBR, la bibliothèque `rarfile` a besoin d'un outil de décompression externe. Trois options, une seule suffit :
 
-* Option A (recommandée) : télécharger "UnRAR for Windows" sur https://www.rarlab.com/rar_add.htm et copier le fichier `UnRAR.exe` dans le même dossier que `main.py`. L'application le détecte automatiquement.
+* Option A (recommandée) : télécharger "UnRAR for Windows" sur https://www.rarlab.com/rar_add.htm et copier le fichier `UnRAR.exe` dans le dossier de Beheread (celui de `Beheread.exe` une fois installé, la racine du projet en développement). L'application le détecte automatiquement.
 * Option B : si WinRAR est déjà installé, rien à faire dans la plupart des cas. L'application cherche `UnRAR.exe` dans `C:\Program Files\WinRAR`.
 * Option C : installer 7-Zip (https://www.7-zip.org) et ajouter son dossier (`C:\Program Files\7-Zip`) à la variable d'environnement PATH. `rarfile` sait utiliser `7z.exe` comme moteur de décompression.
 
@@ -32,45 +31,46 @@ Note : beaucoup de fichiers `.cbr` du commerce sont en réalité des ZIP renomm�
 
 ## Lancement
 
-**Sans taper de commande** : double-cliquer sur `Lancer le lecteur.vbs` dans le dossier de l'application. Ça lance l'appli directement, sans fenêtre de console. Pour un accès encore plus rapide, clic droit sur ce fichier > "Envoyer vers" > "Bureau (créer un raccourci)" - le raccourci obtenu peut ensuite être épinglé à la barre des tâches ou au menu Démarrer.
+Une fois installé : menu Démarrer > Beheread, ou double-clic sur un fichier CBZ/CBR/EPUB.
 
-En ligne de commande, ça reste possible avec :
+En développement : `python -m beheread` (ou `python main.py`, ou un double-clic sur `Lancer le lecteur.vbs`, qui lance l'application sans fenêtre de console).
 
-```
-python main.py
-```
-
-Astuce : pour lancer sans fenêtre de console, utiliser `pythonw main.py`.
-
-### Construire un .exe autonome
-
-Pour distribuer Beheread sans que la personne qui l'utilise ait besoin d'installer Python :
+### Construire l'application et l'installateur
 
 ```
-pip install -r requirements-dev.txt
-pyinstaller beheread.spec
+build.bat
 ```
 
-L'exécutable est généré dans `dist\Beheread.exe` (~45 Mo, un seul fichier, icône incluse, sans fenêtre de console). Il peut être copié/partagé tel quel — aucune installation de Python n'est requise sur la machine cible.
+enchaîne les tests, la construction de l'exécutable par PyInstaller (`beheread.spec`) et la compilation de l'installateur par Inno Setup (`installer\beheread.iss`, à installer une fois : `winget install JRSoftware.InnoSetup`). Résultats :
+* `dist\Beheread\` : l'application en mode dossier (`Beheread.exe` + ses bibliothèques). Ce mode démarre immédiatement (rien à extraire à chaque lancement, contrairement à un exe unique) et déclenche beaucoup moins de faux positifs antivirus ;
+* `dist\Beheread-Setup-<version>.exe` : l'installateur à distribuer.
 
-Pour reconstruire depuis zéro (ex. après avoir modifié `beheread.spec`), supprimer les dossiers `build\` et `dist\` avant de relancer la commande.
+`build_and_install.bat` fait la même chose puis installe et lance Beheread sur ce PC, sans demande d'élévation.
 
-Limites : le support CBR nécessite toujours un outil de décompression RAR sur la machine cible (voir "Support CBR" ci-dessus) — ce n'est pas embarqué dans l'exe. Ce format "un seul fichier" s'extrait dans un dossier temporaire à *chaque* lancement, donc le démarrage est un peu plus lent qu'avec `python main.py` (quelques secondes) ; c'est le compromis du mode "onefile".
+Limites : le support CBR nécessite toujours un outil de décompression RAR sur la machine (voir « Support CBR ») — il n'est pas embarqué. L'exe n'est pas signé numériquement : Windows SmartScreen peut afficher un avertissement au premier lancement de l'installateur.
 
 ## Utilisation
 
-En haut de la bibliothèque, un en-tête unique regroupe tout : logo et titre à gauche, barre de recherche au centre, puis à droite les boutons à icônes (regrouper par série, vue grille/liste, ajouter/retirer un dossier, rafraîchir) et la bascule de thème clair/sombre (icône soleil/lune, choix mémorisé entre les sessions). Chaque bouton affiche son rôle au survol.
+En haut de la bibliothèque, un en-tête unique regroupe tout : logo et titre à gauche (un clic ramène à la racine de la bibliothèque), barre de recherche au centre, puis à droite le curseur de taille des couvertures, les boutons à icônes (regrouper par série, vue grille/liste, gérer les dossiers sources, rafraîchir) et la bascule de thème clair/sombre (icône soleil/lune, choix mémorisé entre les sessions). Chaque bouton affiche son rôle au survol.
 
 Bibliothèque :
-* **Ajouter un dossier** (icône dossier +) : choisir un répertoire contenant vos CBZ/CBR/EPUB. Le scan est récursif (sous-dossiers inclus). Plusieurs dossiers sources possibles.
-* **Retirer un dossier** (icône dossier −) : enlève un répertoire de la bibliothèque (les fichiers ne sont pas touchés).
-* **Rafraîchir** (icône flèche circulaire, ou F5) : rescanne les dossiers après ajout de nouveaux fichiers. La bibliothèque se rafraîchit désormais **automatiquement** quand un fichier CBZ/CBR/EPUB est ajouté, déplacé ou supprimé dans un dossier source (ou l'un de ses sous-dossiers) ; le bouton reste utile en secours.
+* **Gérer les dossiers sources** (icône dossier + engrenage) : ouvre un panneau listant les dossiers de la bibliothèque avec leur nombre de mangas. On y ajoute un répertoire contenant vos CBZ/CBR/EPUB/PDF (scan récursif, sous-dossiers inclus) ou on en retire un (les fichiers ne sont pas touchés). Les changements s'appliquent à la validation.
+* **Rafraîchir** (icône flèche circulaire, ou F5) : rescanne les dossiers après ajout de nouveaux fichiers. La bibliothèque se rafraîchit désormais **automatiquement** quand un fichier CBZ/CBR/EPUB/PDF est ajouté, déplacé ou supprimé dans un dossier source (ou l'un de ses sous-dossiers) ; le bouton reste utile en secours.
 * **Recherche** (raccourci Ctrl+F pour y placer le curseur) : le champ de recherche filtre instantanément par titre, nom de série, ou auteur (une fois l'auteur récupéré en arrière-plan — voir section métadonnées ci-dessous ; juste après l'ajout d'un dossier, la recherche par auteur peut donc mettre quelques instants à devenir disponible pour les entrées tout juste découvertes).
-* **Reprendre la lecture** : une bande horizontale en haut de la bibliothèque rassemble les tomes en cours de lecture, du plus récemment lu au plus ancien ; un clic reprend directement à la dernière page. Elle n'apparaît qu'à la racine (masquée pendant une recherche ou dans un dossier de série).
+* **Continuer la lecture** : une bande en haut de la bibliothèque propose les tomes en cours et, pour chaque série entamée dont le dernier tome lu est terminé, le **tome suivant** (« À suivre »), du plus récent au plus ancien. Un clic reprend la lecture. Clic droit : masquer un tome de la bande (il y revient s'il est relu). Masquable dans les préférences.
+* **Trier et filtrer** : sous l'en-tête, « Trier par » (titre, ajout récent, lu récemment, auteur, année de sortie) et des filtres de statut **Tous / Non lus / En cours / Terminés** ; le nombre de tomes affichés s'affiche à droite. En mode regroupé, les dossiers de série suivent le même tri et le même filtre ; à l'intérieur d'une série, les tomes restent dans l'ordre de lecture.
+* **Panneau d'informations** (icône volet, à droite de l'en-tête) : couverture, auteur, année, source, statut, nombre de pages, temps de lecture estimé, dates d'ajout et de lecture, taille et emplacement du fichier de l'élément sélectionné, avec ses actions (Lire / Reprendre / Relire, marquer lu, modifier…). Pour une série : « Continuer : Tome N », ouvrir, marquer comme lue, renommer, fusionner.
+* **Gestion manuelle des séries** (clic droit ou panneau d'informations) : **Déplacer vers une série…** (choisir une série existante ou en créer une), **Fusionner avec une autre série…**, **Renommer la série…** (nom affiché uniquement, les fichiers ne sont pas touchés) et **Modifier les informations…** (auteur, année ; une saisie manuelle est prioritaire et conservée). Un tome placé à la main dans une série n'est jamais masqué comme doublon.
+* **Préférences** (icône engrenage, ou Ctrl+,), en onglets : *Général* (thème, bande « Continuer la lecture », panneau d'informations, touche C et raccourci global Ctrl+Alt+C, métadonnées en ligne), *Lecteur* (sens de lecture, ajustement, double page, fondu entre les pages), *Données* (export/import, dossier des données, vidage des caches), *AniList* (connexion et suivi).
+* **Statistiques** (icône histogramme) : tomes terminés (au total et dans l'année), pages lues et temps de lecture des 30 derniers jours, jours de lecture d'affilée, rythme de lecture, pages lues par jour, tomes terminés par mois (12 mois), séries les plus lues et répartition de la bibliothèque (non lus / en cours / terminés). Chaque graphique affiche la valeur au survol (ou aux flèches du clavier) et peut basculer en tableau. Le temps de lecture ne compte que la lecture active (les pauses de plus de 90 s sont ignorées). Les tomes terminés avant cette version sont comptés ; les pages et le temps le sont à partir de cette version.
+* **PDF** : les PDF des dossiers sources apparaissent dans la bibliothèque comme les autres tomes (vignette, progression, séries). Les pages sont rendues à la demande en haute résolution, sur fond blanc. Un PDF protégé par mot de passe n'est pas pris en charge.
 * **Démarrage immédiat (hors-ligne)** : la bibliothèque s'affiche instantanément au lancement à partir du dernier instantané connu, pendant que le scan réel des dossiers se fait en arrière-plan (l'interface ne fige plus, même sur un dossier réseau).
-* **Regrouper par série** (icône pile de couches, s'allume en rouge quand actif) : détecte les tomes d'un même manga d'après leur nom de fichier (ex. "One Piece - Tome 12.cbz") et les place les uns à la suite des autres (avec un en-tête de série en vue liste), triés par (série, numéro de tome). Sans regroupement, la bibliothèque reste triée par ordre alphabétique.
+* **Regrouper par série** (icône pile de couches, s'allume en rouge quand actif) : détecte les tomes d'un même manga d'après leur nom de fichier (ex. "One Piece - Tome 12.cbz") et les rassemble dans un **dossier de série** (pile de couvertures, le tome en cours ou le prochain à lire au-dessus). Double-clic pour entrer dans le dossier (tomes triés par numéro), Échap / Retour arrière ou le bouton de retour pour en sortir. Une recherche traverse les dossiers. Sans regroupement, la bibliothèque est triée par ordre alphabétique.
 * **Vue Grille / Liste** (icône grille ou liste) : bascule entre la grille de vignettes et une liste compacte plus dense.
-* **Sélection multiple** (Ctrl/Maj + clic) pour appliquer une action à plusieurs mangas d'un coup.
+* **Sélection multiple** (Ctrl/Maj + clic) pour appliquer une action à plusieurs mangas d'un coup. La touche **Suppr** supprime la sélection (après confirmation).
+* **Glisser-déposer** : déposer un dossier sur la fenêtre l'ajoute à la bibliothèque ; déposer un fichier CBZ/CBR/EPUB/PDF l'ouvre directement.
+* **Premier lancement** : tant qu'aucun dossier n'est configuré, un écran d'accueil propose un bouton « Ajouter un dossier ».
+* **Aide** (icône « ? » ou F1) : liste de tous les raccourcis clavier. Les boutons de l'en-tête sont accessibles au clavier (Tab), avec un contour de focus visible, et nommés pour les lecteurs d'écran.
 * Les vignettes utilisent la première image de chaque archive et sont mises en cache pour un affichage instantané aux lancements suivants.
 * Sous chaque couverture : la page en cours et le total. Barre rouge = lecture en cours, barre verte + badge = terminé. Une couverture legèrement grisée indique un manga marqué comme lu.
 * L'auteur, une fois récupéré (voir ci-dessous), s'affiche sous la vignette (grille) ou sur la ligne de sous-titre (vue liste), et apparaît aussi au survol dans l'info-bulle avec la date de sortie et la source.
@@ -80,18 +80,23 @@ Bibliothèque :
   * **Marquer comme lu** : déclare le(s) manga(s) terminé(s) (couverture grisée, badge vert).
   * **Marquer comme non lu** : annule un marquage « terminé » (accidentel ou non) sans perdre la page en cours — proposé uniquement sur des tomes actuellement marqués terminés.
   * **Recharger les métadonnées** : oublie l'auteur/la date en cache (et le résultat AniList associé à la série) pour relancer la recherche à zéro — utile si une recherche précédente n'a rien trouvé, s'est trompée, ou a échoué faute de réseau.
-  * **Mettre à la corbeille...** : envoie le(s) fichier(s) dans la corbeille de Windows (récupérables), après confirmation obligatoire. Si le module `send2trash` n'est pas disponible, l'application se rabat sur une suppression définitive (le libellé de la confirmation le précise alors clairement).
+  * **Renommer le fichier...** / **Afficher dans l'explorateur** (sélection simple) : la progression, les métadonnées et la vignette suivent le fichier renommé.
+  * **Sortir de la série** / **Rétablir le regroupement automatique** : isole un tome mal regroupé, ou annule ce choix.
+  * **Supprimer le manga...** : envoie le(s) fichier(s) dans la corbeille de Windows (récupérables), après confirmation obligatoire. Si le module `send2trash` n'est pas disponible, l'application se rabat sur une suppression définitive (le libellé de la confirmation le précise alors clairement). Si la suppression échoue (fichier ouvert ailleurs, droits), la progression du tome est conservée.
+* Clic droit sur un dossier de série : **Supprimer la série** (tous ses tomes, après confirmation listant les fichiers).
 
 ### Métadonnées (auteur, date de sortie)
 
-Dès qu'un dossier est ajouté ou rafraîchi, l'auteur et la date de sortie de chaque manga sont récupérés automatiquement en arrière-plan. L'auteur s'affiche sous la vignette (grille) ou en sous-titre (liste), apparaît au survol dans l'info-bulle (avec la date de sortie et la source), et devient exploitable par la recherche (le champ en haut filtre aussi par auteur). La récupération utilise une stratégie en cascade, du plus fiable/local au plus incertain :
+**Consentement.** La recherche en ligne n'est faite qu'avec votre accord : au premier scan, un bandeau propose de l'activer (« Activer » / « Non merci ») ; le choix se modifie ensuite dans les Préférences. Tant qu'elle n'est pas activée, seules les informations ComicInfo.xml contenues dans les fichiers sont utilisées, et aucune donnée ne quitte l'ordinateur.
+
+Une fois la recherche en ligne activée, dès qu'un dossier est ajouté ou rafraîchi, l'auteur et la date de sortie de chaque manga sont récupérés automatiquement en arrière-plan. L'auteur s'affiche sous la vignette (grille) ou en sous-titre (liste), apparaît au survol dans l'info-bulle (avec la date de sortie et la source), et devient exploitable par la recherche (le champ en haut filtre aussi par auteur). La récupération utilise une stratégie en cascade, du plus fiable/local au plus incertain :
 
 1. **ComicInfo.xml** (priorité 1, 100% hors ligne) : si l'archive contient un fichier `ComicInfo.xml` (standard ComicRack/ComicTagger) à sa racine, ses champs `Writer`/`Penciller`/`Author`, `Year`/`Month`/`Day` sont utilisés directement — aucune requête réseau n'est faite si ces informations suffisent.
 2. **Google Books** (priorité 2) : à défaut, recherche combinant le nom de série (déduit du nom de fichier) et le numéro de tome, pour retrouver la date de sortie de l'édition physique précise (la couverture affichée reste toujours la première page de l'archive, aucune image externe n'est utilisée).
 3. **AniList** (priorité 3) : si Google Books ne trouve rien, recherche sur le seul nom de série via l'API AniList (GraphQL, gratuite), qui gère bien les titres traduits/synonymes (y compris français). Le résultat, propre à la série, est alors partagé par tous ses tomes.
 4. **MangaDex** (priorité 4, dernier recours) : si AniList ne trouve rien non plus, recherche sur le seul nom de série via l'API MangaDex (catalogue plus large : œuvres de niche, séries indépendantes/françaises, webtoons...). Comme AniList, le résultat est propre à la série et partagé par tous ses tomes ; MangaDex expose aussi la langue d'origine, utilisée pour affiner la détection automatique du sens de lecture (manga/manhwa/manhua).
 
-Chaque couche n'est interrogée que si la précédente n'a rien donné d'exploitable. Le résultat (avec sa source) est mis en cache localement dans `meta_cache.json` : un tome/une série n'est interrogé qu'une seule fois.
+Chaque couche n'est interrogée que si la précédente n'a rien donné d'exploitable. Le résultat (avec sa source) est mis en cache localement (base `beheread.db`) : un tome/une série n'est interrogé qu'une seule fois.
 
 Limites à connaître :
 * Google Books, AniList et MangaDex ne documentent pas forcément un tome précis dans une édition française — la date obtenue via un repli série (AniList/MangaDex) est celle de la première publication de la série entière, pas du tome lu.
@@ -106,7 +111,7 @@ Lecteur :
 
 | Action | Commande |
 |---|---|
-| Page suivante | Flèche bas, Espace, molette bas, flèche droite*, clic zone droite* |
+| Page suivante | Flèche bas, Espace, molette bas, flèche droite*, clic zone droite* (voir « Molette » ci-dessous) |
 | Page précédente | Flèche haut, retour arrière, molette haut, flèche gauche*, clic zone gauche* |
 | Avancer/reculer d'une seule page (utile en double page) | PgDown / PgUp |
 | Première / dernière page | Début / Fin |
@@ -120,11 +125,14 @@ Lecteur :
 | Déplacer l'image quand elle dépasse (zoom, ajustement largeur) | glisser avec la souris |
 | Plein écran | F11, ou bouton "⛶ Plein écran" en haut à droite |
 | Masquer instantanément la fenêtre (touche « boss »), puis la réafficher | C pour masquer ; Ctrl+Alt+C pour masquer/réafficher depuis n'importe où |
-| Tome suivant (si detecte, en fin de tome) | Entree, ou bouton de la fiche de fin |
-| Retour à la bibliothèque | Echap, ou bouton "← Bibliothèque" en haut à gauche |
+| Tome suivant (si détecté, en fin de tome) | Entrée, ou bouton de la fiche de fin |
+| Retour à la bibliothèque | Échap, ou bouton "← Bibliothèque" en haut à gauche |
+| Aide : liste des raccourcis | F1 ou ?, ou bouton « ? » de la barre de réglages |
 | Sauter directement à une page | clic ou glisser sur la barre de défilement en bas de l'écran (le survol affiche un aperçu de la page visée) |
 
 \* Flèche/clic gauche et droite sont inversés en mode manga, puisque la lecture s'y fait de droite à gauche.
+
+**Molette, pavé tactile et flèches haut/bas.** Quand la page est plus haute que l'écran (zoom, ajustement à la largeur, webtoon), la molette, la flèche bas et Espace la font d'abord **défiler** ; arrivé en bas, un cran de plus tourne la page, et la page suivante s'affiche depuis son haut (en remontant, la page précédente s'affiche depuis son bas). L'élan qui amène au bord ne tourne jamais la page à lui seul. Sur un **pavé tactile**, un glissement tourne au plus une page (l'inertie est ignorée) ; les molettes haute résolution sont regroupées par crans entiers.
 
 Par défaut, le lecteur démarre en **mode manga** et en **double page** : la page 1 s'affiche à droite, la page 2 à sa gauche, et "page suivante" fait progresser vers la gauche. Le mode d'affichage (double page, mode manga, ajustement) est mémorisé entre les sessions.
 
@@ -146,23 +154,36 @@ Chaque changement de page est adouci par un fondu enchaîné rapide (~130ms).
 
 **Touche « boss » (C).** Un appui sur `C` masque instantanément la fenêtre de lecture (elle reste dans la barre des tâches). Le raccourci global `Ctrl+Alt+C` la masque et la réaffiche depuis n'importe quelle application — pratique pour dissimuler sa lecture d'une seule touche.
 
+## Sauvegarde et suivi AniList
+
+**Sauvegarde** (*Préférences > Données*). *Exporter…* écrit un fichier JSON avec la progression, les statistiques, les regroupements et renommages de séries, les sens de lecture et les informations saisies à la main. *Importer…* fusionne ce fichier, par exemple pour passer à un autre PC ou restaurer une progression effacée : pour un tome présent des deux côtés, la progression la plus récente l'emporte, un tome absent est repris, et vos réglages actuels ne sont jamais écrasés (seuls les éléments absents sont ajoutés). Les mêmes fichiers de mangas sont reconnus d'un PC à l'autre par leur contenu, quel que soit leur emplacement ; les dossiers sources et les préférences ne sont pas repris.
+
+**Suivi AniList.** Dans *Préférences > AniList*, un clic sur **Se connecter à AniList…** ouvre le navigateur sur la page d'autorisation d'AniList ; une fois Beheread autorisé, la connexion se termine toute seule (aucun code à copier). L'accès est chiffré sur ce PC (protection Windows DPAPI, liée à votre session), reste valable un an et peut être révoqué à tout moment depuis les réglages du compte AniList.
+
+Ensuite, **à la fin de chaque séance de lecture** (fermeture du lecteur ou passage au tome suivant) et quand un tome est marqué « lu » dans la bibliothèque, Beheread met à jour la série sur votre liste : nombre de tomes lus (ou de chapitres pour les fichiers numérotés par chapitre), série ajoutée « en cours » si elle n'y était pas, « terminée » quand le dernier tome connu d'AniList est lu. Rien n'est envoyé si la progression de la série n'a pas augmenté depuis le dernier envoi. **Beheread ne fait qu'ajouter** : il ne supprime jamais une entrée de votre liste, ne fait jamais reculer une progression et ne touche à aucun autre champ (note, commentaires, dates, relectures…). Une série que vous avez marquée terminée, en pause, abandonnée ou en relecture n'est **jamais modifiée**. Chaque envoi est vérifié juste avant de partir, et aucune requête de suppression ne peut être émise.
+
+Chaque série est associée automatiquement à son œuvre AniList quand le titre trouvé correspond clairement au nom de la série ; sinon, le panneau d'informations indique « à associer » : *Associer à AniList…* accepte l'adresse de la page AniList de la série (ex. `https://anilist.co/manga/30002/Berserk`). *Ne pas suivre sur AniList* exclut une série. Sans réseau, les mises à jour restent en attente et sont renvoyées plus tard.
+
+**Pour le développeur : enregistrer Beheread auprès d'AniList (une seule fois).** Sur https://anilist.co/settings/developer, créer une application (« Create New Application ») nommée Beheread, avec comme *Redirect URL* exactement `http://127.0.0.1:51789/anilist`. Recopier le **Client ID** obtenu dans `ANILIST_CLIENT_ID` de `beheread/config.py` (ou, pour tester, dans la variable d'environnement `BEHEREAD_ANILIST_CLIENT_ID`), puis reconstruire l'exe. Le Client ID n'est pas secret ; le **Client Secret n'est jamais utilisé** et ne doit figurer nulle part dans le code. Tant que le Client ID est vide, le bouton de connexion est désactivé. Si, après l'accord sur AniList, le navigateur affiche `{"error":{"status":404,"messages":["API route not found."]}}` sur une adresse `anilist.co/api/v2/oauth/…`, c'est que la *Redirect URL* a été enregistrée sans `http://` : le navigateur la traite alors comme un chemin du site AniList.
+
 ## Sauvegarde de la progression
 
 La dernière page lue de chaque manga est enregistrée automatiquement à chaque changement de page et à la fermeture. Un manga est marqué "Terminé" quand la dernière page est atteinte.
 
 Données stockées localement dans `%APPDATA%\MangaReaderPy` (nom technique historique, inchangé pour ne pas perdre les données des installations existantes) :
-* `settings.json` : dossiers sources, préférences du lecteur/bibliothèque, thème
-* `progress.json` : progression de lecture (page, décalage de parité et date de dernière lecture par tome)
-* `meta_cache.json` : cache des métadonnées (auteur/date) par tome et par série
-* `fingerprints.json` : empreintes de contenu des fichiers (voir ci-dessous)
-* `library_index.json` : dernier instantané de la bibliothèque, pour l'affichage immédiat au démarrage (hors-ligne)
+* `beheread.db` : base SQLite (réglages, progression, métadonnées, empreintes, statistiques, instantané de la bibliothèque), au schéma versionné. Les écritures sont transactionnelles (une coupure de courant ne peut pas laisser un fichier à moitié écrit) et incrémentales (seules les données modifiées sont réécrites) ;
+* `legacy-json\` : les anciens fichiers JSON des versions 0.1, importés automatiquement dans la base au premier lancement de la version 0.2 puis rangés ici par sécurité (ils ne sont plus relus ; ce dossier peut être supprimé) ;
+* `instance.lock` : présent tant que Beheread est ouvert (instance unique)
+* `beheread.log` : journal de diagnostic
 * `thumbnails\` : cache des couvertures (JPEG)
 
-**Identité par contenu.** La progression, les métadonnées et les vignettes sont rattachées à une **empreinte du contenu** de chaque fichier (sa taille et ses premiers kilo-octets), et non à son chemin sur le disque. Concrètement : renommer ou déplacer un tome **conserve sa progression**, et deux copies identiques la partagent. Les anciennes données indexées par chemin sont migrées automatiquement au premier lancement (les vignettes se régénèrent une fois à cette occasion). Les empreintes sont mises en cache dans `fingerprints.json` pour rester instantanées aux lancements suivants.
+**Identité par contenu.** La progression, les métadonnées et les vignettes sont rattachées à une **empreinte du contenu** de chaque fichier (sa taille et ses premiers kilo-octets), et non à son chemin sur le disque. Concrètement : renommer ou déplacer un tome **conserve sa progression**, et deux copies identiques la partagent. Les anciennes données indexées par chemin sont migrées automatiquement au premier lancement (les vignettes se régénèrent une fois à cette occasion). Les empreintes sont mises en cache dans la base pour rester instantanées aux lancements suivants.
 
 Les sauvegardes sont regroupées puis écrites en arrière-plan (elles ne bloquent pas la lecture, même en tournant les pages rapidement) et garanties à la fermeture de l'application.
 
-Supprimer ce dossier réinitialise l'application. Aucune donnée ne quitte votre machine, à l'exception des requêtes envoyées à Google Books et/ou AniList lors de la récupération automatique des métadonnées (auteur, date de sortie) après l'ajout ou le rafraîchissement d'un dossier — le nom de série déduit du fichier, et éventuellement le numéro de tome, leur sont alors envoyés.
+**Instance unique.** Beheread ne s'exécute qu'une fois : double-cliquer un autre fichier dans l'explorateur (ou relancer l'application) l'ouvre dans la fenêtre existante au lieu de lancer un second processus, qui écraserait la progression de l'autre. Le fichier `instance.lock` de ce dossier matérialise l'instance en cours (un verrou laissé par un plantage est repris automatiquement).
+
+Supprimer ce dossier réinitialise l'application. Aucune donnée ne quitte votre machine sans votre accord : seulement, si vous les activez, les requêtes de métadonnées (nom de série et numéro de tome envoyés à Google Books, AniList et MangaDex) et les mises à jour de votre liste AniList (nombre de tomes/chapitres lus par série).
 
 ## Performances
 
@@ -173,44 +194,70 @@ Supprimer ce dossier réinitialise l'application. Aucune donnée ne quitte votre
 
 ## Structure du projet
 
+Le code vit dans le package `beheread/`, organisé en couches ; les dépendances vont toujours de `ui` vers `services`, `infra` puis `core` (jamais l'inverse).
+
 ```
-manga-reader/
-  Lancer le lecteur.vbs  Lancement en un double-clic, sans console
-  main.py              Point d'entrée, fenêtre principale, bascule de theme
-  version.py           Numero de version de l'application (SemVer)
-  applogging.py        Journalisation fichier (beheread.log) pour diagnostiquer les echecs silencieux
-  theme.py             Palettes clair/sombre partagees par l'interface
-  icons.py             Icones vectorielles du header, dessinees avec QPainter
-  icon.ico             Icone de l'application
-  library.py           Bibliothèque : widget principal (grille/liste, recherche, rangée "reprendre", actions, surveillance des dossiers, scan en arrière-plan)
-  lib_constants.py     Dimensions et rôles de données partagés par les modules de la bibliothèque
-  lib_delegates.py     Rendu des items (grille avec pile de couvertures pour les séries, liste compacte)
-  lib_dialogs.py       Panneau de gestion des dossiers sources (façon Plex)
-  lib_workers.py       Tâches d'arrière-plan (vignettes, métadonnées par tome et par série, scan)
-  reader.py            Lecteur : navigation, double page, zoom, recadrage, préchargement, aperçu au survol, fiche de fin
-  pairing.py           Logique pure d'appairage double page (parité, planches doubles, recul) — testée sans Qt
-  hotkey.py            Raccourci clavier global Windows (touche « boss » Ctrl+Alt+C)
-  archive_handler.py   Ouverture CBZ/CBR/EPUB en mémoire, détection de format
-  series.py            Detection serie/tome par nom de fichier, tome suivant
-  metadata.py          Cascade ComicInfo.xml -> Google Books -> AniList -> MangaDex (+ recherche au niveau série)
-  googlebooks.py       Client API Google Books (date de sortie par tome)
-  anilist.py           Client API AniList (repli metadonnees serie)
-  mangadex.py          Client API MangaDex (dernier repli metadonnees serie, catalogue de niche)
-  storage.py           Persistance (identité par contenu, écritures différées)
-  tests/               Tests unitaires (pytest) de la logique pure
-  requirements.txt     Dépendances Python (utilisation normale)
-  requirements-dev.txt Dépendances de build/test (+ PyInstaller, pytest)
-  beheread.spec        Config PyInstaller pour generer Beheread.exe
+main.py                  Point d'entrée (python main.py, Lancer le lecteur.vbs, PyInstaller)
+beheread/
+  __main__.py            python -m beheread
+  app.py                 Fenêtre principale, fenêtre du lecteur, démarrage (instance unique, thème)
+  config.py              Configuration interne (Client ID AniList, facteur des vignettes, chemins)
+  version.py             Numéro de version (SemVer)
+  resources/             Icône
+  core/                  Logique pure, sans Qt ni accès disque/réseau — testée isolément
+    models.py            Modèles typés (LibraryEntry, VolumeInfo, SeriesInfo)
+    series.py            Détection série/tome par nom de fichier, tome suivant
+    library_model.py     Statuts de lecture, tris, sélection « Continuer la lecture »
+    pairing.py           Appairage double page (parité, planches doubles, recul)
+    wheel_nav.py         Molette / pavé tactile (défilement puis tour de page)
+    stats.py             Statistiques (journal par PC, jours d'affilée, agrégats)
+    backup.py            Sauvegarde (export, fusion à l'import)
+    anilist_track.py     Règles du suivi AniList (uniquement des ajouts)
+  infra/                 Persistance, archives, réseau, intégration Windows
+    storage.py           Store : façade de persistance (identité par contenu, écritures différées)
+    database.py          Base SQLite : schéma versionné, dépôts, écritures incrémentales
+    archive.py           Ouverture CBZ/CBR/EPUB en mémoire, rendu des PDF (QtPdf), scan des dossiers
+    metadata.py          Cascade ComicInfo.xml -> Google Books -> AniList -> MangaDex
+    googlebooks.py, anilist.py, mangadex.py   Clients d'API
+    anilist_auth.py      Connexion AniList (récepteur local du jeton)
+    secret_store.py      Chiffrement du jeton AniList (DPAPI)
+    single_instance.py   Instance unique (verrou + canal local)
+    hotkey.py            Raccourci global Ctrl+Alt+C
+    applogging.py        Journal beheread.log
+  services/
+    anilist_tracker.py   Suivi AniList : file d'attente, envois en fin de séance
+  ui/
+    theme.py, icons.py, help_overlay.py, stats_view.py
+    library/             Bibliothèque
+      widget.py          LibraryWidget : construction de la grille, navigation, bande « Continuer »
+      controllers.py     Scan des dossiers, métadonnées, cache de couvertures (threads, signaux)
+      chrome.py          En-tête, barre d'outils, bandeau de consentement, état vide, glisser-déposer
+      detail_panel.py    Panneau d'informations
+      actions.py         Actions sur les tomes et séries (marquer lu, renommer, supprimer, fusionner…)
+      menus.py           Menus contextuels
+      services.py        Préférences, statistiques, sauvegarde, AniList
+      views.py, delegates.py, shelf.py, detail.py, dialogs.py, workers.py, constants.py
+    reader/              Lecteur
+      widget.py          ReaderWidget : navigation, rendu
+      page_cache.py      Pages décodées : préchargement et éviction
+      display.py         Recadrage, planches doubles, Ambilight, fondu, zoom, sens de lecture
+      hud.py, end_card.py, input.py, session.py, imaging.py, components.py, constants.py
+tests/                   Tests pytest (logique, persistance, réseau simulé)
+  ui/                    Tests d'interface (pytest-qt) : bibliothèque et lecteur
+installer/beheread.iss   Installateur Inno Setup
+build.bat                Tests + exe (mode dossier) + installateur
+build_and_install.bat    build.bat puis installation et lancement sur ce PC
+beheread.spec            Configuration PyInstaller
 ```
 
 ## Tests
-
-La logique pure (détection série/tome, cascade de métadonnées, persistance) est couverte par une suite de tests `pytest`, sans interface graphique :
 
 ```
 pip install -r requirements-dev.txt
 pytest
 ```
+
+La suite couvre la logique pure (séries, appairage, molette, statistiques, règles AniList…), la persistance (SQLite, import des anciens JSON, sauvegarde), les clients réseau (réseau simulé, aucun appel réel) et l'interface avec **pytest-qt** (`tests/ui/` : état vide, glisser-déposer, filtres et tris, « Continuer la lecture », gestion des séries, suppression, lecteur, molette, PDF, instance unique). Les tests d'interface tournent sans fenêtre (plateforme « offscreen »), sans réseau et sans enregistrer de raccourci global. `ruff check --select F,E9 beheread tests` vérifie le code (noms indéfinis, imports inutiles, erreurs de syntaxe) ; sans `--select`, les versions récentes de ruff ajoutent de nombreuses règles de style non adoptées par le projet.
 
 ## Dépannage
 

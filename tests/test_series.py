@@ -7,7 +7,8 @@ dans le code (suffixes de doublon "(1)", tirets pendants, separateurs varies).
 
 import pytest
 
-from series import find_next_volume, normalize_name, parse_series
+from beheread.core.series import normalize_name, parse_series
+from beheread.infra.archive import find_next_volume
 
 
 @pytest.mark.parametrize("stem, expected_name, expected_vol", [
@@ -51,7 +52,7 @@ def test_parse_series_ex_reports_kind(stem, expected_kind):
     nu), utilisee par la deduplication pour ne pas fusionner des contenus
     distincts de meme numero. Le couple (nom, numero) reste identique a
     parse_series."""
-    from series import parse_series_ex
+    from beheread.core.series import parse_series_ex
     name, number, kind = parse_series_ex(stem)
     assert (name, number) == parse_series(stem)
     assert kind == expected_kind
@@ -141,7 +142,7 @@ def test_parse_series_release_junk(stem, expected_name, expected_vol):
 def test_release_variants_share_series_key():
     """Le coeur du regroupement : toutes les variantes de nommage d'une meme
     serie (releases differentes) doivent partager la meme cle."""
-    from series import series_key
+    from beheread.core.series import series_key
     variants = [
         "Berserk T37 (Miura) (2019-2023) [Manga FR] (PapriKa+)",
         "Berserk_T41",
@@ -156,14 +157,14 @@ def test_release_variants_share_series_key():
 def test_language_tag_does_not_split_series():
     """Cas reel : un tome French epub ne doit pas creer une serie distincte
     de la version deja presente dans la bibliotheque."""
-    from series import series_key
+    from beheread.core.series import series_key
     assert series_key("Chainsaw_Man_T01_French") == series_key("Chainsaw Man 12")
 
 
 def test_language_code_after_chapter_groups_with_series():
     """Cas reel : "Berserk Chapitre 386 ENG" doit rejoindre la serie Berserk
     au meme titre que les releases FR bracketees et les tomes relies."""
-    from series import series_key
+    from beheread.core.series import series_key
     variants = [
         "Berserk T01 (Miura) (2004) [Digital-1699] [Manga FR] (PapriKa+)",
         "Berserk_ch0385[FR][FMTEAM]",

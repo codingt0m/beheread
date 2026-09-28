@@ -9,8 +9,8 @@ import json
 
 import pytest
 
-import storage
-from storage import Store
+from beheread.infra import storage
+from beheread.infra.storage import Store
 
 
 @pytest.fixture
@@ -20,6 +20,23 @@ def store(tmp_path, monkeypatch):
     monkeypatch.setattr(storage, "data_dir", lambda: tmp_path / "MangaReaderPy")
     (tmp_path / "MangaReaderPy").mkdir(parents=True, exist_ok=True)
     return Store()
+
+
+def _reopen(store):
+    """Nouveau Store sur le meme dossier : ce qui a ete reellement persiste."""
+    store.flush()
+    return Store()
+
+
+def _db_row(store, table, key):
+    """Valeur telle qu'enregistree dans la base (connexion independante)."""
+    import sqlite3
+    con = sqlite3.connect(str(store.dir / storage.DB_NAME))
+    try:
+        row = con.execute(f"SELECT value FROM {table} WHERE key = ?", (key,)).fetchone()
+    finally:
+        con.close()
+    return json.loads(row[0]) if row else None
 
 
 def _make_manga(dir_path, name, content=b"chapitre un, contenu unique"):
@@ -123,25 +140,23 @@ def test_reader_offset(store, tmp_path):
 
 
 def test_meta_cache_separate_file(store, tmp_path):
+    """Les metadonnees ont leurs propres depots : elles ne polluent pas les
+    reglages, et survivent a une reouverture."""
     path = _make_manga(tmp_path, "a.cbz")
     store.set_volume_meta(path, {"authors": ["Oda"], "published_year": 1997})
     store.set_series_meta("one piece", {"title": "One Piece"})
     store.flush()
 
-    meta_file = storage.data_dir() / "meta_cache.json"
-    settings_file = storage.data_dir() / "settings.json"
-    assert meta_file.exists()
-    data = json.loads(meta_file.read_text(encoding="utf-8"))
-    assert "volume" in data and "series" in data
-    # les caches ne polluent plus settings.json
-    settings = json.loads(settings_file.read_text(encoding="utf-8")) if settings_file.exists() else {}
-    assert "volume_meta_cache" not in settings
-    assert "series_meta_cache" not in settings
+    again = _reopen(store)
+    assert again.volume_meta(path)["authors"] == ["Oda"]
+    assert again.series_meta("one piece") == {"title": "One Piece"}
+    assert "volume_meta_cache" not in again.settings
+    assert "series_meta_cache" not in again.settings
 
 
 def test_meta_cache_migrated_out_of_settings(tmp_path, monkeypatch):
     """Un settings.json ancien contenant les caches doit voir ceux-ci
-    deplaces vers meta_cache.json au demarrage."""
+    deplaces vers les depots de metadonnees au demarrage."""
     monkeypatch.setattr(storage, "data_dir", lambda: tmp_path / "MangaReaderPy")
     d = tmp_path / "MangaReaderPy"
     d.mkdir(parents=True)
@@ -157,18 +172,16 @@ def test_meta_cache_migrated_out_of_settings(tmp_path, monkeypatch):
     assert s.meta_cache["series"] == {"naruto": {"title": "Naruto"}}
     assert "volume_meta_cache" not in s.settings
     s.flush()
-    settings = json.loads((d / "settings.json").read_text(encoding="utf-8"))
-    assert "volume_meta_cache" not in settings
+    again = _reopen(s)
+    assert "volume_meta_cache" not in again.settings
+    assert again.meta_cache["series"] == {"naruto": {"title": "Naruto"}}
 
 
 def test_flush_persists_debounced_writes(store, tmp_path):
     path = _make_manga(tmp_path, "a.cbz")
     store.set_progress(path, 1, 10, False)
     store.flush()
-    prog_file = storage.data_dir() / "progress.json"
-    data = json.loads(prog_file.read_text(encoding="utf-8"))
-    key = store.key_for(path)
-    assert data[key]["page"] == 1
+    assert _db_row(store, "progress", store.key_for(path))["page"] == 1
 
 
 def test_purge_orphan_caches_removes_stale_thumbnail(store, tmp_path):
@@ -211,3 +224,217 @@ def test_purge_orphan_caches_keeps_progress(store, tmp_path):
     store.purge_orphan_caches([])   # aucun fichier present
 
     assert store.progress.get(key, {}).get("page") == 3
+
+
+# ---------------------------------------------------------------- suppression
+
+def test_forget_content_after_delete(store, tmp_path):
+    """Apres une suppression reussie, progression, date d'ajout et metadonnees
+    du tome sont oubliees (cle resolue AVANT la suppression du fichier)."""
+    path = _make_manga(tmp_path, "a.cbz")
+    store.set_progress(path, 4, 10, False)
+    store.ensure_added([path])
+    store.set_volume_meta(path, {"authors": ["X"]})
+    key = store.key_for(path)
+
+    (tmp_path / "a.cbz").unlink()
+    store.forget_content(key, path)
+
+    assert key not in store.progress
+    assert key not in store.settings["added"]
+    assert key not in store.meta_cache["volume"]
+    assert path not in store._fp
+
+
+def test_forget_content_keeps_data_shared_by_identical_copy(store, tmp_path):
+    """Supprimer une copie ne doit pas effacer la progression partagee par
+    contenu avec une autre copie identique toujours presente."""
+    a = _make_manga(tmp_path, "a.cbz", b"meme-contenu")
+    b = _make_manga(tmp_path, "b.cbz", b"meme-contenu")
+    store.set_progress(a, 4, 10, False)
+    key = store.key_for(a)
+    assert store.key_for(b) == key
+
+    (tmp_path / "a.cbz").unlink()
+    store.forget_content(key, a)
+
+    assert store.get_progress(b) == (4, 10, False)
+
+
+# ---------------------------------------------------------------- empreintes memorisees
+
+def test_key_for_is_memoized_until_invalidated(store, tmp_path, monkeypatch):
+    """Une fois resolue, l'empreinte d'un chemin ne refait plus d'os.stat
+    (appele plusieurs fois par item sur le thread UI) jusqu'au scan suivant."""
+    path = _make_manga(tmp_path, "a.cbz")
+    key = store.key_for(path)
+
+    calls = []
+    real_stat = storage.os.stat
+    monkeypatch.setattr(storage.os, "stat", lambda p, *a, **k: calls.append(p) or real_stat(p, *a, **k))
+    assert store.key_for(path) == key
+    assert calls == []
+
+    store.invalidate_key_memo()
+    assert store.key_for(path) == key
+    assert calls   # revalidation (mtime+taille) apres invalidation
+
+
+def test_key_for_detects_modified_file_after_invalidation(store, tmp_path):
+    path = _make_manga(tmp_path, "a.cbz", b"version-1")
+    k1 = store.key_for(path)
+    _make_manga(tmp_path, "a.cbz", b"version-2-plus-longue")
+    store.invalidate_key_memo()
+    assert store.key_for(path) != k1
+
+
+# ---------------------------------------------------------------- ecritures differees
+
+def test_concurrent_modification_during_serialization_is_retried(store, tmp_path, monkeypatch):
+    """Si un dict est modifie par un autre thread pendant la serialisation
+    (RuntimeError), la sauvegarde est remise en attente au lieu d'etre perdue."""
+    from beheread.infra import database
+    path = _make_manga(tmp_path, "a.cbz")
+    store.set_progress(path, 2, 10, False)
+
+    real_dumps = database.json.dumps
+    state = {"failed": False}
+
+    def flaky_dumps(obj, *a, **k):
+        if not state["failed"]:
+            state["failed"] = True
+            raise RuntimeError("dictionary changed size during iteration")
+        return real_dumps(obj, *a, **k)
+
+    monkeypatch.setattr(database.json, "dumps", flaky_dumps)
+    with store._save_lock:
+        store._dirty = {"progress"}
+    assert store._flush() is False
+    assert "progress" in store._dirty   # toujours en attente, pas abandonne
+
+    store.flush()
+    assert _db_row(store, "progress", store.key_for(path))["page"] == 2
+
+
+def test_debounced_write_happens_without_explicit_flush(store, tmp_path, monkeypatch):
+    """Le thread de sauvegarde ecrit de lui-meme apres le delai d'inactivite."""
+    import time
+    monkeypatch.setattr(storage, "SAVE_DELAY", 0.05)
+    path = _make_manga(tmp_path, "a.cbz")
+    store.set_progress(path, 5, 10, False)
+
+    deadline = time.monotonic() + 5
+    while time.monotonic() < deadline:
+        row = _db_row(store, "progress", store.key_for(path))
+        if row and row.get("page") == 5:
+            break
+        time.sleep(0.02)
+    else:
+        pytest.fail("la sauvegarde differee n'a jamais ete ecrite")
+
+
+# ---------------------------------------------------------------- lot 3
+
+def test_series_name_override(store):
+    assert store.series_name("berserk") is None
+    store.set_series_name("berserk", "Berserk (édition prestige)")
+    assert store.series_name("berserk") == "Berserk (édition prestige)"
+    store.set_series_name("berserk", "")
+    assert store.series_name("berserk") is None
+
+
+def test_dismiss_continue_is_keyed_by_content(store, tmp_path):
+    path = _make_manga(tmp_path, "a.cbz")
+    store.dismiss_continue(path)
+    assert store.key_for(path) in store.continue_dismissed()
+
+
+def test_clear_downloaded_meta_keeps_local_and_manual(store, tmp_path):
+    a = _make_manga(tmp_path, "a.cbz", b"a")
+    b = _make_manga(tmp_path, "b.cbz", b"b")
+    c = _make_manga(tmp_path, "c.cbz", b"c")
+    store.set_volume_meta(a, {"authors": ["X"], "source": "googlebooks"})
+    store.set_volume_meta(b, {"authors": ["Y"], "source": "manual"})
+    store.set_volume_meta(c, {"not_found": True})
+    store.set_series_meta("s1", {"authors": ["Z"], "source": "anilist"})
+    store.set_series_meta("s2", {"authors": ["W"], "source": "comicinfo"})
+
+    assert store.clear_downloaded_meta() == 3
+    assert store.volume_meta(a) is None and store.volume_meta(c) is None
+    assert store.volume_meta(b)["source"] == "manual"
+    assert store.series_meta("s1") is None and store.series_meta("s2") is not None
+
+
+def test_clear_thumbnails(store, tmp_path):
+    path = _make_manga(tmp_path, "a.cbz")
+    store.thumb_path(path).write_bytes(b"jpeg")
+    assert store.clear_thumbnails() == 1
+    assert not store.thumb_path(path).exists()
+
+
+# ---------------------------------------------------------------- lot 5
+
+def test_reset_progress_removes_entry(store, tmp_path):
+    """Reinitialiser efface l'entree (un import de sauvegarde peut donc la
+    restaurer)."""
+    path = _make_manga(tmp_path, "a.cbz")
+    store.set_progress(path, 5, 10, False)
+    store.remove_progress(path)
+    assert store.get_progress(path) is None
+    assert store.progress_ts(path) == 0.0
+    assert store.key_for(path) not in store.progress
+
+
+def test_record_reading_goes_to_this_device(store, tmp_path):
+    import datetime
+    path = _make_manga(tmp_path, "a.cbz")
+    store.record_reading(path, 12, 300, False, "A - Tome 1", "A",
+                         date=datetime.date(2026, 9, 27))
+    dev = store.stats["devices"][store.device_id()]
+    rec = dev["days"]["2026-09-27"][store.key_for(path)]
+    assert rec["pages"] == 12 and rec["series"] == "A"
+    store.record_reading(path, 0, 0, False, "A - Tome 1", "A")   # session vide ignoree
+    assert len(dev["days"]) == 1
+
+
+def test_backup_export_import_roundtrip(tmp_path, monkeypatch):
+    """Export sur un « PC », import sur un autre : la progression la plus
+    recente est reprise, les reglages locaux ne sont pas ecrases."""
+    manga = _make_manga(tmp_path, "a.cbz")
+
+    def make_store(name):
+        d = tmp_path / name
+        d.mkdir()
+        monkeypatch.setattr(storage, "data_dir", lambda d=d: d)
+        return Store()
+
+    pc1 = make_store("pc1")
+    pc1.set_progress(manga, 7, 10, False)
+    pc1.set_series_name("a", "Série A")
+    backup = tmp_path / "sauvegarde.json"
+    pc1.export_backup(backup)
+
+    pc2 = make_store("pc2")
+    pc2.set_series_name("a", "Nom local")
+    result = pc2.import_backup(backup)
+    assert result["progress"] == 1
+    assert pc2.get_progress(manga) == (7, 10, False)
+    assert pc2.series_name("a") == "Nom local"
+
+    # une progression reinitialisee par erreur est restauree par l'import
+    pc2.remove_progress(manga)
+    assert pc2.import_backup(backup)["progress"] == 1
+    assert pc2.get_progress(manga) == (7, 10, False)
+
+    bogus = tmp_path / "autre.json"
+    bogus.write_text('{"hello": 1}', encoding="utf-8")
+    with pytest.raises(ValueError):
+        pc2.import_backup(bogus)
+
+
+def test_anilist_token_is_never_stored_in_clear(store):
+    store.set_anilist_login("super-secret-token", "tom")
+    assert "super-secret-token" not in json.dumps(store.settings)
+    assert store.anilist_token() == "super-secret-token"
+    store.set_anilist_login(None, None)
+    assert store.anilist_token() is None

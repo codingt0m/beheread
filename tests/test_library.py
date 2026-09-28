@@ -3,11 +3,18 @@
 LibraryWidget._dedupe_by_content). N'instancie aucun widget Qt : la methode
 ne touche qu'a self.store, donc un objet factice suffit."""
 
+import dataclasses
+
 import pytest
 
-import storage
-from library import LibraryWidget
-from storage import Store
+from beheread.infra import storage
+from beheread.core.models import LibraryEntry
+from beheread.ui.library.widget import LibraryWidget
+
+
+def _at(path):
+    return LibraryEntry(path=path, title=path, series=path)
+from beheread.infra.storage import Store
 
 
 @pytest.fixture
@@ -66,14 +73,14 @@ def test_scan_worker_excludes_cloud_placeholders(store, tmp_path, monkeypatch):
     etre ecartes du scan SANS etre lus (leur lecture forcerait un
     telechargement bloquant) et renvoyes a part pour la file de
     telechargement en arriere-plan."""
-    import lib_workers
-    from lib_workers import ScanWorker
+    from beheread.ui.library import workers
+    from beheread.ui.library.workers import ScanWorker
 
     folder = tmp_path / "src"
     folder.mkdir()
     local = _make_manga(folder, "local.cbz", b"contenu-local")
     cloud = _make_manga(folder, "cloud.cbz", b"contenu-cloud")
-    monkeypatch.setattr(lib_workers, "is_cloud_placeholder",
+    monkeypatch.setattr(workers, "is_cloud_placeholder",
                         lambda p: str(p).endswith("cloud.cbz"))
 
     results = []
@@ -90,7 +97,7 @@ def test_scan_worker_excludes_cloud_placeholders(store, tmp_path, monkeypatch):
 def test_hydrate_worker_reads_whole_file_and_reports_success(tmp_path):
     """Le HydrateWorker lit le fichier en entier (c'est ce qui force le
     fournisseur cloud a le telecharger) et signale le succes."""
-    from lib_workers import HydrateWorker
+    from beheread.ui.library.workers import HydrateWorker
 
     path = _make_manga(tmp_path, "cloud.cbz", b"contenu-a-hydrater")
     results = []
@@ -103,7 +110,7 @@ def test_hydrate_worker_reads_whole_file_and_reports_success(tmp_path):
 def test_hydrate_worker_reports_failure_on_missing_file(tmp_path):
     """Fichier disparu / telechargement impossible : echec signale, sans
     exception (le tome restera simplement absent cette session)."""
-    from lib_workers import HydrateWorker
+    from beheread.ui.library.workers import HydrateWorker
 
     path = str(tmp_path / "absent.cbz")
     results = []
@@ -137,8 +144,7 @@ def test_dedupe_preserves_shared_progress(store, tmp_path):
 # ----- regroupement en dossiers de serie -----
 
 def _entry(title, series, volume):
-    return {"path": f"/x/{title}.cbz", "title": title,
-            "series": series, "volume": volume, "added": 0}
+    return LibraryEntry(path=f"/x/{title}.cbz", title=title, series=series, volume=volume)
 
 
 def _group(store, entries):
@@ -175,7 +181,7 @@ def test_series_paths_gathers_all_volumes(store):
         _entry("Berserk T03", "Berserk", 3),
         _entry("One Piece T01", "One Piece", 1),
     ]
-    lib._entries[2]["detached"] = True   # tome sorti de la serie : exclu
+    lib._entries[2] = dataclasses.replace(lib._entries[2], detached=True)   # sorti de la serie
     lib._group_entries = LibraryWidget._group_entries.__get__(lib)
 
     paths = LibraryWidget._series_paths(lib, "berserk")
@@ -199,7 +205,7 @@ def test_series_progress_partial(store, tmp_path):
     c = _make_manga(tmp_path, "c.cbz", b"C")
     store.set_progress(a, 9, 10, True)   # termine
     store.set_progress(b, 3, 10, False)  # en cours, pas termine
-    group = [{"path": a}, {"path": b}, {"path": c}]
+    group = [_at(a), _at(b), _at(c)]
     read, count, frac, finished = _progress(store, group)
     assert read == 1 and count == 3 and finished is False
     assert abs(frac - 1 / 3) < 1e-9
@@ -210,7 +216,7 @@ def test_series_progress_all_read(store, tmp_path):
     b = _make_manga(tmp_path, "b.cbz", b"B")
     store.set_progress(a, 9, 10, True)
     store.set_progress(b, 9, 10, True)
-    read, count, frac, finished = _progress(store, [{"path": a}, {"path": b}])
+    read, count, frac, finished = _progress(store, [_at(a), _at(b)])
     assert (read, count, frac, finished) == (2, 2, 1.0, True)
 
 
@@ -221,8 +227,8 @@ def _featured(store, vols):
 
 
 def _make_volumes(store, tmp_path, n):
-    return [{"path": _make_manga(tmp_path, f"t{i:02d}.cbz",
-                                 f"tome-{i}".encode())} for i in range(1, n + 1)]
+    return [_at(_make_manga(tmp_path, f"t{i:02d}.cbz", f"tome-{i}".encode()))
+            for i in range(1, n + 1)]
 
 
 def test_featured_defaults_to_first_volume(store, tmp_path):
@@ -233,38 +239,37 @@ def test_featured_defaults_to_first_volume(store, tmp_path):
 def test_featured_is_next_after_last_finished(store, tmp_path):
     """Tome 2 (indice 1) termine -> la pile montre le tome 3 (indice 2)."""
     vols = _make_volumes(store, tmp_path, 4)
-    store.set_progress(vols[1]["path"], 9, 10, True)
+    store.set_progress(vols[1].path, 9, 10, True)
     assert _featured(store, vols) == 2
 
 
 def test_featured_stays_on_final_volume_when_series_done(store, tmp_path):
     """Dernier tome termine et rien apres : la pile reste sur ce tome."""
     vols = _make_volumes(store, tmp_path, 3)
-    store.set_progress(vols[2]["path"], 9, 10, True)
+    store.set_progress(vols[2].path, 9, 10, True)
     assert _featured(store, vols) == 2
 
 
 def test_featured_prefers_volume_in_progress(store, tmp_path):
     """Un tome en cours de lecture passe devant le "prochain a lire"."""
     vols = _make_volumes(store, tmp_path, 4)
-    store.set_progress(vols[0]["path"], 9, 10, True)    # T1 termine
-    store.set_progress(vols[2]["path"], 4, 10, False)   # T3 en cours
+    store.set_progress(vols[0].path, 9, 10, True)    # T1 termine
+    store.set_progress(vols[2].path, 4, 10, False)   # T3 en cours
     assert _featured(store, vols) == 2
 
 
 def test_featured_next_to_read_skips_gap(store, tmp_path):
     """T1 et T2 termines -> prochain a lire = T3, meme sans progression."""
     vols = _make_volumes(store, tmp_path, 5)
-    store.set_progress(vols[0]["path"], 9, 10, True)
-    store.set_progress(vols[1]["path"], 9, 10, True)
+    store.set_progress(vols[0].path, 9, 10, True)
+    store.set_progress(vols[1].path, 9, 10, True)
     assert _featured(store, vols) == 2
 
 
 # ----- doublons "meme tome, releases differentes" (series.py + progression) -----
 
 def _entry_p(path, title, series, volume, kind="volume"):
-    return {"path": path, "title": title, "series": series, "volume": volume,
-            "kind": kind, "added": 0}
+    return LibraryEntry(path=path, title=title, series=series, volume=volume, kind=kind)
 
 
 def _dedupe_sv(store, entries):
@@ -305,7 +310,7 @@ def test_dedupe_prefers_the_read_copy(store, tmp_path):
               _entry_p(a, "Berserk Volume 42", "Berserk", 42)]
     result = _dedupe_sv(store, entries)
     assert len(result) == 1
-    assert result[0]["path"] == a
+    assert result[0].path == a
 
 
 def test_dedupe_in_progress_beats_untouched(store, tmp_path):
@@ -314,7 +319,7 @@ def test_dedupe_in_progress_beats_untouched(store, tmp_path):
     store.set_progress(b, 3, 10, False)   # entame, pas termine
     entries = [_entry_p(a, "a", "Naruto", 5), _entry_p(b, "b", "Naruto", 5)]
     result = _dedupe_sv(store, entries)
-    assert len(result) == 1 and result[0]["path"] == b
+    assert len(result) == 1 and result[0].path == b
 
 
 def test_dedupe_does_not_merge_volumeless_entries(store, tmp_path):
@@ -334,3 +339,17 @@ def test_dedupe_does_not_merge_different_volumes(store, tmp_path):
     entries = [_entry_p(a, "T01", "Naruto", 1), _entry_p(b, "T02", "Naruto", 2)]
     result = _dedupe_sv(store, entries)
     assert len(result) == 2
+
+
+def test_manually_grouped_volumes_are_never_deduplicated(store, tmp_path):
+    """Apres une fusion manuelle de deux series, deux « Tome 1 » cohabitent
+    dans la meme serie : aucun ne doit etre masque comme doublon de release."""
+    a = _make_manga(tmp_path, "Alpha - Tome 1.cbz", b"alpha-1")
+    b = _make_manga(tmp_path, "Beta - Tome 1.cbz", b"beta-1")
+    entries = [
+        LibraryEntry(path=a, title="Alpha - Tome 1", series="Alpha", volume=1, kind="volume"),
+        LibraryEntry(path=b, title="Beta - Tome 1", series="Alpha", volume=1, kind="volume",
+                     manual=True),
+    ]
+    result = LibraryWidget._dedupe_by_series_volume(_FakeLibrary(store), entries)
+    assert sorted(e.path for e in result) == sorted([a, b])

@@ -5,7 +5,7 @@ d'une reponse d'API complete (couche HTTP mockee, aucun acces reseau reel)."""
 import io
 import json
 
-import mangadex
+from beheread.infra import mangadex
 
 
 def test_title_matches_main_and_alt_titles():

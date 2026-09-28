@@ -1,0 +1,190 @@
+"""Tests d'interface de la bibliotheque (pytest-qt)."""
+
+import time
+
+from PySide6.QtCore import QEvent, QMimeData, QPointF, Qt, QUrl
+from PySide6.QtGui import QDropEvent, QKeyEvent
+from PySide6.QtWidgets import QApplication, QInputDialog, QMessageBox, QPushButton, QWidget
+
+from beheread.core.library_model import SORTS
+from tests.ui.conftest import make_cbz, scanned, visible_titles
+
+
+def _set_ts(store, path, ts):
+    store.progress[store.key_for(path)]["ts"] = ts
+
+
+def test_first_launch_shows_welcome(window, qtbot):
+    lib = window.library
+    qtbot.waitUntil(lambda: not lib._scanning)
+    assert lib.empty_panel.isVisible() and not lib.list.isVisible()
+    assert lib.empty_title.text() == "Bienvenue dans Beheread"
+    assert lib.empty_btn.isVisible()
+
+
+def test_dropping_a_folder_adds_it(window, qtbot, mangas, store):
+    make_cbz(mangas, "Alpha - Tome 1", seed=1)
+    lib = window.library
+    md = QMimeData()
+    md.setUrls([QUrl.fromLocalFile(str(mangas))])
+    lib.dropEvent(QDropEvent(QPointF(10, 10), Qt.CopyAction, md, Qt.LeftButton, Qt.NoModifier))
+    scanned(qtbot, lib, 1)
+    assert str(mangas) in store.folders()
+    assert lib.list.isVisible()
+
+
+def test_covers_are_kept_at_display_size(window, qtbot, mangas, store):
+    make_cbz(mangas, "Alpha - Tome 1", seed=1)
+    store.set_folders([str(mangas)])
+    lib = window.library
+    lib.refresh()
+    scanned(qtbot, lib, 1)
+    qtbot.waitUntil(lambda: len(lib.covers.cache) == 1, timeout=10000)
+    pm = next(iter(lib.covers.cache.values()))
+    assert (pm.width(), pm.height()) == (lib._cover_size.width(), lib._cover_size.height())
+
+
+def test_status_filters_sort_and_continue_shelf(window, qtbot, mangas, store):
+    paths = {n: make_cbz(mangas, n, seed=i) for i, n in enumerate(
+        ["Alpha - Tome 1", "Alpha - Tome 2", "Alpha - Tome 3", "Solo"])}
+    store.set_folders([str(mangas)])
+    lib = window.library
+    lib.refresh()
+    scanned(qtbot, lib, 4)
+
+    now = time.time()
+    store.set_progress(paths["Alpha - Tome 1"], 3, 4, True)
+    _set_ts(store, paths["Alpha - Tome 1"], now - 100)
+    store.set_progress(paths["Solo"], 2, 4, False)
+    _set_ts(store, paths["Solo"], now - 50)
+    lib._rebuild_list()
+
+    shelf = [lib.shelf.list.item(i).text() for i in range(lib.shelf.list.count())]
+    assert shelf == ["Solo", "Alpha - Tome 2"]          # en cours, puis tome suivant
+
+    lib._set_status_filter("reading")
+    assert visible_titles(lib) == ["Solo"] and lib.count_label.text() == "1 tome"
+    assert not lib.shelf.isVisible()
+    lib._set_status_filter("finished")
+    assert visible_titles(lib) == ["Alpha - Tome 1"]
+    lib._set_status_filter("all")
+
+    lib.sort_combo.setCurrentIndex([k for k, _ in SORTS].index("read"))
+    assert visible_titles(lib)[:2] == ["Solo", "Alpha - Tome 1"]
+
+    store.dismiss_continue(paths["Solo"])
+    lib._rebuild_list()
+    assert [lib.shelf.list.item(i).text() for i in range(lib.shelf.list.count())] == ["Alpha - Tome 2"]
+
+
+def test_series_detail_and_manual_series_management(window, qtbot, mangas, store, monkeypatch):
+    for i, n in enumerate(["Alpha - Tome 1", "Alpha - Tome 2", "Beta - Tome 1", "Beta - Tome 2"]):
+        make_cbz(mangas, n, seed=i)
+    store.set_folders([str(mangas)])
+    lib = window.library
+    lib.refresh()
+    scanned(qtbot, lib, 4)
+    lib.btn_group.setChecked(True)
+    assert sorted(visible_titles(lib)) == ["Alpha", "Beta"]
+
+    lib.list.setCurrentRow(visible_titles(lib).index("Alpha"))
+    qtbot.wait(20)   # les boutons ajoutes a un panneau visible s'affichent au tour suivant
+    # libelle complet (a l'ecran, un libelle trop long est raccourci avec « … »)
+    buttons = [b.full_text() for b in lib.detail.findChildren(QPushButton) if b.isVisible()]
+    assert lib.detail.title.text() == "Alpha"
+    assert "Commencer le tome 1" in buttons, buttons
+
+    monkeypatch.setattr(QInputDialog, "getText", staticmethod(lambda *a, **k: ("Alpha Deluxe", True)))
+    lib._rename_series("alpha")
+    assert "Alpha Deluxe" in visible_titles(lib)
+
+    # fusion : deux « Tome 1 » cohabitent, aucun n'est masque comme doublon
+    monkeypatch.setattr(QInputDialog, "getItem", staticmethod(lambda *a, **k: ("Alpha Deluxe", True)))
+    lib._merge_series("beta")
+    qtbot.waitUntil(lambda: visible_titles(lib) == ["Alpha Deluxe"], timeout=10000)
+    assert len(lib._group_entries(lib._entries)["alpha"]) == 4
+
+
+def test_failed_delete_keeps_progress(window, qtbot, mangas, store, monkeypatch):
+    path = make_cbz(mangas, "Alpha - Tome 1", seed=1)
+    store.set_folders([str(mangas)])
+    lib = window.library
+    lib.refresh()
+    scanned(qtbot, lib, 1)
+    store.set_progress(path, 2, 4, False)
+    monkeypatch.setattr(QMessageBox, "question", staticmethod(lambda *a, **k: QMessageBox.Yes))
+    monkeypatch.setattr(QMessageBox, "warning", staticmethod(lambda *a, **k: None))
+    import send2trash
+
+    def refuse(_p):
+        raise OSError("fichier verrouille")
+    monkeypatch.setattr(send2trash, "send2trash", refuse)
+    lib._delete_many([path])
+    assert store.get_progress(path) == (2, 4, False) and len(lib._entries) == 1
+
+
+def test_help_overlay_opens_and_closes(window, qtbot):
+    lib = window.library
+    lib._toggle_help()
+    assert lib._help.isVisible()
+    QApplication.sendEvent(lib._help, QKeyEvent(QEvent.KeyPress, Qt.Key_Escape, Qt.NoModifier))
+    assert not lib._help.isVisible()
+
+
+def test_detail_panel_keeps_its_width_with_long_names(window, qtbot, mangas, store):
+    """Un nom de fichier tres long (sans espaces, sans numero de tome) ne doit
+    ni elargir le panneau ni etre coupe au bord : titre replie, boutons
+    raccourcis avec « … » et texte complet en infobulle."""
+    from beheread.ui.library.detail import ElidedButton
+    long_name = "Parasite_Edition_originale_integrale_" + "x" * 80
+    make_cbz(mangas, long_name, seed=3)
+    store.set_folders([str(mangas)])
+    lib = window.library
+    lib._set_details_visible(True)
+    lib.refresh()
+    scanned(qtbot, lib, 1)
+    lib.list.setCurrentRow(0)
+    qtbot.wait(50)
+    panel = lib.detail
+    host = panel.findChild(QWidget, "detailHost")
+    viewport_w = host.parentWidget().width()
+    assert host.width() <= viewport_w, (host.width(), viewport_w)
+    assert panel.width() == 300
+    buttons = [b for b in panel.findChildren(ElidedButton) if b.isVisible()]
+    assert buttons and all(b.width() <= viewport_w for b in buttons)
+    assert all(b.fontMetrics().horizontalAdvance(b.text()) <= b.width() for b in buttons)
+    assert panel.title.width() <= viewport_w
+
+    # fenetre basse : le contenu defile au lieu de se tasser (aucun chevauchement)
+    window.resize(1300, 500)
+    qtbot.wait(50)
+    assert host.height() > host.parentWidget().height()
+    stack = [panel.title, panel.subtitle] + [panel.form.itemAt(i).widget()
+                                             for i in range(panel.form.count())]
+    stack = [w for w in stack if w is not None and w.isVisible()]
+    labels_bottom = max(w.mapTo(host, w.rect().bottomLeft()).y() for w in stack)
+    buttons = sorted((b for b in panel.findChildren(ElidedButton) if b.isVisible()),
+                     key=lambda b: b.y())
+    assert labels_bottom < buttons[0].y()
+    assert all(b2.y() >= b1.y() + b1.height() for b1, b2 in zip(buttons, buttons[1:]))
+
+
+def test_grid_top_fades_only_once_scrolled(window, qtbot, mangas, store):
+    for i in range(12):
+        # nombre de pages different : contenus uniques (pas de fusion de doublons)
+        make_cbz(mangas, f"Serie{i:02d} - Tome 1", pages=2 + i, seed=i)
+    store.set_folders([str(mangas)])
+    lib = window.library
+    lib.refresh()
+    scanned(qtbot, lib, 12)
+    qtbot.wait(20)
+    fade = lib.list._top_fade
+    sb = lib.list.verticalScrollBar()
+    assert sb.maximum() > 0
+    sb.setValue(0)
+    assert fade.strength == 0                      # grille en haut : rien n'est estompe
+    sb.setValue(sb.maximum())
+    assert fade.strength == 1
+    vp = lib.list.viewport().geometry()
+    assert fade.geometry().top() == vp.top() and fade.width() >= vp.width()
+    assert fade.testAttribute(Qt.WA_TransparentForMouseEvents)
