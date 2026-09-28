@@ -1,7 +1,7 @@
 """Tests de la logique d'appairage double page (pairing.py) : parite,
 planches doubles, recul. Purement algorithmique, sans Qt."""
 
-import pairing
+from beheread.core import pairing
 
 
 def no_spread(_i):

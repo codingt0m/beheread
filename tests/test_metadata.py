@@ -7,10 +7,10 @@ mis en cache comme une absence de resultat (network_ok=False). Les clients
 reseau sont mockes ; aucun acces reseau reel.
 """
 
-import anilist
-import googlebooks
-import mangadex
-import metadata
+from beheread.infra import anilist
+from beheread.infra import googlebooks
+from beheread.infra import mangadex
+from beheread.infra import metadata
 
 
 def _no_network(*a, **k):
@@ -164,3 +164,22 @@ def test_stale_not_found_cache_is_retried(monkeypatch):
     assert ok is True
     assert data["authors"] == ["Toan"]
     assert data["source"] == "mangadex"
+
+
+def test_offline_mode_never_touches_network(monkeypatch):
+    """Recherche en ligne non autorisee : aucune API n'est appelee, et
+    l'absence de resultat n'est pas presentee comme definitive (ok=False),
+    pour etre retentee si l'utilisateur active les metadonnees en ligne."""
+    monkeypatch.setattr(metadata, "_read_comicinfo_meta", lambda path: None)
+    monkeypatch.setattr(googlebooks, "search_volume", _no_network)
+    monkeypatch.setattr(anilist, "search_series", _no_network)
+    monkeypatch.setattr(mangadex, "search_series", _no_network)
+    assert metadata.fetch("x.cbz", "One Piece", 1, None, online=False) == (None, False, None)
+
+
+def test_offline_mode_still_uses_comicinfo(monkeypatch):
+    monkeypatch.setattr(metadata, "_read_comicinfo_meta",
+                        lambda path: {"authors": ["Oda"], "published_year": 1997})
+    monkeypatch.setattr(googlebooks, "search_volume", _no_network)
+    data, ok, _ = metadata.fetch("x.cbz", "One Piece", 1, None, online=False)
+    assert ok and data["authors"] == ["Oda"] and data["source"] == "comicinfo"

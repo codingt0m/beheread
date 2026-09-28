@@ -1,19 +1,24 @@
 # -*- mode: python ; coding: utf-8 -*-
-"""Spec PyInstaller pour Beheread. Construire avec :
-    pyinstaller beheread.spec
-L'executable (et son dossier dist/) sont regeneres a chaque build ;
-supprimer build/ et dist/ pour repartir de zero si besoin."""
+"""Spec PyInstaller pour Beheread, en mode DOSSIER (onedir) :
+    pyinstaller beheread.spec --noconfirm
+produit dist\\Beheread\\Beheread.exe et ses bibliotheques (_internal\\).
+
+Pourquoi « onedir » plutot qu'un exe unique : demarrage immediat (rien a
+extraire dans un dossier temporaire a chaque lancement) et beaucoup moins de
+faux positifs antivirus. Le dossier est ensuite emballe par l'installateur
+Inno Setup (installer\\beheread.iss, voir build.bat)."""
 
 a = Analysis(
     ['main.py'],
     pathex=[],
     binaries=[],
-    datas=[('icon.ico', '.')],
+    # icone et autres ressources, retrouvees par beheread.config.resource_path
+    datas=[('beheread/resources', 'beheread/resources')],
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=[],
+    excludes=['tkinter', 'unittest', 'pytest', 'pytestqt'],
     noarchive=False,
 )
 pyz = PYZ(a.pure)
@@ -21,9 +26,8 @@ pyz = PYZ(a.pure)
 exe = EXE(
     pyz,
     a.scripts,
-    a.binaries,
-    a.datas,
     [],
+    exclude_binaries=True,
     name='Beheread',
     debug=False,
     bootloader_ignore_signals=False,
@@ -31,13 +35,20 @@ exe = EXE(
     # UPX desactive : la compression declenche frequemment des faux positifs
     # antivirus sur les .exe PyInstaller, pour un gain de taille marginal.
     upx=False,
-    upx_exclude=[],
-    runtime_tmpdir=None,
     console=False,          # app graphique : pas de fenetre console
     disable_windowed_traceback=False,
     argv_emulation=False,
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon='icon.ico',
+    icon='beheread/resources/icon.ico',
+)
+
+coll = COLLECT(
+    exe,
+    a.binaries,
+    a.datas,
+    strip=False,
+    upx=False,
+    name='Beheread',
 )

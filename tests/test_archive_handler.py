@@ -2,8 +2,8 @@ import zipfile
 
 import pytest
 
-import archive_handler
-from archive_handler import Archive, ArchiveError
+from beheread.infra import archive
+from beheread.infra.archive import Archive, ArchiveError
 
 
 def _make_epub(path, image_names):
@@ -26,7 +26,7 @@ def test_read_page_rejects_decompression_bomb(tmp_path, monkeypatch):
     """Une page dont la taille decompressee annoncee depasse le plafond est
     refusee sans etre lue (garde-fou anti bombe de decompression)."""
     path = _make_cbz(tmp_path / "big.cbz", image_bytes=b"x" * 50)
-    monkeypatch.setattr(archive_handler, "MAX_PAGE_BYTES", 10)
+    monkeypatch.setattr(archive, "MAX_PAGE_BYTES", 10)
     ar = Archive(path)
     try:
         with pytest.raises(ArchiveError):
@@ -60,14 +60,14 @@ def test_comicinfo_plain_is_parsed(tmp_path):
 
 
 def test_epub_extension_is_supported():
-    assert ".epub" in archive_handler.SUPPORTED_EXTS
+    assert ".epub" in archive.SUPPORTED_EXTS
 
 
 def test_scan_folder_finds_epub(tmp_path):
     epub_path = tmp_path / "volume01.epub"
     _make_epub(epub_path, ["page001.jpg", "page002.jpg"])
 
-    results = archive_handler.scan_folder(str(tmp_path))
+    results = archive.scan_folder(str(tmp_path))
 
     assert str(epub_path) in results
 
@@ -76,7 +76,7 @@ def test_archive_reads_pages_from_epub(tmp_path):
     epub_path = tmp_path / "volume01.epub"
     _make_epub(epub_path, ["page002.jpg", "page001.jpg"])
 
-    ar = archive_handler.Archive(str(epub_path))
+    ar = archive.Archive(str(epub_path))
     try:
         assert len(ar) == 2
         assert ar.pages[0].endswith("page001.jpg")
@@ -84,3 +84,14 @@ def test_archive_reads_pages_from_epub(tmp_path):
         assert ar.read_first_page() == b"fake-image-bytes"
     finally:
         ar.close()
+
+
+def test_read_after_close_raises_archive_closed(tmp_path):
+    """Un prechargement encore en file quand le lecteur se ferme doit echouer
+    proprement (ArchiveClosedError), sans lire un fichier ferme."""
+    from beheread.infra.archive import ArchiveClosedError
+    ar = Archive(_make_cbz(tmp_path / "a.cbz"))
+    ar.close()
+    ar.close()   # idempotent
+    with pytest.raises(ArchiveClosedError):
+        ar.read_first_page()
