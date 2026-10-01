@@ -1,53 +1,78 @@
 # Beheread
 
-Version actuelle : voir [`beheread/version.py`](beheread/version.py) (affichée aussi dans l'info-bulle du logo, en haut à gauche de la bibliothèque).
+**Version 1.0** · Windows 10 et 11 (64 bits) · [Télécharger la dernière version](https://github.com/codingt0m/beheread/releases/latest) · [Notes de version](CHANGELOG.md)
 
-Application de bureau pour Windows 10/11 pour lire des mangas au format CBZ (archives ZIP), CBR (archives RAR), EPUB (les EPUB étant eux-mêmes des archives ZIP, leurs images sont lues comme des pages de manga) et PDF (pages rendues à la demande). La lecture, la bibliothèque et toutes les données restent **locales**. Deux fonctions optionnelles, désactivées tant que vous ne les activez pas, utilisent le réseau : l'enrichissement des métadonnées (auteur, date de sortie ; voir [Métadonnées](#métadonnées-auteur-date-de-sortie)) et le suivi de lecture AniList. L'application fonctionne normalement sans connexion.
+Beheread est un lecteur de mangas pour Windows. Il lit les fichiers CBZ, CBR, EPUB et PDF, range vos tomes par série et reprend chaque lecture à la page où vous l'avez laissée.
 
-Stack : Python 3 + PySide6 (Qt). Choix motivé par la simplicité d'installation (un seul `pip install`), de bonnes performances d'affichage d'images (rendu natif Qt) et un support Windows solide.
+La lecture, la bibliothèque et toutes les données restent **sur votre PC**. Deux fonctions optionnelles, désactivées tant que vous ne les activez pas, utilisent le réseau : la recherche des métadonnées (auteur, date de sortie ; voir [Métadonnées](#métadonnées-auteur-date-de-sortie)) et le suivi de lecture AniList. L'application fonctionne normalement sans connexion.
 
 ## Installation
 
-**Pour lire** : lancer `Beheread-Setup-<version>.exe` (produit par `build.bat`, voir plus bas). L'installation se fait pour l'utilisateur courant, **sans droits administrateur** : dans `%LOCALAPPDATA%\Programs\Beheread`, avec un raccourci dans le menu Démarrer et, si l'option est cochée, l'ouverture des fichiers CBZ, CBR et EPUB par Beheread (Beheread est aussi proposé dans « Ouvrir avec » pour les PDF, sans devenir leur lecteur par défaut). Une désinstallation classique (Paramètres Windows > Applications) retire l'application et ses associations ; vos données de lecture sont conservées.
+Il n'y a rien d'autre à installer : tout ce dont Beheread a besoin est inclus dans le téléchargement.
 
-**Pour développer** : installer Python 3.10 ou plus récent (https://www.python.org/downloads/, case "Add Python to PATH" cochée), puis dans le dossier du projet :
+### 1. Télécharger
+
+Ouvrez la page de la [dernière version](https://github.com/codingt0m/beheread/releases/latest) et, dans la liste **Assets**, téléchargez l'un de ces deux fichiers :
+
+| Fichier | Quand le choisir |
+|---|---|
+| `Beheread-Setup-x.y.z.exe` | **Recommandé.** Installe Beheread, crée son raccourci dans le menu Démarrer et permet d'ouvrir vos mangas d'un double-clic. |
+| `Beheread-x.y.z-windows-x64.zip` | Version sans installation, à dézipper où vous voulez (voir [plus bas](#version-sans-installation)). |
+
+Les archives « Source code » de la même liste contiennent le code du projet : elles ne servent pas à utiliser l'application.
+
+### 2. Installer
+
+1. Double-cliquez sur `Beheread-Setup-x.y.z.exe`.
+2. Si Windows affiche « Windows a protégé votre ordinateur », cliquez sur **Informations complémentaires**, puis sur **Exécuter quand même**. Cet avertissement apparaît parce que l'installateur n'est pas signé numériquement.
+3. Choisissez **Installer seulement pour moi (recommandé)** : aucun droit administrateur n'est demandé.
+4. Sur la page des tâches supplémentaires, laissez cochée l'option **Ouvrir les fichiers CBZ, CBR et EPUB avec Beheread** pour ouvrir vos mangas d'un double-clic. Cochez **Créer une icône sur le Bureau** si vous en voulez une.
+5. Cliquez sur **Installer**, puis sur **Terminer** : Beheread se lance.
+
+Beheread s'installe dans `%LOCALAPPDATA%\Programs\Beheread`. Pour les PDF, il est proposé dans « Ouvrir avec » sans remplacer votre lecteur PDF habituel.
+
+### 3. Premier lancement
+
+1. Sur l'écran d'accueil, cliquez sur **Ajouter un dossier** et choisissez le dossier qui contient vos mangas. Ses sous-dossiers sont parcourus aussi, et vos fichiers ne sont ni déplacés ni modifiés.
+2. Un bandeau propose de rechercher en ligne l'auteur et la date de sortie de vos tomes : répondez **Activer** ou **Non merci**. Ce choix se modifie ensuite dans les préférences.
+3. Double-cliquez sur une couverture pour lire. **F1** affiche la liste des raccourcis.
+
+Par la suite, Beheread s'ouvre depuis le menu Démarrer ou d'un double-clic sur un fichier CBZ, CBR ou EPUB.
+
+### Version sans installation
+
+1. Dézippez `Beheread-x.y.z-windows-x64.zip` où vous voulez.
+2. Ouvrez le dossier `Beheread` et lancez `Beheread.exe`. Le dossier `_internal` doit rester à côté de lui.
+
+Cette version ne crée ni raccourci ni association de fichiers. Elle enregistre ses données au même endroit que la version installée (`%APPDATA%\MangaReaderPy`).
+
+### Mettre à jour
+
+Beheread ne se met pas à jour tout seul. Téléchargez le nouvel installateur et lancez-le : il remplace la version en place, en fermant Beheread s'il est ouvert. Votre bibliothèque, votre progression et vos réglages sont conservés.
+
+### Désinstaller
+
+Ouvrez *Paramètres Windows > Applications > Applications installées*, puis choisissez **Désinstaller** sur la ligne Beheread. L'application et ses associations de fichiers sont retirées ; vos données de lecture sont conservées dans `%APPDATA%\MangaReaderPy`. Supprimez ce dossier pour tout effacer.
+
+### Lire les fichiers CBR
+
+Les CBZ, EPUB et PDF fonctionnent sans rien d'autre. Les vrais fichiers RAR ont besoin d'un outil de décompression, qui n'est pas fourni avec Beheread. Une seule de ces trois options suffit :
+
+* **WinRAR est déjà installé** : rien à faire dans la plupart des cas. Beheread cherche `UnRAR.exe` dans `C:\Program Files\WinRAR`.
+* **Sans WinRAR** : téléchargez « UnRAR for Windows » sur https://www.rarlab.com/rar_add.htm et copiez `UnRAR.exe` dans le dossier de Beheread (celui de `Beheread.exe`). Il est détecté automatiquement.
+* **Avec 7-Zip** : installez 7-Zip (https://www.7-zip.org) et ajoutez son dossier (`C:\Program Files\7-Zip`) à la variable d'environnement PATH.
+
+Beaucoup de fichiers `.cbr` sont en réalité des ZIP renommés. Beheread reconnaît le format réel du fichier, donc ceux-là s'ouvrent sans outil RAR.
+
+### Vérifier le téléchargement (facultatif)
+
+Chaque version publie un fichier `SHA256SUMS.txt`. Dans PowerShell, depuis le dossier du téléchargement :
 
 ```
-pip install -r requirements.txt          # utilisation
-pip install -r requirements-dev.txt      # + tests, construction de l'exe
+Get-FileHash .\Beheread-Setup-x.y.z.exe -Algorithm SHA256
 ```
 
-Cela installe PySide6 (interface graphique ; son module QtPdf assure la lecture des PDF), rarfile (lecture des RAR) et send2trash (corbeille).
-
-## Support CBR (obligatoire uniquement pour les vrais fichiers RAR)
-
-Les CBZ fonctionnent sans rien d'autre. Pour les CBR, la bibliothèque `rarfile` a besoin d'un outil de décompression externe. Trois options, une seule suffit :
-
-* Option A (recommandée) : télécharger "UnRAR for Windows" sur https://www.rarlab.com/rar_add.htm et copier le fichier `UnRAR.exe` dans le dossier de Beheread (celui de `Beheread.exe` une fois installé, la racine du projet en développement). L'application le détecte automatiquement.
-* Option B : si WinRAR est déjà installé, rien à faire dans la plupart des cas. L'application cherche `UnRAR.exe` dans `C:\Program Files\WinRAR`.
-* Option C : installer 7-Zip (https://www.7-zip.org) et ajouter son dossier (`C:\Program Files\7-Zip`) à la variable d'environnement PATH. `rarfile` sait utiliser `7z.exe` comme moteur de décompression.
-
-Note : beaucoup de fichiers `.cbr` du commerce sont en réalité des ZIP renommés. L'application détecte le format réel par la signature du fichier, donc ces fichiers s'ouvrent même sans outil RAR.
-
-## Lancement
-
-Une fois installé : menu Démarrer > Beheread, ou double-clic sur un fichier CBZ/CBR/EPUB.
-
-En développement : `python -m beheread` (ou `python main.py`, ou un double-clic sur `Lancer le lecteur.vbs`, qui lance l'application sans fenêtre de console).
-
-### Construire l'application et l'installateur
-
-```
-build.bat
-```
-
-enchaîne les tests, la construction de l'exécutable par PyInstaller (`beheread.spec`) et la compilation de l'installateur par Inno Setup (`installer\beheread.iss`, à installer une fois : `winget install JRSoftware.InnoSetup`). Résultats :
-* `dist\Beheread\` : l'application en mode dossier (`Beheread.exe` + ses bibliothèques). Ce mode démarre immédiatement (rien à extraire à chaque lancement, contrairement à un exe unique) et déclenche beaucoup moins de faux positifs antivirus ;
-* `dist\Beheread-Setup-<version>.exe` : l'installateur à distribuer.
-
-`build_and_install.bat` fait la même chose puis installe et lance Beheread sur ce PC, sans demande d'élévation.
-
-Limites : le support CBR nécessite toujours un outil de décompression RAR sur la machine (voir « Support CBR ») — il n'est pas embarqué. L'exe n'est pas signé numériquement : Windows SmartScreen peut afficher un avertissement au premier lancement de l'installateur.
+L'empreinte affichée doit être celle de la ligne correspondante de `SHA256SUMS.txt`.
 
 ## Utilisation
 
@@ -165,8 +190,6 @@ Ensuite, **à la fin de chaque séance de lecture** (fermeture du lecteur ou pas
 
 Chaque série est associée automatiquement à son œuvre AniList quand le titre trouvé correspond clairement au nom de la série ; sinon, le panneau d'informations indique « à associer » : *Associer à AniList…* accepte l'adresse de la page AniList de la série (ex. `https://anilist.co/manga/30002/Berserk`). *Ne pas suivre sur AniList* exclut une série. Sans réseau, les mises à jour restent en attente et sont renvoyées plus tard.
 
-**Pour le développeur : enregistrer Beheread auprès d'AniList (une seule fois).** Sur https://anilist.co/settings/developer, créer une application (« Create New Application ») nommée Beheread, avec comme *Redirect URL* exactement `http://127.0.0.1:51789/anilist`. Recopier le **Client ID** obtenu dans `ANILIST_CLIENT_ID` de `beheread/config.py` (ou, pour tester, dans la variable d'environnement `BEHEREAD_ANILIST_CLIENT_ID`), puis reconstruire l'exe. Le Client ID n'est pas secret ; le **Client Secret n'est jamais utilisé** et ne doit figurer nulle part dans le code. Tant que le Client ID est vide, le bouton de connexion est désactivé. Si, après l'accord sur AniList, le navigateur affiche `{"error":{"status":404,"messages":["API route not found."]}}` sur une adresse `anilist.co/api/v2/oauth/…`, c'est que la *Redirect URL* a été enregistrée sans `http://` : le navigateur la traite alors comme un chemin du site AniList.
-
 ## Sauvegarde de la progression
 
 La dernière page lue de chaque manga est enregistrée automatiquement à chaque changement de page et à la fermeture. Un manga est marqué "Terminé" quand la dernière page est atteinte.
@@ -194,12 +217,63 @@ Supprimer ce dossier réinitialise l'application. Aucune donnée ne quitte votre
 * Un cache mémoire limité (12 pages décodées) évite toute saturation de la RAM sur les gros fichiers.
 * Les vignettes de la bibliothèque sont générées en parallèle et mises en cache sur disque.
 
+## Dépannage
+
+* « Windows a protégé votre ordinateur » au lancement de l'installateur : voir l'étape 2 de [Installer](#2-installer).
+* "Aucun outil de decompression RAR n'a ete trouve" : voir [Lire les fichiers CBR](#lire-les-fichiers-cbr).
+* Une vignette reste grise : l'archive est probablement corrompue ou vide ; ouvrez-la pour voir le message d'erreur détaillé.
+* Pour tout comportement anormal (Beheread qui ne se lance pas, métadonnées qui n'arrivent jamais, dossier qui ne se rafraîchit plus tout seul...), consulter `beheread.log` dans `%APPDATA%\MangaReaderPy` : les échecs silencieux (réseau, disque, archive corrompue) y sont tous consignés avec leur détail.
+* Pour signaler un problème : https://github.com/codingt0m/beheread/issues, en joignant si possible les lignes concernées de `beheread.log`.
+
+## Développement
+
+Cette partie s'adresse à ceux qui veulent modifier Beheread ou le construire eux-mêmes. Elle n'est pas nécessaire pour l'utiliser.
+
+Installer Python 3.10 ou plus récent (https://www.python.org/downloads/, case "Add Python to PATH" cochée), puis dans le dossier du projet :
+
+```
+pip install -r requirements.txt          # dépendances de l'application
+pip install -r requirements-dev.txt      # + tests, vérification du code, construction de l'exe
+python -m beheread                       # lancer l'application
+```
+
+`requirements.txt` installe PySide6 (interface graphique ; son module QtPdf assure la lecture des PDF), rarfile (lecture des RAR) et send2trash (corbeille). En développement, `UnRAR.exe` se dépose à la racine du projet. Si l'application ne se lance pas, vérifier `python --version` et réinstaller les dépendances.
+
+### Construire l'application et l'installateur
+
+```
+build.bat
+```
+
+enchaîne la vérification du code (ruff), les tests, la construction de l'exécutable par PyInstaller (`beheread.spec`) et la compilation de l'installateur par Inno Setup (`installer\beheread.iss`, à installer une fois : `winget install JRSoftware.InnoSetup`). Résultats, dans `dist\` :
+* `Beheread\` : l'application en mode dossier (`Beheread.exe` + ses bibliothèques). Ce mode démarre immédiatement (rien à extraire à chaque lancement, contrairement à un exe unique) et déclenche beaucoup moins de faux positifs antivirus ;
+* `Beheread-Setup-<version>.exe` : l'installateur ;
+* `Beheread-<version>-windows-x64.zip` : le même dossier, pour un usage sans installation ;
+* `SHA256SUMS.txt` : les sommes de contrôle des deux fichiers précédents.
+
+`build_and_install.bat` fait la même chose puis installe et lance Beheread sur ce PC, sans demande d'élévation.
+
+Limites : l'outil de décompression RAR n'est pas embarqué (voir [Lire les fichiers CBR](#lire-les-fichiers-cbr)). L'exe n'est pas signé numériquement : Windows SmartScreen peut afficher un avertissement au premier lancement de l'installateur.
+
+### Publier une version
+
+1. Mettre à jour le numéro dans `beheread/version.py` et ajouter la section correspondante en tête de `CHANGELOG.md`.
+2. Commiter, puis poser et pousser le tag : `git tag vX.Y.Z`, puis `git push origin vX.Y.Z`.
+3. Le workflow `.github/workflows/release.yml` lance `build.bat` sur un runner Windows et crée une release en **brouillon**, avec les trois fichiers à publier et les notes tirées de `CHANGELOG.md`. Il échoue si le tag ne correspond pas à `version.py` ou si la section du changelog manque.
+4. Relire le brouillon dans l'onglet Releases, puis le publier.
+
+Un lancement manuel du workflow (onglet Actions) fait un essai à blanc : les fichiers sont joints à l'exécution comme artefacts, sans créer de release.
+
+### Enregistrer Beheread auprès d'AniList (une seule fois)
+
+Sur https://anilist.co/settings/developer, créer une application (« Create New Application ») nommée Beheread, avec comme *Redirect URL* exactement `http://127.0.0.1:51789/anilist`. Recopier le **Client ID** obtenu dans `ANILIST_CLIENT_ID` de `beheread/config.py` (ou, pour tester, dans la variable d'environnement `BEHEREAD_ANILIST_CLIENT_ID`), puis reconstruire l'exe. Le Client ID n'est pas secret ; le **Client Secret n'est jamais utilisé** et ne doit figurer nulle part dans le code. Tant que le Client ID est vide, le bouton de connexion est désactivé. Si, après l'accord sur AniList, le navigateur affiche `{"error":{"status":404,"messages":["API route not found."]}}` sur une adresse `anilist.co/api/v2/oauth/…`, c'est que la *Redirect URL* a été enregistrée sans `http://` : le navigateur la traite alors comme un chemin du site AniList.
+
 ## Structure du projet
 
 Le code vit dans le package `beheread/`, organisé en couches ; les dépendances vont toujours de `ui` vers `services`, `infra` puis `core` (jamais l'inverse).
 
 ```
-main.py                  Point d'entrée (python main.py, Lancer le lecteur.vbs, PyInstaller)
+main.py                  Point d'entrée de PyInstaller (et python main.py)
 beheread/
   __main__.py            python -m beheread
   app.py                 Fenêtre principale, fenêtre du lecteur, démarrage (instance unique, thème)
@@ -250,9 +324,14 @@ beheread/
 tests/                   Tests pytest (logique, persistance, réseau simulé)
   ui/                    Tests d'interface (pytest-qt) : bibliothèque et lecteur
 installer/beheread.iss   Installateur Inno Setup
-build.bat                Tests + exe (mode dossier) + installateur
+build.bat                Vérification du code, tests, exe (mode dossier), installateur, archive zip
 build_and_install.bat    build.bat puis installation et lancement sur ce PC
 beheread.spec            Configuration PyInstaller
+pyproject.toml           Configuration de ruff et de pytest
+requirements.txt         Dépendances de l'application
+requirements-dev.txt     + tests, vérification du code, construction de l'exe
+CHANGELOG.md             Notes de version
+.github/workflows/release.yml   Publication d'une version (tag vX.Y.Z)
 ```
 
 ## Tests
@@ -260,13 +339,7 @@ beheread.spec            Configuration PyInstaller
 ```
 pip install -r requirements-dev.txt
 pytest
+ruff check .
 ```
 
-La suite couvre la logique pure (séries, appairage, molette, statistiques, règles AniList…), la persistance (SQLite, import des anciens JSON, sauvegarde), les clients réseau (réseau simulé, aucun appel réel) et l'interface avec **pytest-qt** (`tests/ui/` : état vide, glisser-déposer, filtres et tris, « Continuer la lecture », gestion des séries, suppression, lecteur, molette, PDF, instance unique). Les tests d'interface tournent sans fenêtre (plateforme « offscreen »), sans réseau et sans enregistrer de raccourci global. `ruff check --select F,E9 beheread tests` vérifie le code (noms indéfinis, imports inutiles, erreurs de syntaxe) ; sans `--select`, les versions récentes de ruff ajoutent de nombreuses règles de style non adoptées par le projet.
-
-## Dépannage
-
-* "Aucun outil de decompression RAR n'a ete trouve" : voir la section "Support CBR" ci-dessus.
-* Une vignette reste grise : l'archive est probablement corrompue ou vide ; ouvrez-la pour voir le message d'erreur détaillé.
-* L'application ne se lance pas : vérifier `python --version` (3.10 minimum) et réinstaller les dépendances avec `pip install -r requirements.txt`.
-* Pour tout comportement anormal (métadonnées qui n'arrivent jamais, dossier qui ne se rafraîchit plus tout seul...), consulter `beheread.log` dans `%APPDATA%\MangaReaderPy` : les échecs silencieux (réseau, disque, archive corrompue) y sont désormais tous consignés avec leur détail.
+La suite couvre la logique pure (séries, appairage, molette, statistiques, règles AniList…), la persistance (SQLite, import des anciens JSON, sauvegarde), les clients réseau (réseau simulé, aucun appel réel) et l'interface avec **pytest-qt** (`tests/ui/` : état vide, glisser-déposer, filtres et tris, « Continuer la lecture », gestion des séries, suppression, lecteur, molette, PDF, instance unique). Les tests d'interface tournent sans fenêtre (plateforme « offscreen »), sans réseau et sans enregistrer de raccourci global. `ruff check .` vérifie le code avec les règles retenues dans `pyproject.toml` : noms indéfinis, imports inutiles, erreurs de syntaxe, ordre des imports.
