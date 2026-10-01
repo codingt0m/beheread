@@ -3,8 +3,13 @@ rendues a la demande et exposees comme celles d'une archive d'images."""
 
 import pytest
 
-from beheread.infra.archive import (SUPPORTED_EXTS, Archive, ArchiveClosedError,
-                             ArchiveError, PdfArchive)
+from beheread.infra.archive import (
+    SUPPORTED_EXTS,
+    Archive,
+    ArchiveClosedError,
+    ArchiveError,
+    PdfArchive,
+)
 
 
 def _make_pdf(path, colors=("red", "green", "blue")):

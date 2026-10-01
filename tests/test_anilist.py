@@ -6,8 +6,8 @@ import urllib.error
 
 import pytest
 
-from beheread.infra import anilist
 from beheread.core import anilist_track as track
+from beheread.infra import anilist
 
 
 class _Resp(io.BytesIO):

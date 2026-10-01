@@ -15,7 +15,6 @@ from PySide6.QtCore import QAbstractNativeEventFilter
 WM_HOTKEY = 0x0312
 MOD_ALT = 0x0001
 MOD_CONTROL = 0x0002
-MOD_SHIFT = 0x0004
 MOD_NOREPEAT = 0x4000  # evite les repetitions tant que la touche est maintenue
 
 VK_C = 0x43
@@ -52,10 +51,6 @@ class GlobalHotkey(QAbstractNativeEventFilter):
             logging.warning(
                 "Raccourci global (touche boss) non enregistre - deja pris "
                 "par une autre application ?")
-
-    @property
-    def registered(self):
-        return self._registered
 
     def nativeEventFilter(self, event_type, message):
         if self._registered and sys.platform == "win32":

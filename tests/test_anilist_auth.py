@@ -9,8 +9,8 @@ import urllib.request
 
 import pytest
 
-from beheread.core import anilist_track as track
 from beheread import config
+from beheread.core import anilist_track as track
 from beheread.infra.anilist_auth import LocalAuthReceiver
 
 

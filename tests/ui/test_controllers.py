@@ -6,7 +6,11 @@ from PySide6.QtWidgets import QListWidgetItem
 from beheread.core.models import LibraryEntry
 from beheread.infra import metadata
 from beheread.ui.library.constants import ROLE_PIXMAP
-from beheread.ui.library.controllers import CoverCache, MetadataController, ScanController
+from beheread.ui.library.controllers import (
+    CoverCache,
+    MetadataController,
+    ScanController,
+)
 from tests.ui.conftest import make_cbz
 
 

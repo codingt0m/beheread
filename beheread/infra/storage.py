@@ -506,12 +506,6 @@ class Store:
         self.flush()   # operation rare et importante : ecriture immediate
         return True
 
-    def remove_folder(self, folder: str):
-        if folder in self.settings["folders"]:
-            self.settings["folders"].remove(folder)
-            self._schedule("settings")
-            self.flush()
-
     def set_folders(self, folders):
         """Remplace la liste complete des dossiers sources (normalises,
         sans doublon, ordre preserve). Utilise par le panneau de gestion."""

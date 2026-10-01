@@ -7,10 +7,7 @@ mis en cache comme une absence de resultat (network_ok=False). Les clients
 reseau sont mockes ; aucun acces reseau reel.
 """
 
-from beheread.infra import anilist
-from beheread.infra import googlebooks
-from beheread.infra import mangadex
-from beheread.infra import metadata
+from beheread.infra import anilist, googlebooks, mangadex, metadata
 
 
 def _no_network(*a, **k):

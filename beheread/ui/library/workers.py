@@ -121,6 +121,29 @@ class SeriesMetaWorker(QRunnable):
         self.signals.done.emit(self.series_key, series_data, ok)
 
 
+def dedupe_by_content(store: Store, paths):
+    """Deux fichiers identiques (meme contenu - copie du meme tome dans
+    un autre dossier source, ou doublon au meme endroit) ne doivent
+    apparaitre qu'une seule fois dans la bibliotheque. La progression,
+    les metadonnees et la vignette sont deja partagees par empreinte de
+    contenu (voir Store.key_for) : il suffit ici de ne garder qu'un seul
+    chemin representant par empreinte, choisi de facon stable (ordre
+    alphabetique) pour que ce ne soit jamais le meme fichier qui
+    "disparaisse" arbitrairement d'un rafraichissement a l'autre.
+    Le calcul des empreintes remplit au passage le cache de la Store."""
+    kept = {}
+    result = []
+    for p in sorted(paths):
+        try:
+            key = store.key_for(p)
+        except Exception:
+            key = p
+        if key not in kept:
+            kept[key] = p
+            result.append(p)
+    return result
+
+
 class _ScanSignals(QObject):
     # chemins locaux (dedupliques par contenu), chemins cloud non telecharges
     done = Signal(list, list)
@@ -167,18 +190,7 @@ class ScanWorker(QRunnable):
                     cloud.append(p)
                 else:
                     paths.append(p)
-        # deduplication par contenu (remplit le cache d'empreintes de la Store)
-        kept = {}
-        result = []
-        for p in sorted(paths):
-            try:
-                key = self.store.key_for(p)
-            except Exception:
-                key = p
-            if key not in kept:
-                kept[key] = p
-                result.append(p)
-        self.signals.done.emit(result, cloud)
+        self.signals.done.emit(dedupe_by_content(self.store, paths), cloud)
 
 
 class _HydrateSignals(QObject):
