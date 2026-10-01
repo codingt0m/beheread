@@ -106,6 +106,20 @@ def test_preferences_list_every_keyboard_shortcut(qtbot, store):
     assert dlg.height() <= dlg.screen().availableGeometry().height()
 
 
+def test_reader_settings_in_preferences(qtbot, store):
+    from beheread.ui import theme
+    store.set_reader_pref("fit_mode", 0)       # ancien « fenetre »
+    dlg = PreferencesDialog(store, theme.colors("dark"), {})
+    qtbot.addWidget(dlg)
+    assert [dlg.fit.itemText(i) for i in range(dlg.fit.count())] == [
+        "Ajuster à la hauteur", "Ajuster à la largeur"]
+    assert dlg.fit.currentIndex() == 0 and not dlg.ambilight.isChecked()
+    dlg.ambilight.setChecked(True)
+    dlg.fit.setCurrentIndex(1)
+    dlg.save()
+    assert store.reader_pref("ambilight") is True and store.reader_pref("fit_mode") == 1
+
+
 def test_continue_shelf_can_reset_progress(window, qtbot, mangas, store, monkeypatch):
     paths = [make_cbz(mangas, f"Alpha - Tome {i}", seed=i) for i in (1, 2)]
     store.set_folders([str(mangas)])

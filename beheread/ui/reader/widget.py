@@ -10,11 +10,12 @@ Navigation :
   D : basculer simple page <-> double page
   M : basculer mode manga (droite -> gauche) <-> mode normal (gauche -> droite)
   S : decaler la parite en double page (couverture seule <-> couplee)
-  F : ajustement fenetre -> largeur -> hauteur
+  F : ajustement hauteur <-> largeur
   R : recadrage automatique des marges (rogne les bords vides du scan)
   A : activer/desactiver l'Ambilight (fond teinte par la couleur de la page)
   + / - : zoom, 0 : reinitialiser le zoom, Ctrl+molette : zoom
-  F11 ou bouton "Plein ecran" (en haut a droite) : plein ecran
+  F11 ou bouton en haut a droite : quitter / reprendre le plein ecran (le
+      lecteur s'ouvre toujours en plein ecran)
   C : masquer instantanement la fenetre (touche "boss") ; Ctrl+Alt+C la
       reaffiche depuis n'importe ou (raccourci global)
   Echap ou bouton "Bibliotheque" (en haut a gauche) : retour a la bibliotheque
@@ -52,6 +53,7 @@ from PySide6.QtWidgets import (
 )
 
 from beheread.core import pairing
+from beheread.core.reading_session import SessionMeter
 from beheread.core.wheel_nav import WheelNavigator
 from beheread.infra.archive import Archive, find_next_volume
 from beheread.infra.storage import Store
@@ -62,8 +64,8 @@ from beheread.ui.reader.constants import (
     CHROME_HIDE_MS,
     FIT_HEIGHT,
     FIT_WIDTH,
-    FIT_WINDOW,
     SLIDER_H,
+    normalize_fit,
 )
 from beheread.ui.reader.display import DisplayMixin
 from beheread.ui.reader.end_card import EndCardMixin
@@ -102,13 +104,16 @@ class ReaderWidget(HudMixin, EndCardMixin, DisplayMixin, InputMixin,
         if prog and 0 <= prog[0] < self.total:
             self.page = prog[0]
 
+        # reglages du lecteur : communs a tous les mangas (le dernier choix
+        # fait dans un tome se retrouve a l'ouverture de n'importe quel autre),
+        # sauf le sens de lecture, detecte ou choisi serie par serie
         self.double_page = bool(store.reader_pref("double_page", True))
         self._series_key = self._resolve_series_key()
         self.manga_mode = self._initial_manga_mode()
-        self.fit_mode = int(store.reader_pref("fit_mode", FIT_WINDOW))
+        self.fit_mode = normalize_fit(store.reader_pref("fit_mode"))
         self.smart_crop = bool(store.reader_pref("smart_crop", False))
         self.ambilight = bool(store.reader_pref("ambilight", False))
-        self.page_offset = int(store.get_reader_offset(path)) & 1
+        self.page_offset = int(store.reader_pref("page_offset", 0)) & 1
         self.zoom = 1.0
         self.pan = QPoint(0, 0)
         # alignement a appliquer au prochain rendu d'une page plus haute que
@@ -156,13 +161,9 @@ class ReaderWidget(HudMixin, EndCardMixin, DisplayMixin, InputMixin,
         self._transition_timer = QTimer(self)
         self._transition_timer.timeout.connect(self._step_transition)
 
-        # estimation du temps restant : horodatage des tours de page (session)
-        self._page_times = []
-        # statistiques de la seance : pages lues (quittees en avancant) et
-        # passage a « termine » pendant la seance
-        self._session_pages = set()
-        prog = store.get_progress(path)
-        self._was_finished = bool(prog and prog[2])
+        # mesure de la seance : pages lues, temps actif et rythme (statistiques
+        # et estimation du temps restant)
+        self._meter = SessionMeter(self._now())
 
         self._build_hud()
 
@@ -270,6 +271,9 @@ class ReaderWidget(HudMixin, EndCardMixin, DisplayMixin, InputMixin,
             f" border-color: {c['text_dim']}; }}")
         self.back_button.setStyleSheet(button_css)
         self.fullscreen_button.setStyleSheet(button_css)
+        self._fit_icons = {FIT_HEIGHT: icons.arrows_vertical(c["text"]),
+                           FIT_WIDTH: icons.arrows_horizontal(c["text"])}
+        self.chip_fit.setIcon(self._fit_icons[self.fit_mode])
         self.back_button.setIcon(icons.chevron_left(c["text"]))
         self.fullscreen_button.setIcon(icons.expand(c["text"]))
         self.back_button.adjustSize()
@@ -309,9 +313,9 @@ class ReaderWidget(HudMixin, EndCardMixin, DisplayMixin, InputMixin,
         (p, p+1) devient (p-1, p) - c'est justement la bonne planche double
         quand une couverture en tete de tome decale tout l'appairage. Seule
         exception : tout au debut, la couverture s'affiche seule (pas de
-        voisine avant elle). Le choix est memorise pour ce tome."""
+        voisine avant elle). Le choix vaut pour tous les mangas."""
         self.page_offset ^= 1
-        self.store.set_reader_offset(self.path, self.page_offset)
+        self.store.set_reader_pref("page_offset", self.page_offset)
         # apres inversion, une page qui etait debut de paire devient fin de
         # paire : on recule d'une page pour reafficher une paire (au lieu
         # d'isoler la page courante), sauf a la toute premiere page.
@@ -329,6 +333,9 @@ class ReaderWidget(HudMixin, EndCardMixin, DisplayMixin, InputMixin,
         elif self.page < self.total - 1:
             self._go_to(self.total - 1, animate=animate)
         else:
+            # fin du tome : la derniere vue est lue, et l'horloge s'arrete (le
+            # temps passe sur la fiche de fin n'est pas de la lecture)
+            self._meter.leave(self._now(), self._current_indices(), resume=False)
             self._save_progress(finished=True)
             if not self._next_volume_checked:
                 self._next_volume_checked = True
@@ -347,10 +354,8 @@ class ReaderWidget(HudMixin, EndCardMixin, DisplayMixin, InputMixin,
 
     def _go_to(self, index: int, save=True, animate=True, align="top"):
         new_page = max(0, min(index, self.total - 1))
-        if new_page > self.page:
-            # en avancant, la ou les pages quittees ont ete lues
-            self._session_pages.update(self._current_indices())
         if new_page != self.page:
+            self._meter.leave(self._now(), self._current_indices(), forward=new_page > self.page)
             if animate and self.store.reader_pref("page_fade", True):
                 self._start_transition()
             else:
@@ -358,7 +363,6 @@ class ReaderWidget(HudMixin, EndCardMixin, DisplayMixin, InputMixin,
                 # annule celui deja en cours pour ne pas empiler les frames
                 # figees ni faire tourner le timer a chaque page.
                 self._cancel_transition()
-            self._record_page_time()
         self.page = new_page
         self.pan = QPoint(0, 0)
         self._pending_align = align
@@ -464,9 +468,9 @@ class ReaderWidget(HudMixin, EndCardMixin, DisplayMixin, InputMixin,
 
         if self.fit_mode == FIT_WIDTH:
             h = vw / rsum
-        elif self.fit_mode == FIT_HEIGHT:
-            h = vh
         else:
+            # hauteur : toute la hauteur de l'ecran, reduite si la page (ou la
+            # paire) deborderait alors en largeur - elle reste entiere a l'ecran
             h = min(vh, vw / rsum)
         h *= self.zoom
         widths = [h * r for r in ratios]

@@ -43,6 +43,7 @@ from beheread.ui.help_overlay import (
     sections_layout,
 )
 from beheread.ui.library.workers import _FolderCountWorker
+from beheread.ui.reader.constants import FIT_NAMES, normalize_fit
 
 
 class _ElidedPathLabel(QLabel):
@@ -328,9 +329,6 @@ def _buttons_row(dialog, ok_label):
 
 # ---------------------------------------------------------------- preferences
 
-FIT_CHOICES = [(0, "Ajuster à la fenêtre"), (1, "Ajuster à la largeur"),
-               (2, "Ajuster à la hauteur")]
-
 # couleurs d'accentuation proposees (la premiere est celle d'origine), toutes
 # lisibles telles quelles dans les deux themes ; toute autre couleur reste
 # possible par « Personnalisée… »
@@ -574,7 +572,7 @@ class PreferencesDialog(QDialog):
     def _reader_tab(self):
         w, v = self._page()
         s = self.store
-        g = QGroupBox("Réglages par défaut du lecteur")
+        g = QGroupBox("Réglages du lecteur")
         f = QFormLayout(g)
         self.direction = QComboBox()
         self.direction.addItem("Manga : de droite à gauche", True)
@@ -582,17 +580,22 @@ class PreferencesDialog(QDialog):
         self.direction.setCurrentIndex(0 if s.reader_pref("manga_mode", True) else 1)
         f.addRow("Sens de lecture", self.direction)
         self.fit = QComboBox()
-        for value, label in FIT_CHOICES:
+        for value, label in FIT_NAMES.items():
             self.fit.addItem(label, value)
-        self.fit.setCurrentIndex(max(0, min(2, int(s.reader_pref("fit_mode", 0)))))
+        self.fit.setCurrentIndex(self.fit.findData(normalize_fit(s.reader_pref("fit_mode"))))
         f.addRow("Ajustement", self.fit)
         self.double_page = QCheckBox("Double page")
         self.double_page.setChecked(bool(s.reader_pref("double_page", True)))
         f.addRow(self.double_page)
+        self.ambilight = QCheckBox("Ambilight : fond teinté par la couleur de la page")
+        self.ambilight.setChecked(bool(s.reader_pref("ambilight", False)))
+        f.addRow(self.ambilight)
         self.page_fade = QCheckBox("Fondu entre les pages")
         self.page_fade.setChecked(bool(s.reader_pref("page_fade", True)))
         f.addRow(self.page_fade)
-        f.addRow(self._hint("Le sens de lecture choisi pour une série (touche M) reste prioritaire."))
+        f.addRow(self._hint("Ces réglages valent pour tous les mangas. Seul le sens de lecture "
+                            "fait exception : il est détecté automatiquement, et celui choisi "
+                            "pour une série (touche M) reste prioritaire."))
         v.addWidget(g)
         v.addStretch(1)
         return w
@@ -737,6 +740,7 @@ class PreferencesDialog(QDialog):
         s.set_reader_pref("manga_mode", bool(self.direction.currentData()))
         s.set_reader_pref("fit_mode", int(self.fit.currentData()))
         s.set_reader_pref("double_page", self.double_page.isChecked())
+        s.set_reader_pref("ambilight", self.ambilight.isChecked())
         s.set_reader_pref("page_fade", self.page_fade.isChecked())
         s.set_reader_pref("boss_key", self.boss_key.isChecked())
         s.set_ui_pref("global_hotkey", self.global_hotkey.isChecked())

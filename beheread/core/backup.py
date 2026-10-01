@@ -7,8 +7,9 @@ fusionne, toutes les donnees etant indexees par empreinte de contenu (donc
 valables d'un PC a l'autre pour un meme fichier, quel que soit son chemin) :
 * progression : pour un tome present des deux cotes, la plus recente
   l'emporte (horodatage `ts`) ; un tome absent localement est repris ;
-* statistiques : chaque appareil a sa propre section, reprise si elle est
-  plus recente - importer deux fois le meme fichier ne compte rien en double ;
+* statistiques (journal de lecture) : chaque appareil a sa propre section,
+  reprise si elle est plus recente - importer deux fois le meme fichier ne
+  compte rien en double ;
 * tomes masques de « Continuer la lecture » : date de masquage la plus recente ;
 * reglages par tome/serie et saisies manuelles : ajoutes seulement s'ils
   manquent localement (jamais d'ecrasement).
@@ -71,19 +72,22 @@ def merge_progress(local: dict, remote: dict) -> list:
     return changed
 
 
-def merge_stats(local: dict, remote: dict, local_device: str) -> bool:
-    """Reprend la section de chaque AUTRE appareil si elle est plus recente.
-    La section de cet appareil n'est jamais ecrasee par un import."""
-    changed = False
-    devices = local.setdefault("devices", {})
-    for dev_id, dev in (remote or {}).get("devices", {}).items():
-        if dev_id == local_device or not isinstance(dev, dict):
-            continue
-        cur = devices.get(dev_id)
-        if cur is None or float(dev.get("updated", 0)) > float(cur.get("updated", 0)):
-            devices[dev_id] = dev
-            changed = True
-    return changed
+def _updated(section) -> float:
+    try:
+        return float(section.get("updated") or 0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def journal_sections_to_import(known: dict, remote: dict, local_device: str) -> dict:
+    """Sections du journal de lecture a reprendre d'une sauvegarde : celle de
+    chaque AUTRE appareil, si elle est inconnue ou plus recente que celle
+    deja connue (`known` : {appareil: date de derniere ecriture}). La section
+    de cet appareil n'est jamais ecrasee par un import."""
+    devices = (remote or {}).get("devices") if isinstance(remote, dict) else None
+    return {dev_id: dev for dev_id, dev in (devices if isinstance(devices, dict) else {}).items()
+            if dev_id != local_device and isinstance(dev, dict)
+            and (dev_id not in known or _updated(dev) > float(known[dev_id] or 0))}
 
 
 def merge_dismissed(local: dict, remote: dict) -> bool:

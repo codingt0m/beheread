@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
     QMessageBox,
 )
 
+from beheread.core.library_model import FINISHED
 from beheread.core.series import normalize_name, parse_series_ex
 from beheread.infra import anilist, metadata
 from beheread.ui import theme
@@ -128,10 +129,31 @@ class ServicesMixin:
 
     # ----- statistiques -----
     def open_stats(self):
-        counts = {"unread": 0, "reading": 0, "finished": 0}
-        for info in self._info.values():
-            counts[info.status] = counts.get(info.status, 0) + 1
-        dlg = StatsDialog(self.store, counts, self.store.ui_pref("theme", "dark"), self)
+        # etat de la bibliotheque : tomes par statut, et pages qu'il reste a
+        # lire dans les tomes non termines (pour le temps restant a lire)
+        library = {"unread": 0, "reading": 0, "finished": 0,
+                   "remaining_pages": 0, "unknown_pages": 0}
+        series = {}   # empreinte -> (cle de serie, nom affiche), regroupements actuels
+        titles = {}   # empreinte -> titre actuel du tome
+        for e in self._entries:
+            info = self._info.get(e.path) or self._entry_info(e)
+            library[info.status] = library.get(info.status, 0) + 1
+            titles[info.key] = e.title
+            if info.series_key:
+                series[info.key] = (info.series_key,
+                                    self._series_display_name.get(info.series_key, e.series))
+            else:
+                series[info.key] = (info.key, e.title)
+            if info.status == FINISHED:
+                continue
+            prog = self.store.get_progress(e.path)
+            total = (prog[1] if prog and prog[1] else None) or self.store.page_count(e.path)
+            if total:
+                library["remaining_pages"] += max(0, total - (prog[0] if prog else 0))
+            else:
+                library["unknown_pages"] += 1
+        dlg = StatsDialog(self.store, library, self.store.ui_pref("theme", "dark"), self,
+                          resolve=series.get, titles=titles)
         dlg.exec()
 
     # ----- sauvegarde -----

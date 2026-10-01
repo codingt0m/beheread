@@ -1,6 +1,6 @@
 """Base de donnees locale (SQLite) : schema versionne et depots de donnees.
 
-Chaque depot (reglages, progression, metadonnees, empreintes, statistiques)
+Chaque depot (reglages, progression, metadonnees, empreintes)
 est une table `cle -> valeur JSON`, chargee en memoire au demarrage (lectures
 instantanees depuis l'interface) et ecrite de facon INCREMENTALE : seules les
 lignes modifiees depuis la derniere ecriture sont reecrites, dans une
@@ -8,8 +8,12 @@ transaction. C'est plus robuste (une ecriture est atomique, meme en cas de
 coupure) et bien moins couteux que de reecrire des fichiers JSON entiers a
 chaque sauvegarde.
 
+Le journal de lecture (statistiques) fait exception : c'est une vraie table,
+interrogee en SQL et jamais chargee en memoire (voir reading_log.py).
+
 Le schema est versionne (PRAGMA user_version) ; chaque evolution ajoute une
-etape dans MIGRATIONS, appliquee une seule fois, dans une transaction.
+etape dans MIGRATIONS, appliquee une seule fois, dans une transaction. Avant
+de migrer une base existante, une copie en est faite a cote (beheread-v<n>.bak).
 """
 
 from __future__ import annotations
@@ -21,16 +25,21 @@ import threading
 from contextlib import contextmanager
 from pathlib import Path
 
-SCHEMA_VERSION = 1
+from beheread.infra import reading_log
+
+SCHEMA_VERSION = 2
 
 TABLES = ("settings", "progress", "volume_meta", "series_meta", "fingerprints",
           "stats_devices", "library_index")
 
-# version -> instructions SQL qui y menent depuis la precedente
+# version -> etapes qui y menent depuis la precedente : instructions SQL, ou
+# fonctions recevant le curseur de la transaction (reprise de donnees)
 MIGRATIONS = {
     1: [f"CREATE TABLE {t} (key TEXT PRIMARY KEY, value TEXT NOT NULL)" for t in TABLES]
        # informations sur la base elle-meme (ex. import des anciens JSON termine)
        + ["CREATE TABLE app_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)"],
+    # journal de lecture en table SQL ; l'ancien (stats_devices) n'est plus lu
+    2: reading_log.SCHEMA + [reading_log.copy_legacy_journal],
 }
 
 
@@ -65,12 +74,33 @@ class Database:
             raise DatabaseTooNew(
                 f"Base de donnees en version {current}, cette version de Beheread "
                 f"ne connait que la version {SCHEMA_VERSION}.")
+        if 0 < current < SCHEMA_VERSION:
+            self._backup(current)
         for version in range(current + 1, SCHEMA_VERSION + 1):
             with self.transaction() as cur:
-                for sql in MIGRATIONS[version]:
-                    cur.execute(sql)
+                for step in MIGRATIONS[version]:
+                    if callable(step):
+                        step(cur)
+                    else:
+                        cur.execute(step)
                 cur.execute(f"PRAGMA user_version = {version}")
             logging.info("Schema de la base migre en version %d", version)
+
+    def _backup(self, version: int):
+        """Copie de la base avant migration (beheread-v<version>.bak), pour
+        pouvoir revenir a la version precedente de Beheread. Une copie
+        impossible (disque plein) n'empeche pas la migration, transactionnelle."""
+        dest = self.path.with_name(f"{self.path.stem}-v{version}.bak")
+        try:
+            copy = sqlite3.connect(str(dest))
+            try:
+                with self.lock:
+                    self.conn.backup(copy)
+            finally:
+                copy.close()
+            logging.info("Base copiee avant migration : %s", dest)
+        except (sqlite3.Error, OSError):
+            logging.warning("Copie de la base avant migration impossible", exc_info=True)
 
     def get_meta(self, key):
         with self.lock:

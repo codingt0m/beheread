@@ -117,6 +117,24 @@ def chevron_left(color) -> QIcon:
     return _make(draw, color)
 
 
+def arrows_horizontal(color) -> QIcon:
+    """Double fleche horizontale : ajustement a la largeur."""
+    def draw(p):
+        p.drawLine(10, 32, 54, 32)
+        p.drawPolyline([QPointF(21, 21), QPointF(10, 32), QPointF(21, 43)])
+        p.drawPolyline([QPointF(43, 21), QPointF(54, 32), QPointF(43, 43)])
+    return _make(draw, color)
+
+
+def arrows_vertical(color) -> QIcon:
+    """Double fleche verticale : ajustement a la hauteur."""
+    def draw(p):
+        p.drawLine(32, 10, 32, 54)
+        p.drawPolyline([QPointF(21, 21), QPointF(32, 10), QPointF(43, 21)])
+        p.drawPolyline([QPointF(21, 43), QPointF(32, 54), QPointF(43, 43)])
+    return _make(draw, color)
+
+
 def expand(color) -> QIcon:
     """Icone plein ecran : quatre coins qui s'ecartent."""
     def draw(p):
