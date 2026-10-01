@@ -456,7 +456,7 @@ class ChromeMixin:
         self._sort = self.sort_combo.currentData()
         self.store.set_library_pref("sort", self._sort)
         self._rebuild_list(keep_position=False)
-        self.list.scrollToTop()
+        self.list_host.set_position(0)
 
     def _set_status_filter(self, status):
         self._status_filter = status
@@ -464,7 +464,7 @@ class ChromeMixin:
         for b in self.status_group.buttons():
             b.setChecked(b.property("status") == status)
         self._rebuild_list(keep_position=False)
-        self.list.scrollToTop()
+        self.list_host.set_position(0)
 
     def _status_label(self):
         return dict(STATUS_FILTERS).get(self._status_filter, "")
