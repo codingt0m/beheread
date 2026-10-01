@@ -22,6 +22,11 @@ AppName=Beheread
 AppVersion={#AppVersion}
 AppVerName=Beheread {#AppVersion}
 AppPublisher=Beheread
+AppPublisherURL=https://github.com/codingt0m/beheread
+AppSupportURL=https://github.com/codingt0m/beheread/issues
+AppUpdatesURL=https://github.com/codingt0m/beheread/releases
+; proprietes du fichier Setup : exige un numero purement numerique (x.y.z)
+VersionInfoVersion={#AppVersion}
 DefaultDirName={autopf}\Beheread
 DefaultGroupName=Beheread
 DisableProgramGroupPage=yes
