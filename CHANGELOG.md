@@ -4,6 +4,7 @@ Les numéros de version suivent [SemVer](https://semver.org/lang/fr/). Chaque se
 
 ## [Non publié]
 
+* Licence : Beheread passe sous PolyForm Noncommercial 1.0.0 (usage commercial interdit).
 * CBR : 7-Zip est détecté automatiquement à son emplacement habituel (`C:\Program Files\7-Zip`), sans avoir à modifier le PATH.
 * Message d'erreur RAR plus clair, qui renvoie vers la bonne section du README.
 

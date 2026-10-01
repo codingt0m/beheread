@@ -3,7 +3,7 @@
 [![Dernière version](https://img.shields.io/github/v/release/codingt0m/beheread?label=version)](https://github.com/codingt0m/beheread/releases/latest)
 [![Windows 10 et 11](https://img.shields.io/badge/Windows-10%20%7C%2011%20(64%20bits)-0078D6)](https://github.com/codingt0m/beheread/releases/latest)
 [![Téléchargements](https://img.shields.io/github/downloads/codingt0m/beheread/total?label=t%C3%A9l%C3%A9chargements)](https://github.com/codingt0m/beheread/releases)
-[![Licence MIT](https://img.shields.io/github/license/codingt0m/beheread?label=licence)](LICENSE)
+[![Licence PolyForm Noncommercial](https://img.shields.io/badge/licence-PolyForm%20Noncommercial-orange)](LICENSE)
 
 **Un lecteur de mangas pour Windows, simple et hors ligne.** Beheread lit les fichiers CBZ, CBR, EPUB et PDF, range vos tomes par série et reprend chaque lecture à la page où vous l'avez laissée.
 
@@ -127,4 +127,9 @@ L'empreinte affichée doit être celle de la ligne correspondante de `SHA256SUMS
 
 ## Licence
 
-Beheread est distribué sous [licence MIT](LICENSE) : vous pouvez l'utiliser, le modifier et le redistribuer librement.
+Beheread est distribué sous [licence PolyForm Noncommercial 1.0.0](LICENSE).
+
+* **Autorisé** : utiliser Beheread, le modifier et le partager gratuitement, pour un usage personnel ou non commercial (y compris dans une association, une école ou un organisme public).
+* **Interdit** : tout usage commercial, par exemple vendre Beheread ou une version modifiée, ou l'intégrer à un produit ou service payant.
+
+Pour un usage commercial, contactez l'auteur en ouvrant une [issue](https://github.com/codingt0m/beheread/issues).
