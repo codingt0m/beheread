@@ -205,28 +205,9 @@ class LibraryWidget(ChromeMixin, DetailPanelMixin, ActionsMixin, MenusMixin,
         self.refresh()
         self.list.setFocus()
 
-
-    def _dedupe_by_content(self, paths):
-        """Deux fichiers identiques (meme contenu - copie du meme tome dans
-        un autre dossier source, ou doublon au meme endroit) ne doivent
-        apparaitre qu'une seule fois dans la bibliotheque. La progression,
-        les metadonnees et la vignette sont deja partagees par empreinte de
-        contenu (voir Store.key_for) : il suffit ici de ne garder qu'un seul
-        chemin representant par empreinte, choisi de facon stable (ordre
-        alphabetique) pour que ce ne soit jamais le meme fichier qui
-        "disparaisse" arbitrairement d'un rafraichissement a l'autre."""
-        kept_path_for_key = {}
-        result = []
-        for p in sorted(paths):
-            key = self.store.key_for(p)
-            if key not in kept_path_for_key:
-                kept_path_for_key[key] = p
-                result.append(p)
-        return result
-
     def _dedupe_by_series_volume(self, entries):
         """Deux fichiers *differents* (releases distinctes, scans differents -
-        pas detectes par _dedupe_by_content qui ne voit que le contenu
+        pas detectes par workers.dedupe_by_content qui ne voit que le contenu
         identique) peuvent neanmoins etre le meme tome de la meme serie
         (ex. "Berserk Volume 42" et "Berserk_T42"). On ne garde alors qu'un
         seul representant par (serie normalisee, numero de tome), en

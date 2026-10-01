@@ -1,20 +1,22 @@
 """Tests de la deduplication de la bibliotheque par empreinte de contenu
 (deux fichiers identiques ne doivent apparaitre qu'une fois - voir
-LibraryWidget._dedupe_by_content). N'instancie aucun widget Qt : la methode
-ne touche qu'a self.store, donc un objet factice suffit."""
+workers.dedupe_by_content) et du regroupement en series. N'instancie aucun
+widget Qt : les methodes de LibraryWidget testees ne touchent qu'a
+self.store, donc un objet factice suffit."""
 
 import dataclasses
 
 import pytest
 
-from beheread.infra import storage
 from beheread.core.models import LibraryEntry
+from beheread.infra import storage
+from beheread.infra.storage import Store
 from beheread.ui.library.widget import LibraryWidget
+from beheread.ui.library.workers import dedupe_by_content
 
 
 def _at(path):
     return LibraryEntry(path=path, title=path, series=path)
-from beheread.infra.storage import Store
 
 
 @pytest.fixture
@@ -26,7 +28,7 @@ def store(tmp_path, monkeypatch):
 
 
 class _FakeLibrary:
-    """Duck-type minimal : _dedupe_by_content n'utilise que self.store."""
+    """Duck-type minimal : les methodes testees n'utilisent que self.store."""
     def __init__(self, store):
         self.store = store
 
@@ -38,7 +40,7 @@ def _make_manga(dir_path, name, content=b"chapitre un, contenu unique"):
 
 
 def _dedupe(store, paths):
-    return LibraryWidget._dedupe_by_content(_FakeLibrary(store), paths)
+    return dedupe_by_content(store, paths)
 
 
 def test_identical_files_collapse_to_one(store, tmp_path):
@@ -291,7 +293,7 @@ def test_chapter_and_volume_same_number_do_not_collapse(store, tmp_path):
 def test_same_series_volume_different_files_collapse(store, tmp_path):
     """Deux fichiers DIFFERENTS (releases distinctes) representant le meme
     tome de la meme serie ne doivent apparaitre qu'une fois - meme si leur
-    contenu differe (donc invisibles a _dedupe_by_content)."""
+    contenu differe (donc invisibles a dedupe_by_content)."""
     a = _make_manga(tmp_path, "Berserk Volume 42.cbz", b"scan-edition-A")
     b = _make_manga(tmp_path, "Berserk_T42.cbz", b"scan-edition-B-differente")
     entries = [_entry_p(a, "Berserk Volume 42", "Berserk", 42),

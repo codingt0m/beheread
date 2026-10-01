@@ -4,7 +4,13 @@ import time
 
 from PySide6.QtCore import QEvent, QMimeData, QPointF, Qt, QUrl
 from PySide6.QtGui import QDropEvent, QKeyEvent
-from PySide6.QtWidgets import QApplication, QInputDialog, QMessageBox, QPushButton, QWidget
+from PySide6.QtWidgets import (
+    QApplication,
+    QInputDialog,
+    QMessageBox,
+    QPushButton,
+    QWidget,
+)
 
 from beheread.core.library_model import SORTS
 from tests.ui.conftest import make_cbz, scanned, visible_titles

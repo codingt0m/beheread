@@ -66,13 +66,6 @@ def folder_plus(color) -> QIcon:
     return _make(draw, color)
 
 
-def folder_minus(color) -> QIcon:
-    def draw(p):
-        _folder_base(p)
-        p.drawLine(26, 38, 38, 38)
-    return _make(draw, color)
-
-
 def folder(color) -> QIcon:
     """Dossier simple : gestion des dossiers sources."""
     return _make(_folder_base, color)

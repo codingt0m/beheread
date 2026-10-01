@@ -48,10 +48,6 @@ FINISHED_LIST_MAX = 12   # derniers tomes termines proposes a l'affichage
 _DAY = _dt.timedelta(days=1)
 
 
-def day_key(date: _dt.date) -> str:
-    return date.isoformat()
-
-
 # ---------------------------------------------------------------- periodes
 
 @dataclass(frozen=True)

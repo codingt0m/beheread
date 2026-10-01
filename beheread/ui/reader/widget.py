@@ -294,14 +294,6 @@ class ReaderWidget(HudMixin, EndCardMixin, DisplayMixin, InputMixin,
         self._update_ambient_target(animate=False)
         self.update()
 
-
-    def _pairs_with_next(self, p):
-        """La page p forme-t-elle une paire avec p+1 en mode double ? Depend du
-        decalage de parite (touche S) et des planches doubles (jamais couplees).
-        Logique pure dans pairing.py (testee sans Qt)."""
-        return pairing.pairs_with_next(p, self.total, self.page_offset,
-                                       self.double_page, self._is_spread)
-
     def _current_indices(self):
         return pairing.current_indices(self.page, self.total, self.page_offset,
                                        self.double_page, self._is_spread)

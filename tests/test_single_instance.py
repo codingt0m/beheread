@@ -8,7 +8,12 @@ import uuid
 import pytest
 
 from beheread.infra import single_instance
-from beheread.infra.single_instance import SingleInstance, decode, encode, send_to_primary
+from beheread.infra.single_instance import (
+    SingleInstance,
+    decode,
+    encode,
+    send_to_primary,
+)
 
 
 def _pump(qapp, seconds):

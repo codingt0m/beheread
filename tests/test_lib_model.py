@@ -2,10 +2,19 @@
 
 import dataclasses
 
+from beheread.core.library_model import (
+    ALL,
+    FINISHED,
+    READING,
+    UNREAD,
+    aggregate_series_info,
+    continue_reading,
+    matches_status,
+    series_status,
+    sort_key,
+    volume_status,
+)
 from beheread.core.models import VolumeInfo
-from beheread.core.library_model import (ALL, FINISHED, READING, UNREAD, aggregate_series_info,
-                       continue_reading, matches_status, series_status,
-                       sort_key, volume_status)
 
 
 def info(title, status=UNREAD, last_read=0, series=None, volume=None, **kw):
