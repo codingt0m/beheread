@@ -85,14 +85,16 @@ def test_series_detail_and_manual_series_management(window, qtbot, mangas, store
     lib.refresh()
     scanned(qtbot, lib, 4)
     lib.btn_group.setChecked(True)
+    lib.btn_details.setChecked(True)
     assert sorted(visible_titles(lib)) == ["Alpha", "Beta"]
 
     lib.list.setCurrentRow(visible_titles(lib).index("Alpha"))
-    qtbot.wait(20)   # les boutons ajoutes a un panneau visible s'affichent au tour suivant
     # libelle complet (a l'ecran, un libelle trop long est raccourci avec « … »)
-    buttons = [b.full_text() for b in lib.detail.findChildren(QPushButton) if b.isVisible()]
+    def buttons():
+        return [b.full_text() for b in lib.detail.findChildren(QPushButton) if b.isVisible()]
+    # les boutons ajoutes a un panneau visible s'affichent aux tours suivants
+    qtbot.waitUntil(lambda: "Commencer le tome 1" in buttons(), timeout=2000)
     assert lib.detail.title.text() == "Alpha"
-    assert "Commencer le tome 1" in buttons, buttons
 
     monkeypatch.setattr(QInputDialog, "getText", staticmethod(lambda *a, **k: ("Alpha Deluxe", True)))
     lib._rename_series("alpha")
@@ -188,3 +190,54 @@ def test_grid_top_fades_only_once_scrolled(window, qtbot, mangas, store):
     vp = lib.list.viewport().geometry()
     assert fade.geometry().top() == vp.top() and fade.width() >= vp.width()
     assert fade.testAttribute(Qt.WA_TransparentForMouseEvents)
+
+
+def test_continue_shelf_scrolls_with_the_grid(window, qtbot, mangas, store):
+    paths = [make_cbz(mangas, f"Serie{i:02d} - Tome 1", pages=2 + i, seed=i) for i in range(12)]
+    store.set_folders([str(mangas)])
+    lib = window.library
+    lib.refresh()
+    scanned(qtbot, lib, 12)
+    store.set_progress(paths[0], 1, 3, False)
+    lib._rebuild_list()
+    qtbot.wait(20)
+    host, sb = lib.list_host, lib.list.verticalScrollBar()
+    extent = lib.shelf.height()
+    assert lib.shelf.isVisible() and extent > 0 and sb.maximum() > 0
+    assert lib.shelf.y() == 0 and lib.list.y() == extent
+
+    # le defilement remonte d'abord la bande (et la grille avec), sans toucher la barre
+    host.set_position(extent // 2)
+    assert sb.value() == 0
+    assert lib.shelf.y() == -(extent // 2) and lib.list.y() == extent - extent // 2
+    # puis fait defiler la grille, bande entierement sortie
+    host.set_position(extent + 40)
+    assert sb.value() == 40 and lib.list.y() == 0 and lib.shelf.geometry().bottom() < 0
+
+    # retour en haut par la barre (ou le clavier) : la bande reapparait
+    sb.setValue(0)
+    assert lib.shelf.y() == 0 and lib.list.y() == extent
+    # le tri revient en haut, bande comprise
+    host.set_position(extent // 2)
+    lib.sort_combo.setCurrentIndex([k for k, _ in SORTS].index("read"))
+    assert host.position() == 0 and lib.shelf.y() == 0
+
+
+def test_folder_manager_keeps_remove_button_visible_with_long_paths(qtbot):
+    from PySide6.QtWidgets import QToolButton
+
+    from beheread.ui import theme
+    from beheread.ui.library.dialogs import FolderManagerDialog
+    long_path = "C:\\Users\\quelquun\\" + "Dossier~tres~long~" * 12 + "Mangas"
+    dlg = FolderManagerDialog([long_path, "C:\\Mangas"], theme.colors("dark"))
+    qtbot.addWidget(dlg)
+    dlg.show()
+    qtbot.waitExposed(dlg)
+    viewport = dlg._scroll.viewport()
+    buttons = dlg.findChildren(QToolButton, "fmRemove")
+    assert len(buttons) == 2
+    for b in buttons:
+        right = b.mapTo(viewport, b.rect().topRight()).x()
+        assert b.isVisible() and right < viewport.width(), (right, viewport.width())
+    buttons[0].click()
+    assert dlg.result_folders() == ["C:\\Mangas"]

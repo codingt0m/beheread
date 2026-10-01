@@ -37,6 +37,25 @@ from beheread.ui import icons, theme
 from beheread.ui.library.workers import _FolderCountWorker
 
 
+class _ElidedPathLabel(QLabel):
+    """Chemin raccourci au milieu (« … ») quand la place manque : un QLabel
+    simple impose la largeur de tout son texte et poussait le bouton de
+    retrait hors du dialogue."""
+
+    def __init__(self, path):
+        super().__init__(path)
+        self._full = path
+        self.setToolTip(path)
+        self.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+
+    def minimumSizeHint(self):
+        return QSize(0, super().minimumSizeHint().height())
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self.setText(self.fontMetrics().elidedText(self._full, Qt.ElideMiddle, self.width()))
+
+
 class FolderManagerDialog(QDialog):
     """Panneau facon Plex : liste des dossiers sources avec leur nombre de
     mangas, ajout par navigation et retrait individuel. Rien n'est ecrit tant
@@ -129,10 +148,8 @@ class FolderManagerDialog(QDialog):
         rl.setContentsMargins(14, 8, 10, 8)
         rl.setSpacing(10)
 
-        path_lbl = QLabel(folder)
+        path_lbl = _ElidedPathLabel(folder)
         path_lbl.setObjectName("fmPath")
-        path_lbl.setToolTip(folder)
-        path_lbl.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
         rl.addWidget(path_lbl, 1)
 
         count_lbl = QLabel("…")

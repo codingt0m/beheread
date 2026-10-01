@@ -64,7 +64,7 @@ from beheread.ui.library.detail_panel import DetailPanelMixin
 from beheread.ui.library.menus import MenusMixin
 from beheread.ui.library.services import ServicesMixin
 from beheread.ui.library.shelf import ContinueShelf
-from beheread.ui.library.views import SmoothListWidget
+from beheread.ui.library.views import ScrollingHeaderHost, SmoothListWidget
 
 # ---------------------------------------------------------------- widget
 
@@ -125,7 +125,7 @@ class LibraryWidget(ChromeMixin, DetailPanelMixin, ActionsMixin, MenusMixin,
         if self._status_filter not in {k for k, _ in STATUS_FILTERS}:
             self._status_filter = ALL
         self._show_continue = bool(store.library_pref("show_continue", True))
-        self._show_details = bool(store.library_pref("show_details", True))
+        self._show_details = bool(store.library_pref("show_details", False))
         self._info = {}            # path -> info de tri/statut (library_model), par reconstruction
         self._series_raw_name = {}   # cle de serie -> nom issu des fichiers (vote)
         self._root_position = (0, None)   # defilement + element courant a la racine
@@ -156,7 +156,6 @@ class LibraryWidget(ChromeMixin, DetailPanelMixin, ActionsMixin, MenusMixin,
         self.shelf.activated.connect(self.mangaActivated.emit)
         self.shelf.contextMenuRequested.connect(self._show_shelf_menu)
         self.shelf.hide()
-        content.addWidget(self.shelf)
 
         self.list = SmoothListWidget()
         self.list.setSelectionMode(QListWidget.ExtendedSelection)
@@ -173,7 +172,9 @@ class LibraryWidget(ChromeMixin, DetailPanelMixin, ActionsMixin, MenusMixin,
         del_shortcut = QShortcut(QKeySequence.Delete, self.list, self._delete_selected)
         del_shortcut.setContext(Qt.WidgetShortcut)
         self.list.currentItemChanged.connect(lambda *_: self._update_detail())
-        content.addWidget(self.list, 1)
+        # la bande « Continuer » defile avec la grille au lieu de rester fixe
+        self.list_host = ScrollingHeaderHost(self.shelf, self.list)
+        content.addWidget(self.list_host, 1)
 
         self.grid_delegate = MangaDelegate(self.store, self.list)
         self.grid_delegate.set_scale(self._grid_scale_pct / 100.0)
@@ -488,8 +489,7 @@ class LibraryWidget(ChromeMixin, DetailPanelMixin, ActionsMixin, MenusMixin,
         """Reconstruit la grille (et la bande « Continuer la lecture »).
         keep_position : conserve le defilement et l'element courant (retour du
         lecteur, action du menu, rescan) au lieu de revenir en haut."""
-        sb = self.list.verticalScrollBar()
-        pos = sb.value()
+        pos = self.list_host.position()
         current = self._item_identity(self.list.currentItem())
         self.list.clear()
         self._path_to_item = {}   # reconstruit avec la liste (acces O(1) ensuite)
@@ -529,7 +529,7 @@ class LibraryWidget(ChromeMixin, DetailPanelMixin, ActionsMixin, MenusMixin,
         if keep_position:
             self.list.doItemsLayout()   # calcule la plage de defilement
             self._restore_current(current)
-            sb.setValue(pos)
+            self.list_host.set_position(pos)
         self._update_count()
         self._update_detail()
 
@@ -579,7 +579,7 @@ class LibraryWidget(ChromeMixin, DetailPanelMixin, ActionsMixin, MenusMixin,
         """Bascule entre la grille et le panneau d'etat vide, dont le message
         et le bouton d'action dependent de la situation (premier lancement,
         scan en cours, dossiers sans manga, recherche sans resultat)."""
-        self.list.setVisible(has_any_result)
+        self.list_host.setVisible(has_any_result)
         self.empty_panel.setVisible(not has_any_result)
         if has_any_result:
             return
@@ -781,10 +781,10 @@ class LibraryWidget(ChromeMixin, DetailPanelMixin, ActionsMixin, MenusMixin,
     # ----- navigation dans les dossiers de serie -----
     def _enter_series(self, key):
         # memorise la position a la racine pour y revenir en sortant
-        self._root_position = (self.list.verticalScrollBar().value(), ("series", key))
+        self._root_position = (self.list_host.position(), ("series", key))
         self._current_series = key
         self._rebuild_list(keep_position=False)
-        self.list.scrollToTop()
+        self.list_host.set_position(0)
         self.list.setFocus()
 
     def _exit_series(self):
@@ -795,7 +795,7 @@ class LibraryWidget(ChromeMixin, DetailPanelMixin, ActionsMixin, MenusMixin,
         pos, current = self._root_position
         self.list.doItemsLayout()
         self._restore_current(current)
-        self.list.verticalScrollBar().setValue(pos)
+        self.list_host.set_position(pos)
         self.list.setFocus()
 
     def _go_home(self):
