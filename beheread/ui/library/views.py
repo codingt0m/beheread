@@ -3,7 +3,7 @@ centree) et conteneur cliquable (logo de l'en-tete)."""
 
 from PySide6.QtCore import QEasingCurve, QEvent, Qt, QVariantAnimation, Signal
 from PySide6.QtGui import QColor, QLinearGradient, QPainter
-from PySide6.QtWidgets import QListWidget, QWidget
+from PySide6.QtWidgets import QListWidget, QStyle, QWidget
 
 
 class _TopFade(QWidget):
@@ -140,46 +140,57 @@ class SmoothListWidget(QListWidget):
         gauche et laisse toute la place restante a droite. On replie cette
         place en deux marges de viewport egales de part et d'autre.
 
-        Cle de la stabilite : la vue utilise setGridSize (voir
-        LibraryWidget._apply_view_mode), donc le nombre de colonnes vaut
-        EXACTEMENT viewport_width // gridWidth. Le calcul ci-dessous est alors
-        un point fixe :
+        Cle de la stabilite : QListView ne met PAS en page sur la largeur du
+        viewport, mais sur la largeur maximale du viewport MOINS celle de la
+        barre de defilement, que la barre soit affichee ou non (il reserve sa
+        place pour qu'elle ne fasse pas changer le nombre de colonnes ; voir
+        QListViewPrivate::prepareItemsLayout). Avec setGridSize (voir
+        LibraryWidget._apply_view_mode), N colonnes tiennent si cette largeur
+        de mise en page est STRICTEMENT superieure a N*gridWidth.
 
-          available = largeur utile hors marges (reconstruite en rajoutant les
-                      marges actuelles a la largeur de viewport - grandeur
-                      STABLE, independante des marges qu'on va poser, et qui
-                      tient deja compte du cadre et de la barre de defilement) ;
-          cols      = available // gridWidth ;
-          extra     = available - cols*gridWidth  (reparti en marges egales).
+        Le calcul part donc de cette meme largeur, qui ne depend ni des
+        marges posees ni de la presence de la barre :
 
-        Apres pose des marges, viewport_width == cols*gridWidth, donc la vue
-        affiche exactement `cols` colonnes sans trou a droite, et un nouvel
-        appel recalcule les memes marges (aucun ping-pong). Sans setGridSize,
-        le critere de colonne de QListView n'est pas ce simple quotient et ce
-        point fixe n'existe pas - c'etait la cause des essais precedents
-        instables (grille collabee sur une colonne, ou marges asymetriques)."""
+          layout_w = largeur hors marges - place reservee a la barre ;
+          cols     = (layout_w - 1) // gridWidth ;
+          total    = layout_w - 1 - cols*gridWidth, somme des deux marges.
+
+        La somme des marges fixe le nombre de colonnes ; seule leur
+        repartition gauche/droite depend de la barre (pour centrer la grille
+        dans la zone reellement visible), ce qui ne change pas la mise en
+        page. Partir de la largeur du viewport, qui varie avec la barre,
+        donnait deux reponses differentes : la barre apparaissait (une
+        colonne de moins), disparaissait (une colonne de plus), et ainsi de
+        suite - les couvertures clignotaient dans un dossier de serie."""
         if self.viewMode() != QListWidget.IconMode:
             return
         grid_w = self.gridSize().width()
         if grid_w <= 0:
             return
         m = self.viewportMargins()
-        available = self.viewport().width() + m.left() + m.right()
-        # QListView (mesure a l'usage) affiche N colonnes seulement si la
-        # largeur de viewport est STRICTEMENT superieure a N*gridWidth (un
-        # ajustement pile a N*gridWidth retombe a N-1, laissant un trou d'une
-        # case). On garde donc 1px de mou DANS le viewport apres la derniere
-        # case, et on repartit le reste en marges egales de part et d'autre.
-        cols = max(1, (available - 1) // grid_w)
-        slack = available - cols * grid_w    # >= 1
-        if slack < 1:
-            left = right = 0
-        else:
-            left = slack // 2
-            right = slack - left - 1          # le 1px restant tient dans le viewport
+        base = self.maximumViewportSize().width() + m.left() + m.right()
+        layout_w = base - self._scrollbar_reserve()
+        cols = max(1, (layout_w - 1) // grid_w)
+        total = max(0, layout_w - 1 - cols * grid_w)
+        # zone visible : sans la barre quand elle est affichee
+        bar_shown = self.viewport().width() < self.maximumViewportSize().width()
+        visible = layout_w if bar_shown else base
+        left = max(0, min(total, (visible - cols * grid_w) // 2))
+        right = total - left
         if (left, right) != (m.left(), m.right()):
             self.setViewportMargins(left, 0, right, 0)
             self._place_top_fade()
+
+    def _scrollbar_reserve(self):
+        """Largeur que QListView retranche pour la barre verticale lors de la
+        mise en page (meme calcul que QListViewPrivate::prepareItemsLayout)."""
+        if self.verticalScrollBarPolicy() != Qt.ScrollBarAsNeeded:
+            return 0
+        style = self.style()
+        reserve = style.pixelMetric(QStyle.PM_ScrollBarExtent, None, self.verticalScrollBar())
+        if style.styleHint(QStyle.SH_ScrollView_FrameOnlyAroundContents, None, self):
+            reserve += 2 * style.pixelMetric(QStyle.PM_DefaultFrameWidth, None, self)
+        return reserve
 
 
 class ScrollingHeaderHost(QWidget):
