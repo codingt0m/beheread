@@ -1,0 +1,16 @@
+# Configuration des outils de developpement. Beheread n'est pas distribue
+# comme paquet Python : ses dependances sont dans requirements.txt
+# (utilisation) et requirements-dev.txt (tests, build), sa version dans
+# beheread/version.py.
+
+[tool.ruff]
+target-version = "py310"
+
+[tool.ruff.lint]
+# F : noms indefinis, imports et variables inutiles ; E9 : erreurs de syntaxe ;
+# I : ordre des imports. Les regles de style ne sont pas adoptees par le projet.
+select = ["F", "E9", "I"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+qt_api = "pyside6"
