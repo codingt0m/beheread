@@ -84,8 +84,8 @@ def test_series_detail_and_manual_series_management(window, qtbot, mangas, store
     lib = window.library
     lib.refresh()
     scanned(qtbot, lib, 4)
-    lib.btn_group.setChecked(True)
-    lib.btn_details.setChecked(True)
+    lib._set_group_series(True)
+    lib._set_details_visible(True)
     assert sorted(visible_titles(lib)) == ["Alpha", "Beta"]
 
     lib.list.setCurrentRow(visible_titles(lib).index("Alpha"))

@@ -77,7 +77,7 @@ class EndCardMixin:
                 border-radius: 18px; font-size: 13px; font-weight: 600;
             }}
             QPushButton:hover {{ background: {c['button']}; border-color: {c['text_dim']}; }}
-            #endCard QPushButton#endNext {{ background: {theme.ACCENT}; color: #f5f0ee; border: none; }}
+            #endCard QPushButton#endNext {{ background: {theme.ACCENT}; color: {theme.ON_ACCENT}; border: none; }}
             #endCard QPushButton#endNext:hover {{ background: {theme.ACCENT}; border: none; }}
         """)
         self.end_next_btn.setObjectName("endNext")

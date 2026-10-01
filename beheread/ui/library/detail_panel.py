@@ -16,8 +16,6 @@ from beheread.core.library_model import (
     aggregate_series_info,
 )
 from beheread.core.series import normalize_name
-from beheread.ui import icons, theme
-from beheread.ui.library.detail import breakable
 
 # modules extraits (voir chacun) : constantes de rendu, delegates, dialogues et
 # taches d'arriere-plan. LibraryWidget (ci-dessous) orchestre le tout.
@@ -27,23 +25,15 @@ from beheread.ui.library.constants import (
     ROLE_SERIES_KEY,
     ROLE_SERIES_PATHS,
 )
+from beheread.ui.library.detail import breakable
 
 
 class DetailPanelMixin:
     # ----- panneau d'informations -----
-    def _on_details_toggled(self, checked):
-        self.store.set_library_pref("show_details", bool(checked))
-        self._set_details_visible(bool(checked))
-
     def _set_details_visible(self, visible):
+        """Affiche ou masque le panneau (reglage des preferences)."""
         self._show_details = visible
         self.detail.setVisible(visible)
-        if self.btn_details.isChecked() != visible:
-            self.btn_details.blockSignals(True)
-            self.btn_details.setChecked(visible)
-            self.btn_details.blockSignals(False)
-        c = theme.colors(self.store.ui_pref("theme", "dark"))
-        self.btn_details.setIcon(icons.side_panel(theme.ACCENT if visible else c["text"]))
         self._update_detail()
 
     def _refresh_detail_for(self, path):

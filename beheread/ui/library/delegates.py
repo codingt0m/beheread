@@ -270,7 +270,7 @@ class MangaDelegate(QStyledItemDelegate):
         painter.setPen(Qt.NoPen)
         painter.setBrush(QColor(theme.ACCENT))
         painter.drawRoundedRect(chip, 11, 11)
-        painter.setPen(QColor("#f5f0ee"))
+        painter.setPen(QColor(theme.ON_ACCENT))
         painter.drawText(chip, Qt.AlignCenter, label)
 
         if finished:
