@@ -15,7 +15,8 @@ realite des ZIP renommes, et inversement).
 
 Pour les vrais RAR, la bibliotheque `rarfile` est utilisee. Elle s'appuie sur
 un outil externe : UnRAR.exe (fourni gratuitement par RARLab ou installe avec
-WinRAR), ou a defaut 7-Zip / bsdtar. Voir README.md pour l'installation.
+WinRAR), ou a defaut 7-Zip (detecte dans Program Files ou via le PATH) / bsdtar.
+Voir README.md pour l'installation.
 """
 
 import logging
@@ -86,6 +87,20 @@ def _init_rarfile():
                 break
         except OSError:
             pass
+    # 7-Zip installe a son emplacement standard : utilise en repli, sans
+    # avoir a ajouter son dossier au PATH.
+    if sys.platform == "win32":
+        for env in ("ProgramFiles", "ProgramFiles(x86)"):
+            base = os.environ.get(env)
+            if not base:
+                continue
+            seven = Path(base) / "7-Zip" / "7z.exe"
+            try:
+                if seven.exists():
+                    rarfile.SEVENZIP_TOOL = str(seven)
+                    break
+            except OSError:
+                pass
     _rarfile = rarfile
 
 
@@ -154,9 +169,9 @@ class Archive:
             except _rarfile.RarCannotExec as e:
                 raise ArchiveError(
                     "Aucun outil de décompression RAR n'a été trouvé.\n\n"
-                    "Placez UnRAR.exe dans le dossier de Beheread, ou installez WinRAR "
-                    "ou 7-Zip (dossier ajoute au PATH).\n"
-                    "Voir README.md, section « Support CBR ».\n\n"
+                    "Installez WinRAR ou 7-Zip, ou placez UnRAR.exe dans le "
+                    "dossier de Beheread.\n"
+                    "Voir le README, section « Lire les fichiers CBR ».\n\n"
                     f"Détail : {e}")
             except Exception as e:
                 raise ArchiveError(f"Impossible d'ouvrir l'archive RAR :\n{path}\n{e}")
