@@ -9,7 +9,7 @@ from pathlib import Path
 
 from beheread.core.series import parse_series
 from beheread.infra.storage import Store
-from beheread.ui.reader.constants import PAGE_PAUSE_CAP, TIME_MIN_SAMPLES
+from beheread.ui.reader.constants import TIME_MIN_SAMPLES
 
 
 class SessionMixin:
@@ -22,37 +22,31 @@ class SessionMixin:
                 finished = True  # ne pas "determiner" un manga deja fini
         self.store.set_progress(self.path, self.page, self.total, finished)
         if finished and not (prev and prev[2]):
-            self._session_pages.update(self._current_indices())   # derniere(s) page(s) lue(s)
+            # fin de tome journalisee sur-le-champ (et non a la fermeture) :
+            # elle est datee du bon jour et survit a un arret brutal
+            self.store.record_reading(self.path, 0, 0, True, Path(self.path).stem,
+                                      self._series_label())
             self.volume_finished.emit(self.path)
 
-    # ------------------------------------------------------------ temps restant
-    def _record_page_time(self):
-        self._page_times.append(time.monotonic())
-        if len(self._page_times) > 60:
-            self._page_times = self._page_times[-60:]
+    # ------------------------------------------------------------ mesure de la seance
+    def _now(self):
+        """Horloge de la seance (remplacee dans les tests)."""
+        return time.monotonic()
 
-    def _page_deltas(self):
-        """Intervalles entre tours de page, hors pauses (cafe, interruption)."""
-        deltas = []
-        for a, b in zip(self._page_times, self._page_times[1:]):
-            d = b - a
-            if 0 < d <= PAGE_PAUSE_CAP:
-                deltas.append(d)
-        return deltas
+    def _on_last_view(self):
+        return max(self._current_indices()) >= self.total - 1
 
     def _active_seconds(self):
-        return sum(self._page_deltas())
+        return self._meter.active_seconds
 
     def _time_remaining_text(self):
-        deltas = self._page_deltas()
-        if len(deltas) < TIME_MIN_SAMPLES:
+        pace = self._meter.pace(TIME_MIN_SAMPLES)
+        if pace is None:
             return ""
-        deltas = sorted(deltas)
-        median = deltas[len(deltas) // 2]
         remaining_pages = max(0, (self.total - 1) - self.page)
         if remaining_pages <= 0:
             return ""
-        minutes = median * remaining_pages / 60.0
+        minutes = pace * remaining_pages / 60.0
         if minutes < 1:
             return "moins d'une minute restante"
         return f"~{int(round(minutes))} min restantes"
@@ -81,6 +75,9 @@ class SessionMixin:
             return
         self._released = True
         self._chrome_timer.stop()
+        # la vue en cours n'est comptee comme lue que si le tome est fini
+        self._meter.leave(self._now(), self._current_indices(),
+                          forward=self._on_last_view(), resume=False)
         self._save_progress()
         self._persist_reading_pace()
         self._record_session()
@@ -88,12 +85,11 @@ class SessionMixin:
         self.session_ended.emit(self.path)
 
     def _record_session(self):
-        """Ajoute la seance au journal des statistiques (pages lues, temps
-        actif hors pauses, tome termine pendant la seance)."""
-        prog = self.store.get_progress(self.path)
-        finished_now = bool(prog and prog[2]) and not self._was_finished
-        self.store.record_reading(self.path, len(self._session_pages), self._active_seconds(),
-                                  finished_now, Path(self.path).stem, self._series_label())
+        """Ajoute la seance au journal des statistiques : pages lues et temps
+        actif (voir core/reading_session.py). La fin du tome, elle, est
+        journalisee des qu'elle survient (voir _save_progress)."""
+        self.store.record_reading(self.path, len(self._meter.pages), self._meter.active_seconds,
+                                  False, Path(self.path).stem, self._series_label())
 
     def _series_label(self):
         """Nom de serie pour les statistiques (regroupement manuel prioritaire)."""
@@ -119,7 +115,6 @@ class SessionMixin:
     def _persist_reading_pace(self):
         """Integre le rythme median de la session au rythme global persiste,
         pour alimenter les estimations de temps de lecture de la bibliotheque."""
-        deltas = self._page_deltas()
-        if len(deltas) >= TIME_MIN_SAMPLES:
-            deltas = sorted(deltas)
-            self.store.update_page_seconds(deltas[len(deltas) // 2])
+        pace = self._meter.pace(TIME_MIN_SAMPLES)
+        if pace is not None:
+            self.store.update_page_seconds(pace)

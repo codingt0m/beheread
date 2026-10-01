@@ -57,7 +57,7 @@ def test_legacy_json_is_imported_then_archived(data_dir, tmp_path):
     assert s.ui_pref("theme") == "light" and s.reader_pref("double_page") is False
     assert s.progress["c1:abc"]["page"] == 12
     assert s.meta_cache["series"]["berserk"]["title"] == "Berserk"
-    assert s.stats["devices"]["pc"]["updated"] == 1
+    assert s.reading_log.export()["devices"]["pc"]["updated"] == 1
     assert s.load_library_index()[0]["title"] == "a"
     # anciens fichiers ranges (sauvegarde), plus relus ensuite
     assert not (data_dir / "progress.json").exists()
@@ -117,7 +117,7 @@ def test_everything_survives_a_restart(data_dir, tmp_path):
     assert again.get_progress(str(manga)) == (3, 9, False)
     assert again.ui_pref("theme") == "light"
     assert again.volume_meta(str(manga))["authors"] == ["X"]
-    assert again.stats["devices"][again.device_id()]["days"]
+    assert again.reading_log.export()["devices"][again.device_id()]["days"]
     assert again.load_library_index() == [{"path": str(manga), "title": "A"}]
     assert str(tmp_path) in again.folders()
 

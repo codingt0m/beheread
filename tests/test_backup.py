@@ -20,15 +20,16 @@ def test_path_keyed_entries_are_not_imported():
     assert local == {}
 
 
-def test_stats_sections_per_device_never_double_count():
-    local = {"devices": {"me": {"updated": 10, "days": {"d": {"k": {"pages": 5}}}}}}
+def test_journal_sections_per_device_never_double_count():
+    pc2 = {"updated": 20, "days": {"d": {"k": {"pages": 3}}}}
     remote = {"devices": {"me": {"updated": 99, "days": {}},          # ma section : ignoree
-                          "pc2": {"updated": 20, "days": {"d": {"k": {"pages": 3}}}}}}
-    assert backup.merge_stats(local, remote, "me") is True
-    assert local["devices"]["me"]["days"]["d"]["k"]["pages"] == 5
-    assert local["devices"]["pc2"]["days"]["d"]["k"]["pages"] == 3
-    # meme fichier importe une seconde fois : aucun changement, pas de double compte
-    assert backup.merge_stats(local, remote, "me") is False
+                          "pc2": pc2, "abime": "pas une section"}}
+    assert backup.journal_sections_to_import({"me": 10}, remote, "me") == {"pc2": pc2}
+    # meme fichier importe une seconde fois : rien a reprendre, pas de double compte
+    assert backup.journal_sections_to_import({"me": 10, "pc2": 20}, remote, "me") == {}
+    # section plus recente que celle deja connue : reprise
+    assert backup.journal_sections_to_import({"pc2": 5}, remote, "me") == {"pc2": pc2}
+    assert backup.journal_sections_to_import({}, {"devices": "abime"}, "me") == {}
 
 
 def test_dismissed_keeps_latest():

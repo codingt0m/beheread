@@ -10,7 +10,7 @@ import logging
 import sys
 from pathlib import Path
 
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import QEvent, Qt, QTimer
 from PySide6.QtGui import QColor, QKeySequence, QPalette, QShortcut
 from PySide6.QtWidgets import QApplication, QMainWindow, QMessageBox
 
@@ -31,8 +31,8 @@ APP_NAME = "Beheread"
 
 class ReaderWindow(QMainWindow):
     """Fenetre independante pour le lecteur : s'ouvre par-dessus la
-    bibliotheque (masquee pendant ce temps), en fenetre maximisee - pas en
-    plein ecran OS tant que l'utilisateur ne le demande pas explicitement."""
+    bibliotheque (masquee pendant ce temps), toujours en plein ecran. F11 ou
+    le bouton du coin en sortent (fenetre maximisee) et y reviennent."""
 
     def __init__(self):
         super().__init__()
@@ -40,7 +40,14 @@ class ReaderWindow(QMainWindow):
         QShortcut(QKeySequence(Qt.Key_F11), self, self.toggle_fullscreen)
 
     def toggle_fullscreen(self):
-        self.showNormal() if self.isFullScreen() else self.showFullScreen()
+        self.showMaximized() if self.isFullScreen() else self.showFullScreen()
+
+    def changeEvent(self, event):
+        super().changeEvent(event)
+        if event.type() == QEvent.WindowStateChange:
+            reader = self.centralWidget()
+            if reader is not None:
+                reader.set_fullscreen(self.isFullScreen())
 
     def closeEvent(self, event):
         reader = self.centralWidget()
@@ -118,11 +125,12 @@ class MainWindow(QMainWindow):
             self.reader_window = ReaderWindow()
         win = self.reader_window
         reader.fullscreen_toggled.connect(win.toggle_fullscreen)
-        win.setCentralWidget(reader)   # avant showMaximized : la fenetre a deja
+        win.setCentralWidget(reader)   # avant showFullScreen : la fenetre a deja
         win.setWindowTitle(f"{Path(path).stem}  —  {APP_NAME}")  # son contenu au premier affichage
         if first_open:
-            win.showMaximized()
+            win.showFullScreen()   # le lecteur s'ouvre toujours en plein ecran
             self.hide()   # la bibliotheque passe derriere, comme un popup
+        reader.set_fullscreen(win.isFullScreen())
         win.activateWindow()
         win.raise_()
         # activateWindow() est asynchrone (surtout a la toute premiere ouverture,
@@ -167,7 +175,7 @@ class MainWindow(QMainWindow):
         if win.windowState() & Qt.WindowMinimized:
             win.setWindowState(win.windowState() & ~Qt.WindowMinimized)
         if not win.isVisible():
-            win.showMaximized()
+            win.showFullScreen() if win is self.reader_window else win.showMaximized()
         win.show()
         win.raise_()
         win.activateWindow()

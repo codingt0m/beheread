@@ -18,6 +18,8 @@ from beheread.infra.storage import Store
 from beheread.ui.reader.constants import (
     AMBIENT_MS,
     AMBIENT_STEP_MS,
+    FIT_HEIGHT,
+    FIT_WIDTH,
     SCALED_CACHE_LIMIT,
     TRANSITION_MS,
     TRANSITION_STEP_MS,
@@ -195,6 +197,9 @@ class DisplayMixin:
         self._scaled_order.clear()
 
     # --- bascules (partagees par le clavier et les chips du HUD) -----------
+    # Chaque choix est enregistre comme preference du lecteur : il vaut pour
+    # tous les mangas, pas seulement pour celui qui est ouvert. Seul le sens
+    # de lecture reste propre a chaque serie (voir _initial_manga_mode).
     def toggle_double_page(self):
         self.double_page = not self.double_page
         self.store.set_reader_pref("double_page", self.double_page)
@@ -277,7 +282,7 @@ class DisplayMixin:
         return bool(self.store.reader_pref("manga_mode", True))
 
     def cycle_fit_mode(self):
-        self.fit_mode = (self.fit_mode + 1) % 3
+        self.fit_mode = FIT_WIDTH if self.fit_mode == FIT_HEIGHT else FIT_HEIGHT
         self.store.set_reader_pref("fit_mode", self.fit_mode)
         self.zoom = 1.0
         self._clear_scaled_cache()

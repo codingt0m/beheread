@@ -1,148 +1,392 @@
 """Statistiques de lecture : logique pure (aucune dependance Qt, testee
 isolement).
 
-Le journal (stats.json, gere par storage.Store) est organise par appareil,
-pour que l'import d'une sauvegarde venant d'un autre PC fusionne sans double
-compte (voir backup.py) :
+Le journal de lecture est une table SQLite (voir infra/reading_log.py) :
+une ligne par jour, appareil et tome, avec les pages lues, le temps actif,
+le nombre de seances et les fins de tome. Ce module ne fait aucune requete :
+il definit les periodes, complete et compare les agregats que le journal
+renvoie, et les assemble en un rapport (build_report) que la fenetre de
+statistiques n'a plus qu'a dessiner.
+
+Tous les indicateurs d'un rapport portent sur la MEME periode, et chacun
+est accompagne de sa valeur sur la periode precedente de meme duree.
+
+Format d'echange (sauvegarde, voir backup.py), une section par appareil
+pour que l'import d'un autre PC fusionne sans double compte :
 
     {"devices": {
         <id appareil>: {
-            "name": "PC-SALON", "updated": <epoch>,
+            "name": "PC-SALON", "updated": <epoch>, "rules": 2,
             "days": {"2026-09-27": {<empreinte du tome>: {
-                "pages": 42, "seconds": 1260.0, "finished": 1,
+                "pages": 42, "seconds": 1260.0, "sessions": 2, "finished": 1,
                 "title": "Berserk - Tome 3", "series": "Berserk"}}}}}}
 
-Chaque appareil n'ecrit que dans sa propre section ; les vues ci-dessous
-additionnent toutes les sections.
+« rules » est la version des regles de mesure (voir reading_session.py).
+Une section sans ce champ vient d'une version qui comptait toute page
+tournee, meme feuilletee : ses pages sont ramenees a ce que son temps de
+lecture rend possible (journal_rows).
 """
 
 import datetime as _dt
+from dataclasses import dataclass
+from typing import Optional
+
+from beheread.core.reading_session import MIN_DWELL
+from beheread.core.series import normalize_name
+
+JOURNAL_RULES = 2
+
+PERIODS = (("7d", "7 jours"), ("30d", "30 jours"), ("12m", "12 mois"), ("all", "Tout"))
+DEFAULT_PERIOD = "30d"
+# « Tout » : barres par jour tant que l'historique est court, par mois ensuite
+ALL_DAILY_MAX_DAYS = 62
+# calendrier de regularite : 53 semaines au plus (les plus recentes de la periode)
+CALENDAR_MAX_DAYS = 53 * 7
+HEAT_LEVELS = 4          # nuances du calendrier, en plus de « aucune lecture »
+FINISHED_LIST_MAX = 12   # derniers tomes termines proposes a l'affichage
+
+_DAY = _dt.timedelta(days=1)
 
 
 def day_key(date: _dt.date) -> str:
     return date.isoformat()
 
 
-def add_session(device: dict, date: _dt.date, key: str, pages: int, seconds: float,
-                finished: bool, title: str, series: str):
-    """Ajoute une session de lecture au journal d'un appareil (en place)."""
-    day = device.setdefault("days", {}).setdefault(day_key(date), {})
-    rec = day.setdefault(key, {"pages": 0, "seconds": 0.0, "finished": 0})
-    rec["pages"] = int(rec.get("pages", 0)) + max(0, int(pages))
-    rec["seconds"] = round(float(rec.get("seconds", 0.0)) + max(0.0, float(seconds)), 1)
-    if finished:
-        rec["finished"] = int(rec.get("finished", 0)) + 1
-    rec["title"] = title
-    rec["series"] = series
+# ---------------------------------------------------------------- periodes
+
+@dataclass(frozen=True)
+class Period:
+    key: str
+    start: _dt.date
+    end: _dt.date
+    grain: str                  # pas des graphiques : "day" ou "month"
+    previous: Optional[tuple]   # (debut, fin) de la periode de comparaison, ou None
+    label: str                  # « 30 derniers jours »
+    previous_label: str         # « 30 jours précédents »
+
+    @property
+    def days(self) -> int:
+        return (self.end - self.start).days + 1
 
 
-def merged_days(stats: dict) -> dict:
-    """{jour: {empreinte: enregistrement}} additionne sur tous les appareils."""
-    out = {}
-    for dev in (stats or {}).get("devices", {}).values():
-        for day, recs in dev.get("days", {}).items():
-            target = out.setdefault(day, {})
-            for key, rec in recs.items():
-                t = target.setdefault(key, {"pages": 0, "seconds": 0.0, "finished": 0,
-                                            "title": rec.get("title", ""),
-                                            "series": rec.get("series", "")})
-                t["pages"] += int(rec.get("pages", 0))
-                t["seconds"] += float(rec.get("seconds", 0.0))
-                t["finished"] += int(rec.get("finished", 0))
-    return out
+def _add_months(first: _dt.date, months: int) -> _dt.date:
+    """Premier jour du mois situe `months` mois apres (ou avant) `first`."""
+    index = first.year * 12 + first.month - 1 + months
+    return _dt.date(index // 12, index % 12 + 1, 1)
 
 
-def daily_totals(days: dict) -> dict:
-    """{jour: (pages, secondes)}."""
-    return {day: (sum(r["pages"] for r in recs.values()),
-                  sum(r["seconds"] for r in recs.values()))
-            for day, recs in days.items()}
+def _year_before(date: _dt.date) -> _dt.date:
+    try:
+        return date.replace(year=date.year - 1)
+    except ValueError:   # 29 fevrier
+        return date.replace(year=date.year - 1, day=28)
 
 
-def last_n_days(daily: dict, today: _dt.date, n: int = 30):
-    """[(date, pages, secondes)] des n derniers jours, aujourd'hui compris,
-    du plus ancien au plus recent (jours sans lecture a zero)."""
+def period(key: str, today: _dt.date, first_day: Optional[_dt.date] = None) -> Period:
+    """Periode d'analyse se terminant aujourd'hui. `first_day` : premier jour
+    du journal, borne de la periode « Tout »."""
+    if key == "all":
+        start = min(first_day or today, today)
+        grain = "day" if (today - start).days < ALL_DAILY_MAX_DAYS else "month"
+        label = f"depuis le {start.strftime('%d/%m/%Y')}" if first_day else "tout l'historique"
+        return Period("all", start, today, grain, None, label, "")
+    if key == "12m":
+        start = _add_months(today.replace(day=1), -11)
+        # meme decoupage un an plus tot : le mois en cours, incomplet, est
+        # compare au meme mois arrete au meme jour
+        previous = (_add_months(start, -12), _year_before(today))
+        return Period("12m", start, today, "month", previous, "12 derniers mois",
+                      "12 mois précédents")
+    n = 7 if key == "7d" else 30
+    start = today - (n - 1) * _DAY
+    return Period("7d" if n == 7 else "30d", start, today, "day",
+                  (start - n * _DAY, start - _DAY), f"{n} derniers jours",
+                  f"{n} jours précédents")
+
+
+# ---------------------------------------------------------------- agregats
+
+@dataclass(frozen=True)
+class Totals:
+    pages: int = 0
+    seconds: float = 0.0
+    sessions: int = 0
+    finished: int = 0       # tomes lus jusqu'a la derniere page
+    active_days: int = 0    # jours avec au moins une page lue
+    volumes: int = 0        # tomes differents lus
+
+    @property
+    def empty(self) -> bool:
+        return not (self.pages or self.seconds or self.finished)
+
+
+@dataclass(frozen=True)
+class Bucket:
+    """Une barre des graphiques : un jour ou un mois (`start` : son premier jour)."""
+    start: _dt.date
+    pages: int = 0
+    seconds: float = 0.0
+    finished: int = 0
+
+
+def bucket_key(date: _dt.date, grain: str) -> str:
+    return date.isoformat()[:7] if grain == "month" else date.isoformat()
+
+
+def _fill(start: _dt.date, end: _dt.date, grain: str, rows) -> list:
+    found = {key: (pages, seconds, finished) for key, pages, seconds, finished in rows}
     out = []
-    for i in range(n - 1, -1, -1):
-        d = today - _dt.timedelta(days=i)
-        pages, seconds = daily.get(day_key(d), (0, 0.0))
-        out.append((d, pages, seconds))
+    if grain == "month":
+        d, last = start.replace(day=1), end.replace(day=1)
+        step = lambda x: _add_months(x, 1)   # noqa: E731
+    else:
+        d, last = start, end
+        step = lambda x: x + _DAY            # noqa: E731
+    while d <= last:
+        pages, seconds, finished = found.get(bucket_key(d, grain), (0, 0.0, 0))
+        out.append(Bucket(d, int(pages), float(seconds), int(finished)))
+        d = step(d)
     return out
 
 
-def streak(daily: dict, today: _dt.date) -> int:
-    """Jours consecutifs de lecture se terminant aujourd'hui - ou hier, pour
-    que la serie ne tombe pas a zero le matin avant d'avoir lu."""
-    def read_on(d):
-        return daily.get(day_key(d), (0, 0))[0] > 0
-    d = today if read_on(today) else today - _dt.timedelta(days=1)
-    n = 0
-    while read_on(d):
-        n += 1
-        d -= _dt.timedelta(days=1)
-    return n
+def fill_buckets(p: Period, rows) -> list:
+    """Barres de la periode, de la plus ancienne a la plus recente, a partir
+    des lignes agregees [(cle, pages, secondes, fins)] du journal ; les jours
+    ou mois sans lecture sont a zero."""
+    return _fill(p.start, p.end, p.grain, rows)
 
 
-def top_series(days: dict, since: _dt.date = None, n: int = 5):
-    """[(serie, secondes, pages)] les plus lues (temps de lecture), depuis
-    `since` si fourni."""
-    acc = {}
-    for day, recs in days.items():
-        if since is not None and day < day_key(since):
+# ---------------------------------------------------------------- calendrier de regularite
+
+def calendar_start(p: Period) -> _dt.date:
+    """Premier jour du calendrier : celui de la periode, ou le debut des 53
+    dernieres semaines si elle est plus longue."""
+    return max(p.start, p.end - (CALENDAR_MAX_DAYS - 1) * _DAY)
+
+
+def calendar_weeks(days) -> list:
+    """Semaines (lundi -> dimanche) couvrant les jours donnes (Bucket, dans
+    l'ordre) : listes de 7 cases, None pour les jours hors periode."""
+    weeks = []
+    for b in days:
+        weekday = b.start.weekday()
+        if not weeks or weekday == 0:
+            weeks.append([None] * 7)
+        weeks[-1][weekday] = b
+    return weeks
+
+
+def heat_thresholds(values, levels: int = HEAT_LEVELS) -> list:
+    """Seuils des nuances du calendrier : les quantiles des valeurs non
+    nulles, pour qu'une journee exceptionnelle n'ecrase pas toutes les
+    autres dans la nuance la plus claire."""
+    positive = sorted(v for v in values if v > 0)
+    if not positive:
+        return []
+    n = len(positive)
+    return [positive[min(n - 1, k * n // levels)] for k in range(1, levels)]
+
+
+def heat_level(value, thresholds) -> int:
+    """Nuance d'une journee : 0 sans lecture, puis 1 (peu) a HEAT_LEVELS (beaucoup)."""
+    if value <= 0:
+        return 0
+    return 1 + sum(1 for t in thresholds if value >= t)
+
+
+def streaks(days, today: _dt.date) -> tuple:
+    """(serie en cours, record) en jours consecutifs de lecture, d'apres les
+    jours « AAAA-MM-JJ » ou au moins une page a ete lue. La serie en cours se
+    termine aujourd'hui - ou hier, pour qu'elle ne tombe pas a zero le matin
+    avant d'avoir lu."""
+    dates = set()
+    for d in days:
+        try:
+            dates.add(_dt.date.fromisoformat(d))
+        except (TypeError, ValueError):
             continue
-        for rec in recs.values():
-            name = rec.get("series") or rec.get("title") or "?"
-            s, p = acc.get(name, (0.0, 0))
-            acc[name] = (s + rec["seconds"], p + rec["pages"])
-    ranked = sorted(acc.items(), key=lambda kv: (-kv[1][0], -kv[1][1], kv[0].casefold()))
-    return [(name, s, p) for name, (s, p) in ranked[:n] if s > 0 or p > 0]
+    best = run = 0
+    prev = None
+    for d in sorted(dates):
+        run = run + 1 if prev is not None and d - prev == _DAY else 1
+        best = max(best, run)
+        prev = d
+    d = today if today in dates else today - _DAY
+    current = 0
+    while d in dates:
+        current += 1
+        d -= _DAY
+    return current, best
 
 
-def finished_per_month(progress: dict, today: _dt.date, months: int = 12):
-    """[(date du 1er du mois, nombre)] des tomes termines par mois, sur les
-    `months` derniers mois. S'appuie sur la progression (drapeau « termine »
-    et date de derniere lecture) : disponible des l'installation, meme sans
-    historique de sessions."""
-    firsts = []
-    y, m = today.year, today.month
-    for _ in range(months):
-        firsts.append(_dt.date(y, m, 1))
-        y, m = (y - 1, 12) if m == 1 else (y, m - 1)
-    firsts.reverse()
-    counts = {f: 0 for f in firsts}
-    for entry in (progress or {}).values():
-        if not isinstance(entry, dict) or not entry.get("finished"):
+@dataclass(frozen=True)
+class SeriesRank:
+    name: str
+    seconds: float
+    pages: int
+    finished: int
+    share: float    # part du temps de lecture de la periode (0 a 1)
+
+
+def top_series(volume_rows, resolve=None, n: int = 6) -> list:
+    """Series les plus lues (temps de lecture, puis pages), a partir des
+    lignes par tome [(tome, titre, serie, pages, secondes, fins)] du journal.
+
+    `resolve(tome)` renvoie (cle de serie, nom affiche) pour un tome present
+    dans la bibliotheque : le classement suit alors les regroupements et les
+    noms ACTUELS, meme si la serie a ete renommee ou regroupee depuis. Pour
+    un tome inconnu (fichier supprime, autre PC), on se rabat sur le nom de
+    serie note au moment de la lecture."""
+    groups = {}
+    for volume, title, series, pages, seconds, finished in volume_rows:
+        if not (pages or seconds):
             continue
-        ts = entry.get("ts")
-        if not ts:
-            continue
-        d = _dt.date.fromtimestamp(ts)
-        f = _dt.date(d.year, d.month, 1)
-        if f in counts:
-            counts[f] += 1
-    return [(f, counts[f]) for f in firsts]
+        key_name = resolve(volume) if resolve is not None else None
+        if key_name is None:
+            label = series or title or "?"
+            key_name = (normalize_name(label) or label, label)
+        g = groups.setdefault(key_name[0], [key_name[1], 0.0, 0, 0])
+        g[1] += seconds
+        g[2] += pages
+        g[3] += finished
+    total_seconds = sum(g[1] for g in groups.values())
+    total_pages = sum(g[2] for g in groups.values())
+    ranked = sorted(groups.values(), key=lambda g: (-g[1], -g[2], g[0].casefold()))
+    return [SeriesRank(name, seconds, pages, finished,
+                       seconds / total_seconds if total_seconds
+                       else (pages / total_pages if total_pages else 0.0))
+            for name, seconds, pages, finished in ranked[:n]]
 
 
-def finished_total(progress: dict, year: int = None) -> int:
-    n = 0
-    for entry in (progress or {}).values():
-        if not isinstance(entry, dict) or not entry.get("finished"):
+# ---------------------------------------------------------------- rapport
+
+@dataclass(frozen=True)
+class Report:
+    period: Period
+    totals: Totals
+    previous: Optional[Totals]      # None : pas de periode de comparaison
+    buckets: list
+    streak: int
+    best_streak: int
+    series: list
+    first_day: Optional[_dt.date]       # premier jour du journal, None s'il est vide
+    first_session: Optional[_dt.date]   # premier jour ou pages et temps sont mesures
+    calendar: list                      # un Bucket par jour (voir calendar_start)
+    finished_volumes: list              # dernieres fins de tome [(date, tome, titre, serie)]
+
+
+def build_report(log, key: str, today: _dt.date, resolve=None, top: int = 6) -> Report:
+    """Rapport complet d'une periode. `log` : le journal de lecture
+    (infra.reading_log.ReadingLog) ; chaque indicateur est une requete
+    agregee bornee a la periode."""
+    first = log.first_day()
+    p = period(key, today, first)
+    current, best = streaks(log.active_days(), today)
+    return Report(
+        period=p,
+        totals=log.totals(p.start, p.end),
+        previous=log.totals(*p.previous) if p.previous else None,
+        buckets=fill_buckets(p, log.buckets(p.start, p.end, p.grain)),
+        streak=current, best_streak=best,
+        series=top_series(log.volumes(p.start, p.end), resolve, top),
+        first_day=first, first_session=log.first_day(sessions_only=True),
+        calendar=_fill(calendar_start(p), p.end, "day",
+                       log.buckets(calendar_start(p), p.end, "day")),
+        finished_volumes=[(_dt.date.fromisoformat(day), volume, title, series)
+                          for day, volume, title, series
+                          in log.finished(p.start, p.end, FINISHED_LIST_MAX)])
+
+
+# ---------------------------------------------------------------- format d'echange
+
+def _count(value) -> int:
+    try:
+        return max(0, int(value or 0))
+    except (TypeError, ValueError):
+        return 0
+
+
+def _seconds(value) -> float:
+    try:
+        return max(0.0, float(value or 0))
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def journal_rows(device: str, section):
+    """Lignes du journal (jour, appareil, tome, pages, secondes, seances,
+    fins, titre, serie) d'une section d'appareil au format d'echange. Tolere
+    une section abimee (enregistrements illisibles ignores)."""
+    if not isinstance(section, dict) or not isinstance(section.get("days"), dict):
+        return
+    legacy = _count(section.get("rules", 1)) < JOURNAL_RULES
+    for day, records in section["days"].items():
+        try:
+            _dt.date.fromisoformat(day)
+        except (TypeError, ValueError):
             continue
-        if year is not None:
-            ts = entry.get("ts")
-            if not ts or _dt.date.fromtimestamp(ts).year != year:
+        if not isinstance(records, dict):
+            continue
+        for volume, rec in records.items():
+            if not isinstance(volume, str) or not isinstance(rec, dict):
                 continue
-        n += 1
-    return n
+            pages, seconds = _count(rec.get("pages")), _seconds(rec.get("seconds"))
+            finished = _count(rec.get("finished"))
+            if legacy:
+                # anciennes regles : toute page tournee comptait. On ne garde
+                # que ce que le temps de lecture rend possible.
+                pages = min(pages, int(seconds / MIN_DWELL))
+            if not (pages or seconds or finished):
+                continue
+            sessions = _count(rec.get("sessions", 1 if (pages or seconds) else 0))
+            yield (day, device, volume, pages, round(seconds, 1), sessions, finished,
+                   str(rec.get("title") or ""), str(rec.get("series") or ""))
 
 
-def fmt_duration(seconds: float) -> str:
-    """Duree lisible : « 45 min », « 3 h 05 », « moins d'une minute »."""
+def journal_section(name: str, updated: float, rows) -> dict:
+    """Section d'appareil au format d'echange, a partir de ses lignes
+    [(jour, tome, pages, secondes, seances, fins, titre, serie)]."""
+    days = {}
+    for day, volume, pages, seconds, sessions, finished, title, series in rows:
+        days.setdefault(day, {})[volume] = {
+            "pages": pages, "seconds": seconds, "sessions": sessions, "finished": finished,
+            "title": title, "series": series}
+    return {"name": name, "updated": updated, "rules": JOURNAL_RULES, "days": days}
+
+
+def finished_before_journal(progress: dict, before: _dt.date) -> list:
+    """[(jour, empreinte)] des tomes termines avant le `before`, premier jour
+    du journal : faute de mieux, leur fin est datee de leur derniere lecture
+    (horodatage de la progression). A partir du premier jour du journal,
+    seules les fins qu'il a enregistrees comptent : cet horodatage bouge a
+    chaque reouverture d'un tome, et « Marquer comme lu » n'est pas une
+    lecture."""
+    out = []
+    for key, entry in (progress or {}).items():
+        if not isinstance(entry, dict) or not entry.get("finished"):
+            continue
+        try:
+            day = _dt.date.fromtimestamp(float(entry.get("ts") or 0))
+        except (TypeError, ValueError, OverflowError, OSError):
+            continue
+        if entry.get("ts") and day < before:
+            out.append((day.isoformat(), key))
+    return out
+
+
+# ---------------------------------------------------------------- mise en forme
+
+def fmt_duration(seconds: float, compact: bool = False) -> str:
+    """Duree lisible : « 45 min », « 3 h 05 », « moins d'une minute ».
+    `compact` (graduations, listes) : « 3 h » plutot que « 3 h 00 », et
+    « 28 s » plutot que « moins d'une minute »."""
     minutes = int(round(seconds / 60.0))
     if seconds > 0 and minutes == 0:
-        return "moins d'une minute"
+        return f"{max(1, round(seconds))} s" if compact else "moins d'une minute"
     if minutes < 60:
         return f"{minutes} min"
+    if compact and minutes % 60 == 0:
+        return f"{minutes // 60} h"
     return f"{minutes // 60} h {minutes % 60:02d}"
 
 
@@ -159,3 +403,19 @@ def nice_ticks(max_value: float, count: int = 4):
     step = max(1, int(step))
     top = step * -(-int(max_value) // step)
     return list(range(0, top + 1, step))
+
+
+# pas « ronds » d'un axe de durees, en secondes : 1 min ... 1 jour
+_TIME_STEPS = (60, 120, 300, 600, 900, 1800, 3600, 7200, 10800, 21600, 43200, 86400)
+
+
+def time_ticks(max_seconds: float, count: int = 4):
+    """Graduations d'un axe de durees (en secondes), de 0 a au moins
+    max_seconds : pas de 1, 2, 5, 10, 15, 30 min, 1, 2, 3, 6, 12 h, puis en jours."""
+    if max_seconds <= 0:
+        return [0, 60]
+    step = next((s for s in _TIME_STEPS if s * count >= max_seconds), None)
+    if step is None:
+        step = 86400 * nice_ticks(max_seconds / 86400, count)[1]
+    top = step * -(-int(max_seconds) // step)
+    return list(range(0, max(top, step) + 1, step))

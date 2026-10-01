@@ -61,9 +61,9 @@ Bibliothèque :
 * **Trier et filtrer** : sous l'en-tête, « Trier par » (titre, ajout récent, lu récemment, auteur, année de sortie) et des filtres de statut **Tous / Non lus / En cours / Terminés** ; le nombre de tomes affichés s'affiche à droite. En mode regroupé, les dossiers de série suivent le même tri et le même filtre ; à l'intérieur d'une série, les tomes restent dans l'ordre de lecture.
 * **Panneau d'informations** (à activer dans *Préférences > Général*, masqué par défaut) : couverture, auteur, année, source, statut, nombre de pages, temps de lecture estimé, dates d'ajout et de lecture, taille et emplacement du fichier de l'élément sélectionné, avec ses actions (Lire / Reprendre / Relire, marquer lu, modifier…). Pour une série : « Continuer : Tome N », ouvrir, marquer comme lue, renommer, fusionner.
 * **Gestion manuelle des séries** (clic droit ou panneau d'informations) : **Déplacer vers une série…** (choisir une série existante ou en créer une), **Fusionner avec une autre série…**, **Renommer la série…** (nom affiché uniquement, les fichiers ne sont pas touchés) et **Modifier les informations…** (auteur, année ; une saisie manuelle est prioritaire et conservée). Un tome placé à la main dans une série n'est jamais masqué comme doublon.
-* **Préférences** (icône engrenage, ou Ctrl+,), en onglets : *Général* (thème, vue grille ou liste, couleur d'accentuation, regroupement par série, bande « Continuer la lecture », panneau d'informations, touche C et raccourci global Ctrl+Alt+C, métadonnées en ligne), *Lecteur* (sens de lecture, ajustement, double page, fondu entre les pages), *Données* (export/import, dossier des données, vidage des caches), *AniList* (connexion et suivi), *Raccourcis* (tous les raccourcis clavier de la bibliothèque et du lecteur).
+* **Préférences** (icône engrenage, ou Ctrl+,), en onglets : *Général* (thème, vue grille ou liste, couleur d'accentuation, regroupement par série, bande « Continuer la lecture », panneau d'informations, touche C et raccourci global Ctrl+Alt+C, métadonnées en ligne), *Lecteur* (sens de lecture, ajustement, double page, Ambilight, fondu entre les pages), *Données* (export/import, dossier des données, vidage des caches), *AniList* (connexion et suivi), *Raccourcis* (tous les raccourcis clavier de la bibliothèque et du lecteur).
 * **Couleur d'accentuation** (*Préférences > Général*) : le rouge d'origine peut être remplacé par une des couleurs proposées ou par une couleur libre (« Personnalisée… ») ; « Réinitialiser » revient au rouge. Elle s'applique au logo, au titre, aux boutons, aux barres de progression, aux icônes actives et aux graphiques. Une couleur trop claire (thème clair) ou trop sombre (thème sombre) est ajustée juste assez pour rester lisible ; si elle est verte, « terminé » passe au bleu pour rester distinct de « en cours ». L'icône de l'exécutable, des raccourcis et des fichiers associés, lue par Windows dans Beheread.exe, garde sa couleur d'origine.
-* **Statistiques** (icône histogramme) : tomes terminés (au total et dans l'année), pages lues et temps de lecture des 30 derniers jours, jours de lecture d'affilée, rythme de lecture, pages lues par jour, tomes terminés par mois (12 mois), séries les plus lues et répartition de la bibliothèque (non lus / en cours / terminés). Chaque graphique affiche la valeur au survol (ou aux flèches du clavier) et peut basculer en tableau. Le temps de lecture ne compte que la lecture active (les pauses de plus de 90 s sont ignorées). Les tomes terminés avant cette version sont comptés ; les pages et le temps le sont à partir de cette version.
+* **Statistiques** (icône histogramme) : une période au choix en tête de fenêtre (**7 jours / 30 jours / 12 mois / Tout**) gouverne tous les chiffres, et la ligne sous le titre rappelle ses dates et ce à quoi elle est comparée. Pour cette période : le temps de lecture en chiffre principal, puis pages lues, tomes terminés et jours de lecture, chacun avec son écart à la période précédente de même durée et une mini-tendance ; le temps de lecture par jour (ou par mois) ; les séries les plus lues, regroupées et nommées comme dans la bibliothèque actuelle ; un calendrier de régularité (une case par jour, d'autant plus soutenue que la lecture a été longue) avec la série de jours en cours et le record ; la liste des derniers tomes terminés. À part, l'état de la bibliothèque (non lus / en cours / terminés) et le temps qu'il reste à lire à votre rythme. Chaque graphique affiche la valeur au survol (ou aux flèches du clavier) et l'histogramme peut basculer en tableau. L'écran s'ouvre en plein écran (« Fermer » ou Échap pour revenir à la bibliothèque) et tout y tient sans défilement : les cartes occupent la hauteur disponible, leurs listes n'affichent que les lignes qui y tiennent, et sur un écran trop bas la rangée du bas (régularité, tomes terminés, bibliothèque) est retirée. Règles de mesure (rappelées en infobulle par « Méthode de mesure ») : une page compte comme lue après 1 s d'affichage (feuilleter ou faire glisser la barre de défilement ne compte pas), le temps de lecture ignore les pauses de plus de 90 s, et un tome est terminé quand sa dernière page est atteinte dans le lecteur (« Marquer comme lu » n'est pas une lecture). Les tomes terminés avant l'existence du journal de lecture y sont repris à la date de leur dernière lecture.
 * **PDF** : les PDF des dossiers sources apparaissent dans la bibliothèque comme les autres tomes (vignette, progression, séries). Les pages sont rendues à la demande en haute résolution, sur fond blanc. Un PDF protégé par mot de passe n'est pas pris en charge.
 * **Démarrage immédiat (hors-ligne)** : la bibliothèque s'affiche instantanément au lancement à partir du dernier instantané connu, pendant que le scan réel des dossiers se fait en arrière-plan (l'interface ne fige plus, même sur un dossier réseau).
 * **Regrouper par série** (*Préférences > Général*) : détecte les tomes d'un même manga d'après leur nom de fichier (ex. "One Piece - Tome 12.cbz") et les rassemble dans un **dossier de série** (pile de couvertures, le tome en cours ou le prochain à lire au-dessus). Double-clic pour entrer dans le dossier (tomes triés par numéro), Échap / Retour arrière ou le bouton de retour pour en sortir. Une recherche traverse les dossiers. Sans regroupement, la bibliothèque est triée par ordre alphabétique.
@@ -75,7 +75,7 @@ Bibliothèque :
 * Les vignettes utilisent la première image de chaque archive et sont mises en cache pour un affichage instantané aux lancements suivants.
 * Sous chaque couverture : la page en cours et le total. Barre de la couleur d'accentuation (rouge par défaut) = lecture en cours, barre verte + badge = terminé. Une couverture legèrement grisée indique un manga marqué comme lu.
 * L'auteur, une fois récupéré (voir ci-dessous), s'affiche sous la vignette (grille) ou sur la ligne de sous-titre (vue liste), et apparaît aussi au survol dans l'info-bulle avec la date de sortie et la source.
-* Double-clic sur une vignette pour ouvrir le manga (il reprend exactement à la dernière page lue). Le lecteur s'ouvre dans sa **propre fenêtre**, maximisée, distincte de la bibliothèque (qui repasse en arrière-plan pendant la lecture et réapparaît à la fermeture du lecteur).
+* Double-clic sur une vignette pour ouvrir le manga (il reprend exactement à la dernière page lue). Le lecteur s'ouvre dans sa **propre fenêtre**, toujours en plein écran, distincte de la bibliothèque (qui repasse en arrière-plan pendant la lecture et réapparaît à la fermeture du lecteur).
 * Clic droit sur une ou plusieurs vignettes sélectionnées pour :
   * **Réinitialiser la progression** : remet le suivi de lecture à zéro.
   * **Marquer comme lu** : déclare le(s) manga(s) terminé(s) (couverture grisée, badge vert).
@@ -119,33 +119,33 @@ Lecteur :
 | Basculer simple page / double page | D |
 | Basculer mode manga (droite → gauche) / mode normal (gauche → droite) | M |
 | Décaler la parité en double page (couverture seule ↔ couplée) | S |
-| Changer l'ajustement (fenêtre, largeur, hauteur) | F |
+| Changer l'ajustement (hauteur ↕ / largeur ↔) | F, ou bouton à double flèche de la barre de réglages |
 | Recadrage automatique des marges (rogne les bords vides du scan) | R |
-| Ambilight : fond teinté par la couleur de la page (désactivé par défaut) | A |
+| Ambilight : fond teinté par la couleur de la page (désactivé par défaut) | A, ou *Préférences > Lecteur* |
 | Zoom | + / - ou Ctrl + molette, 0 pour réinitialiser |
 | Déplacer l'image quand elle dépasse (zoom, ajustement largeur) | glisser avec la souris |
-| Plein écran | F11, ou bouton "⛶ Plein écran" en haut à droite |
+| Quitter / reprendre le plein écran (actif à l'ouverture) | F11, ou bouton en haut à droite |
 | Masquer instantanément la fenêtre (touche « boss »), puis la réafficher | C pour masquer ; Ctrl+Alt+C pour masquer/réafficher depuis n'importe où |
 | Tome suivant (si détecté, en fin de tome) | Entrée, ou bouton de la fiche de fin |
 | Retour à la bibliothèque | Échap, ou bouton "← Bibliothèque" en haut à gauche |
-| Aide : liste des raccourcis | F1 ou ?, ou bouton « ? » de la barre de réglages |
+| Aide : liste des raccourcis | F1 ou ? (aussi dans *Préférences > Raccourcis*) |
 | Sauter directement à une page | clic ou glisser sur la barre de défilement en bas de l'écran (le survol affiche un aperçu de la page visée) |
 
 \* Flèche/clic gauche et droite sont inversés en mode manga, puisque la lecture s'y fait de droite à gauche.
 
 **Molette, pavé tactile et flèches haut/bas.** Quand la page est plus haute que l'écran (zoom, ajustement à la largeur, webtoon), la molette, la flèche bas et Espace la font d'abord **défiler** ; arrivé en bas, un cran de plus tourne la page, et la page suivante s'affiche depuis son haut (en remontant, la page précédente s'affiche depuis son bas). L'élan qui amène au bord ne tourne jamais la page à lui seul. Sur un **pavé tactile**, un glissement tourne au plus une page (l'inertie est ignorée) ; les molettes haute résolution sont regroupées par crans entiers.
 
-Par défaut, le lecteur démarre en **mode manga** et en **double page** : la page 1 s'affiche à droite, la page 2 à sa gauche, et "page suivante" fait progresser vers la gauche. Le mode d'affichage (double page, mode manga, ajustement) est mémorisé entre les sessions.
+Par défaut, le lecteur démarre en **mode manga** et en **double page** : la page 1 s'affiche à droite, la page 2 à sa gauche, et "page suivante" fait progresser vers la gauche. Les réglages du lecteur (double page, recadrage, ajustement, décalage, Ambilight) sont **communs à tous les mangas** : un choix fait dans un tome se retrouve à l'ouverture de n'importe quel autre, et d'une session à l'autre. Seul le **sens de lecture** fait exception : il est détecté automatiquement (pays d'origine connu d'AniList ou de MangaDex, sinon champ `Manga` de ComicInfo.xml, sinon réglage des préférences), et celui que vous choisissez avec `M` est mémorisé pour la série (ou pour le tome s'il est isolé). L'ajustement « hauteur » montre toujours la page entière (elle est réduite si elle dépasserait en largeur) ; l'ajustement « largeur » occupe toute la largeur de l'écran.
 
 En double page, une image déjà plus large que haute (planche double scannée en une seule image) est détectée automatiquement et affichée seule, sans être couplée à sa voisine.
 
 Chaque changement de page est adouci par un fondu enchaîné rapide (~130ms).
 
-**Décalage de parité (touche S).** Beaucoup de scans placent une couverture en première page, ce qui décale toutes les doubles pages : les planches qui se répondent ne se retrouvent jamais côte à côte. La touche `S` bascule la parité de l'appairage — la couverture s'affiche alors seule et les paires suivantes se recalent correctement. Le choix est mémorisé pour chaque tome.
+**Décalage de parité (touche S).** Beaucoup de scans placent une couverture en première page, ce qui décale toutes les doubles pages : les planches qui se répondent ne se retrouvent jamais côte à côte. La touche `S` bascule la parité de l'appairage — la couverture s'affiche alors seule et les paires suivantes se recalent correctement. Le choix vaut pour tous les mangas, comme les autres réglages du lecteur.
 
 **Recadrage automatique des marges (touche R).** Les scans embarquent souvent des marges blanches (ou noires) inégales qui gâchent l'ajustement et désalignent les deux planches en double page. La touche `R` détecte et rogne ces bords vides pour agrandir la surface utile. En double page, les deux planches partagent le **même niveau de recadrage** (la marge la plus faible des deux sur chaque bord, c'est-à-dire le recadrage le moins agressif), afin de rester alignées et à la même échelle. Le préréglage est mémorisé entre les sessions.
 
-**Ambilight (touche A).** Teinte le fond du lecteur avec la couleur moyenne (assombrie) de la page affichée, avec un fondu doux à chaque changement de page — un effet d'ambiance proche des téléviseurs Ambilight. **Désactivé par défaut**, activable à tout moment d'un appui sur `A` ; le choix est mémorisé entre les sessions.
+**Ambilight (touche A).** Teinte le fond du lecteur avec la couleur moyenne (assombrie) de la page affichée, avec un fondu doux à chaque changement de page — un effet d'ambiance proche des téléviseurs Ambilight. **Désactivé par défaut**, activable dans *Préférences > Lecteur* ou d'un appui sur `A` pendant la lecture ; le choix est mémorisé entre les sessions.
 
 **Interface auto-masquable.** Le HUD, les boutons et la barre de défilement s'effacent après quelques secondes d'inactivité de la souris, pour une lecture sans distraction. Ils réapparaissent au moindre mouvement de souris — mais jamais lors d'un simple changement de page au clavier, afin de ne pas interrompre la lecture.
 
@@ -173,6 +173,7 @@ La dernière page lue de chaque manga est enregistrée automatiquement à chaque
 
 Données stockées localement dans `%APPDATA%\MangaReaderPy` (nom technique historique, inchangé pour ne pas perdre les données des installations existantes) :
 * `beheread.db` : base SQLite (réglages, progression, métadonnées, empreintes, statistiques, instantané de la bibliothèque), au schéma versionné. Les écritures sont transactionnelles (une coupure de courant ne peut pas laisser un fichier à moitié écrit) et incrémentales (seules les données modifiées sont réécrites) ;
+* `beheread-v1.bak` : copie de la base faite automatiquement avant la migration vers le schéma 2 (journal de lecture en table SQL) ; elle permet de revenir à une version antérieure de Beheread et peut être supprimée ensuite ;
 * `legacy-json\` : les anciens fichiers JSON des versions 0.1, importés automatiquement dans la base au premier lancement de la version 0.2 puis rangés ici par sécurité (ils ne sont plus relus ; ce dossier peut être supprimé) ;
 * `instance.lock` : présent tant que Beheread est ouvert (instance unique)
 * `beheread.log` : journal de diagnostic
@@ -211,12 +212,14 @@ beheread/
     library_model.py     Statuts de lecture, tris, sélection « Continuer la lecture »
     pairing.py           Appairage double page (parité, planches doubles, recul)
     wheel_nav.py         Molette / pavé tactile (défilement puis tour de page)
-    stats.py             Statistiques (journal par PC, jours d'affilée, agrégats)
+    stats.py             Statistiques (périodes, comparaison, jours d'affilée, classement)
+    reading_session.py   Mesure d'une séance (pages lues, temps actif, rythme)
     backup.py            Sauvegarde (export, fusion à l'import)
     anilist_track.py     Règles du suivi AniList (uniquement des ajouts)
   infra/                 Persistance, archives, réseau, intégration Windows
     storage.py           Store : façade de persistance (identité par contenu, écritures différées)
     database.py          Base SQLite : schéma versionné, dépôts, écritures incrémentales
+    reading_log.py       Journal de lecture : table SQL, agrégats par période des statistiques
     archive.py           Ouverture CBZ/CBR/EPUB en mémoire, rendu des PDF (QtPdf), scan des dossiers
     metadata.py          Cascade ComicInfo.xml -> Google Books -> AniList -> MangaDex
     googlebooks.py, anilist.py, mangadex.py   Clients d'API

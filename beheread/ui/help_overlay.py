@@ -24,7 +24,7 @@ READER_SHORTCUTS = [
         ("D", "Simple page / double page"),
         ("M", "Sens de lecture manga (droite à gauche)"),
         ("S", "Décaler l'appairage des pages doubles"),
-        ("F", "Ajustement : fenêtre, largeur, hauteur"),
+        ("F", "Ajustement : hauteur / largeur"),
         ("R", "Recadrage automatique des marges"),
         ("A", "Ambilight"),
         ("+ / − / 0", "Zoom avant / arrière / réinitialiser"),

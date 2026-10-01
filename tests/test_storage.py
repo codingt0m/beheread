@@ -128,17 +128,6 @@ def test_is_cloud_placeholder_false_for_regular_file(store, tmp_path):
     assert storage.is_cloud_placeholder(str(tmp_path / "absent.cbz")) is False
 
 
-def test_reader_offset(store, tmp_path):
-    path = _make_manga(tmp_path, "a.cbz")
-    assert store.get_reader_offset(path) == 0
-    store.set_reader_offset(path, 1)
-    assert store.get_reader_offset(path) == 1
-    # l'offset cohabite avec la progression dans la meme entree
-    store.set_progress(path, 3, 50, False)
-    assert store.get_reader_offset(path) == 1
-    assert store.get_progress(path) == (3, 50, False)
-
-
 def test_meta_cache_separate_file(store, tmp_path):
     """Les metadonnees ont leurs propres depots : elles ne polluent pas les
     reglages, et survivent a une reouverture."""
@@ -388,13 +377,54 @@ def test_reset_progress_removes_entry(store, tmp_path):
 def test_record_reading_goes_to_this_device(store, tmp_path):
     import datetime
     path = _make_manga(tmp_path, "a.cbz")
-    store.record_reading(path, 12, 300, False, "A - Tome 1", "A",
-                         date=datetime.date(2026, 9, 27))
-    dev = store.stats["devices"][store.device_id()]
-    rec = dev["days"]["2026-09-27"][store.key_for(path)]
-    assert rec["pages"] == 12 and rec["series"] == "A"
+    day = datetime.date(2026, 9, 27)
+    store.record_reading(path, 12, 300, False, "A - Tome 1", "A", date=day)
     store.record_reading(path, 0, 0, False, "A - Tome 1", "A")   # session vide ignoree
-    assert len(dev["days"]) == 1
+    dev = store.reading_log.export()["devices"][store.device_id()]
+    assert list(dev["days"]) == ["2026-09-27"] and dev["name"] == store.device_name()
+    rec = dev["days"]["2026-09-27"][store.key_for(path)]
+    assert rec["pages"] == 12 and rec["series"] == "A" and rec["sessions"] == 1
+    # ecrit sur-le-champ : un autre Store sur la meme base le voit sans flush
+    assert Store().reading_log.totals(day, day).pages == 12
+    store.close()
+    store.record_reading(path, 5, 60, False, "A - Tome 1", "A", date=day)   # base fermee : ignore
+
+
+def test_finished_volumes_older_than_the_journal_are_imported_once(store, tmp_path):
+    """Les tomes termines avant le premier jour du journal y sont inscrits (a
+    la date de leur derniere lecture) ; ceux marques termines depuis, sans
+    lecture enregistree, ne comptent pas."""
+    import datetime
+    import time
+    old, recent = _make_manga(tmp_path, "a.cbz", b"a"), _make_manga(tmp_path, "b.cbz", b"b")
+    reading = _make_manga(tmp_path, "c.cbz", b"c")
+    journal_start = datetime.date.today() - datetime.timedelta(days=10)
+    store.set_progress(old, 9, 10, True)
+    long_ago = datetime.date.today() - datetime.timedelta(days=40)
+    store.progress[store.key_for(old)]["ts"] = time.mktime(long_ago.timetuple()) + 43200
+    store.set_progress(recent, 9, 10, True)                  # « Marquer comme lu » d'aujourd'hui
+    store.record_reading(reading, 5, 100, False, "C", "C", date=journal_start)
+    store.flush()
+    with store.db.transaction() as cur:                      # base d'avant cette reprise
+        cur.execute("DELETE FROM app_meta WHERE key = ?", (storage.FINISHED_HISTORY_KEY,))
+
+    again = Store()
+    everything = again.reading_log.totals("0000-01-01", "9999-12-31")
+    assert everything.finished == 1 and everything.pages == 5
+    assert again.reading_log.first_day() == long_ago
+    assert Store().reading_log.totals("0000-01-01", "9999-12-31").finished == 1   # une seule fois
+
+
+def test_reading_pace_is_remeasured_under_the_new_rules(store):
+    """L'ancien rythme (intervalle entre tours de page, feuilletage compris)
+    est oublie ; le nouveau est une moyenne lissee de secondes par page."""
+    store.set_reader_pref("median_page_seconds", 0.486)
+    assert _reopen(store).median_page_seconds() is None
+    fresh = Store()
+    assert "median_page_seconds" not in fresh.settings["reader"]
+    fresh.update_page_seconds(10.0)
+    fresh.update_page_seconds(20.0)
+    assert fresh.median_page_seconds() == 13.0
 
 
 def test_backup_export_import_roundtrip(tmp_path, monkeypatch):
@@ -411,15 +441,21 @@ def test_backup_export_import_roundtrip(tmp_path, monkeypatch):
     pc1 = make_store("pc1")
     pc1.set_progress(manga, 7, 10, False)
     pc1.set_series_name("a", "Série A")
+    pc1.record_reading(manga, 7, 210, False, "A", "A")
     backup = tmp_path / "sauvegarde.json"
     pc1.export_backup(backup)
 
     pc2 = make_store("pc2")
     pc2.set_series_name("a", "Nom local")
+    pc2.record_reading(manga, 2, 30, False, "A", "A")
     result = pc2.import_backup(backup)
     assert result["progress"] == 1
     assert pc2.get_progress(manga) == (7, 10, False)
     assert pc2.series_name("a") == "Nom local"
+    # journal de lecture : les deux PC s'additionnent, un second import ne double rien
+    pc2.import_backup(backup)
+    assert pc2.reading_log.totals("0000-01-01", "9999-12-31").pages == 9
+    assert set(pc2.reading_log.devices()) == {pc1.device_id(), pc2.device_id()}
 
     # une progression reinitialisee par erreur est restauree par l'import
     pc2.remove_progress(manga)

@@ -8,7 +8,9 @@ Trois points d'architecture :
 * Base SQLite versionnee (beheread.db, voir database.py) : un depot par type
   de donnee, charge en memoire au demarrage et ecrit de facon incrementale et
   transactionnelle. Les anciens fichiers JSON (versions <= 0.1) sont importes
-  automatiquement au premier lancement, puis ranges dans legacy-json/.
+  automatiquement au premier lancement, puis ranges dans legacy-json/. Le
+  journal de lecture (statistiques) est une table a part, interrogee en SQL
+  et jamais chargee en memoire (voir reading_log.py).
 
 * Identite par contenu. La progression et les metadonnees sont indexees par
   une empreinte du contenu du fichier (taille + debut du fichier), pas par
@@ -41,23 +43,23 @@ from beheread.core import backup as backup_model
 from beheread.core import stats as stats_model
 from beheread.infra import secret_store
 from beheread.infra.database import Database, JsonTable
+from beheread.infra.reading_log import ReadingLog
 
 SAVE_DELAY = 0.6          # secondes d'inactivite avant une ecriture differee
 DB_NAME = "beheread.db"
 
 # depot -> table SQLite (voir database.py)
 REPOS = {"settings": "settings", "progress": "progress", "volume_meta": "volume_meta",
-         "series_meta": "series_meta", "fp": "fingerprints", "stats": "stats_devices",
-         "index": "library_index"}
+         "series_meta": "series_meta", "fp": "fingerprints", "index": "library_index"}
 # nom passe a _schedule -> depots a ecrire
 DIRTY_TO_REPOS = {"settings": ("settings",), "progress": ("progress",),
-                  "meta": ("volume_meta", "series_meta"), "fp": ("fp",),
-                  "stats": ("stats",)}
+                  "meta": ("volume_meta", "series_meta"), "fp": ("fp",)}
 REPO_TO_DIRTY = {"settings": "settings", "progress": "progress", "volume_meta": "meta",
-                 "series_meta": "meta", "fingerprints": "fp", "stats_devices": "stats",
-                 "library_index": "settings"}
+                 "series_meta": "meta", "fingerprints": "fp", "library_index": "settings"}
 # anciens fichiers JSON (versions <= 0.1), importes au premier lancement
 LEGACY_IMPORT_KEY = "legacy_json_import"
+# fins de tome anterieures au journal de lecture, reprises une seule fois
+FINISHED_HISTORY_KEY = "finished_history_import"
 LEGACY_FILES = {"settings": "settings.json", "progress": "progress.json",
                 "meta": "meta_cache.json", "fp": "fingerprints.json",
                 "stats": "stats.json", "index": "library_index.json"}
@@ -139,8 +141,8 @@ class Store:
         self.meta_cache = {"volume": self._repos["volume_meta"].data,
                            "series": self._repos["series_meta"].data}
         self._fp = self._repos["fp"].data                 # chemin -> {m, s, k}
-        # journal des sessions de lecture, par appareil (voir stats.py)
-        self.stats = {"devices": self._repos["stats"].data}
+        # journal de lecture (statistiques) : table SQL, voir reading_log.py
+        self.reading_log = ReadingLog(self.db)
         # empreintes deja resolues pendant la session (chemin -> cle) : evite un
         # os.stat a CHAQUE appel de key_for, appele plusieurs fois par item a
         # chaque reconstruction de la liste et a chaque frappe de recherche
@@ -164,6 +166,13 @@ class Store:
         self.settings.setdefault("folders", [])
         self.settings.setdefault("reader", {})
         self._migrate_meta_cache_out_of_settings()
+        # ancien rythme de lecture : il mesurait l'intervalle entre deux tours
+        # de page, feuilletage compris, et non des secondes par page lue. Sans
+        # rapport avec la mesure actuelle, il est oublie puis re-mesure.
+        if self.settings["reader"].pop("median_page_seconds", None) is not None:
+            self._schedule("settings")
+        if self.db.get_meta(FINISHED_HISTORY_KEY) is None:
+            self._import_finished_history()
 
     # ------------------------------------------------------------ import des anciens JSON
     def _import_legacy_json(self):
@@ -192,13 +201,14 @@ class Store:
             self.meta_cache["volume"].update(_as_dict(meta.get("volume")))
             self.meta_cache["series"].update(_as_dict(meta.get("series")))
         self._fp.update(_as_dict(self._load(self.dir / LEGACY_FILES["fp"], {})))
-        if isinstance(stats, dict):
-            self.stats["devices"].update(_as_dict(stats.get("devices")))
+        journal = {k: v for k, v in _as_dict(_as_dict(stats).get("devices")).items()
+                   if isinstance(v, dict)}
         if isinstance(index, list):
             self._repos["index"].data["entries"] = index
         try:
             self._write_all(list(self._repos),
-                            meta={LEGACY_IMPORT_KEY: f"{len(found)} fichier(s) le {time.ctime()}"})
+                            meta={LEGACY_IMPORT_KEY: f"{len(found)} fichier(s) le {time.ctime()}"},
+                            extra=lambda cur: self.reading_log.replace_devices(journal, cur))
         except Exception:
             logging.error("Import des anciens fichiers JSON impossible (nouvel essai "
                           "au prochain lancement)", exc_info=True)
@@ -226,13 +236,16 @@ class Store:
                             path, exc_info=True)
         return default
 
-    def _write_all(self, names, meta=None):
+    def _write_all(self, names, meta=None, extra=None):
         """Ecriture immediate (hors debounce) des depots nommes, et des
-        informations `meta` sur la base, dans une seule transaction."""
+        informations `meta` sur la base, dans une seule transaction (a
+        laquelle `extra`, appelee avec le curseur, peut joindre ses ecritures)."""
         changes = [(self._repos[n], *self._repos[n].pending_changes()) for n in names]
         with self.db.transaction() as cur:
             for repo, upserts, deletes in changes:
                 repo.write(cur, upserts, deletes)
+            if extra is not None:
+                extra(cur)
             for key, value in (meta or {}).items():
                 Database.set_meta(cur, key, value)
         for repo, upserts, deletes in changes:
@@ -684,19 +697,40 @@ class Store:
     # ------------------------------------------------------------ statistiques
     def record_reading(self, path: str, pages: int, seconds: float, finished: bool,
                        title: str, series: str, date=None):
-        """Ajoute une session de lecture au journal de cet appareil."""
+        """Ajoute une seance de lecture (ou une fin de tome) au journal de cet
+        appareil : une ligne, ecrite sur-le-champ. Un echec est consigne sans
+        etre propage - les statistiques ne doivent jamais empecher de fermer
+        un tome."""
         if pages <= 0 and seconds <= 0 and not finished:
             return
-        dev = self.stats.setdefault("devices", {}).setdefault(self.device_id(), {})
-        dev["name"] = self.device_name()
-        dev["updated"] = time.time()
-        stats_model.add_session(dev, date or datetime.date.today(), self.key_for(path),
-                                pages, seconds, finished, title, series)
-        self._schedule("stats")
+        device, name, key = self.device_id(), self.device_name(), self.key_for(path)
+        try:
+            with self._io_lock:
+                if self._closed:
+                    return
+                self.reading_log.add(device, name, date or datetime.date.today(), key,
+                                     pages, seconds, finished, title, series, time.time())
+        except Exception:
+            logging.error("Seance de lecture non enregistree dans le journal", exc_info=True)
+
+    def _import_finished_history(self):
+        """Une seule fois (marqueur en base) : inscrit au journal les tomes
+        termines avant son premier jour, dates de leur derniere lecture (voir
+        stats.finished_before_journal). Sans cela, les fins de tome
+        anterieures au journal disparaitraient des statistiques."""
+        first = self.reading_log.first_day()
+        before = first or datetime.date.today() + datetime.timedelta(days=1)
+        rows = stats_model.finished_before_journal(self.progress, before)
+        device, name = (self.device_id(), self.device_name()) if rows else (None, None)
+        with self.db.transaction() as cur:
+            for day, key in rows:
+                self.reading_log.add(device, name, day, key, 0, 0, True, "", "",
+                                     time.time(), cur)
+            Database.set_meta(cur, FINISHED_HISTORY_KEY, f"{len(rows)} tome(s)")
 
     # ------------------------------------------------------------ sauvegarde (export / import)
     def export_backup(self, path):
-        data = backup_model.build_backup(self.settings, self.progress, self.stats,
+        data = backup_model.build_backup(self.settings, self.progress, self.reading_log.export(),
                                          self.meta_cache, self.continue_dismissed(),
                                          self.device_id(), self.device_name())
         backup_model.write_json_atomic(path, data)
@@ -711,8 +745,9 @@ class Store:
         progress = len(backup_model.merge_progress(self.progress, data.get("progress", {})))
         if progress:
             self._schedule("progress")
-        if backup_model.merge_stats(self.stats, data.get("stats", {}), self.device_id()):
-            self._schedule("stats")
+        with self._io_lock:
+            self.reading_log.replace_devices(backup_model.journal_sections_to_import(
+                self.reading_log.devices(), data.get("stats", {}), self.device_id()))
         dismissed = self.settings.setdefault("continue_dismissed", {})
         extras = backup_model.merge_extras(self.settings, self.meta_cache, data)
         if backup_model.merge_dismissed(dismissed, data.get("continue_dismissed", {})) or extras:
@@ -761,7 +796,7 @@ class Store:
     def median_page_seconds(self):
         """Rythme de lecture personnel (secondes par page), lisse entre les
         sessions, ou None si jamais mesure."""
-        v = self.settings.get("reader", {}).get("median_page_seconds")
+        v = self.settings.get("reader", {}).get("page_seconds")
         return float(v) if v else None
 
     def update_page_seconds(self, sample: float):
@@ -772,7 +807,7 @@ class Store:
             return
         old = self.median_page_seconds()
         blended = sample if old is None else (0.7 * old + 0.3 * sample)
-        self.settings.setdefault("reader", {})["median_page_seconds"] = round(blended, 3)
+        self.settings.setdefault("reader", {})["page_seconds"] = round(blended, 3)
         self._schedule("settings")
 
     def page_count(self, path: str):
@@ -788,18 +823,6 @@ class Store:
         if pages.get(key) != n:
             pages[key] = int(n)
             self._schedule("settings")
-
-    def get_reader_offset(self, path: str) -> int:
-        """Decalage de parite double page (0 ou 1) memorise pour ce tome."""
-        entry, _ = self._progress_entry(path)
-        return int(entry.get("offset", 0)) if entry else 0
-
-    def set_reader_offset(self, path: str, offset: int):
-        entry, key = self._progress_entry(path)
-        entry = entry or {}
-        entry["offset"] = int(offset) & 1
-        self.progress[key] = entry
-        self._schedule("progress")
 
     # ------------------------------------------------------------ cache metadonnees serie
     def series_meta(self, series_key: str):

@@ -6,6 +6,7 @@ responsabilite."""
 
 
 from PySide6.QtCore import (
+    QSize,
     Qt,
 )
 from PySide6.QtGui import QPixmap
@@ -20,10 +21,7 @@ from PySide6.QtWidgets import (
 from beheread.ui.reader.components import PageLoader
 from beheread.ui.reader.constants import (
     CHROME_HIDE_MS,
-    FIT_HEIGHT,
     FIT_NAMES,
-    FIT_WIDTH,
-    FIT_WINDOW,
     HUD_GAP,
     SLIDER_BOTTOM_MARGIN,
     SLIDER_H,
@@ -35,6 +33,15 @@ class HudMixin:
     def _place_corner_buttons(self):
         self.back_button.move(14, 14)
         self.fullscreen_button.move(self.width() - self.fullscreen_button.width() - 14, 14)
+
+    def set_fullscreen(self, on: bool):
+        """Etat plein ecran de la fenetre du lecteur (voir app.ReaderWindow) :
+        le bouton du coin annonce ce qu'il fera."""
+        label = "Quitter le plein écran" if on else "Plein écran"
+        self.fullscreen_button.setText(" " + label)
+        self.fullscreen_button.setAccessibleName(label)
+        self.fullscreen_button.adjustSize()
+        self._place_corner_buttons()
 
     # ------------------------------------------------------------ interface auto-masquable
     def _chrome_widgets(self):
@@ -132,7 +139,10 @@ class HudMixin:
     def _build_hud(self):
         """Construit le HUD : a gauche un bloc de lecture (position, progression,
         temps restant), a droite une barre de reglages cliquables (chips) qui
-        refletent l'etat courant et exposent le raccourci en infobulle."""
+        refletent l'etat courant et exposent le raccourci en infobulle. Ces
+        reglages valent pour tous les mangas, sauf le sens de lecture, propre
+        a chaque serie (l'Ambilight et le fondu se reglent dans les
+        preferences)."""
         # --- bloc de lecture (info, non interactif : laisse passer les clics)
         self.hud_info = QFrame(self)
         self.hud_info.setObjectName("hudInfo")
@@ -177,21 +187,17 @@ class HudMixin:
         self.chip_crop = chip(
             "Recadrage auto", self.toggle_smart_crop,
             "Rogner les marges du scan   R")
-        self.chip_ambilight = chip(
-            "Ambilight", self.toggle_ambilight,
-            "Fond teinté par la page   A")
-        # Selecteur multi-etats et action ponctuelle : pas des bascules oui/non,
-        # style neutre (contour) et libelle qui montre la valeur / l'action.
+        # Selecteur et action ponctuelle : pas des bascules oui/non, style
+        # neutre (contour). L'ajustement se lit a son icone : double fleche
+        # verticale (hauteur) ou horizontale (largeur).
         self.chip_fit = chip(
             "", self.cycle_fit_mode, "", checkable=False, name="hudSel")
+        self.chip_fit.setIconSize(QSize(16, 16))
+        self.chip_fit.setAccessibleName("Ajustement")
         self.chip_offset = chip(
             "Décalage", self._shift_parity,
             "Décaler l'appairage des planches   S",
             checkable=False, name="hudSel")
-        self.chip_help = chip(
-            "?", self._toggle_help, "Raccourcis clavier   F1",
-            checkable=False, name="hudSel")
-        self.chip_help.setAccessibleName("Raccourcis clavier")
 
     def _update_hud(self, extra=""):
         pages = self._current_indices()
@@ -216,11 +222,9 @@ class HudMixin:
         self.chip_pagemode.setChecked(self.double_page)
         self.chip_direction.setChecked(self.manga_mode)
         self.chip_crop.setChecked(self.smart_crop)
-        self.chip_ambilight.setChecked(self.ambilight)
 
-        # selecteur d'ajustement : montre la valeur courante (3 etats)
-        fit_short = {FIT_WINDOW: "Fenêtre", FIT_WIDTH: "Largeur", FIT_HEIGHT: "Hauteur"}
-        self.chip_fit.setText(f"Ajustement : {fit_short[self.fit_mode]}")
+        # selecteur d'ajustement : l'icone montre la valeur courante
+        self.chip_fit.setIcon(self._fit_icons[self.fit_mode])
         self.chip_fit.setToolTip(FIT_NAMES[self.fit_mode] + " (cliquer pour changer)   F")
 
         # decalage : pertinent seulement en double page. Desactive (grise) au
