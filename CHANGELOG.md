@@ -2,6 +2,11 @@
 
 Les numéros de version suivent [SemVer](https://semver.org/lang/fr/). Chaque section ci-dessous sert aussi de notes à la release GitHub du même numéro.
 
+## [Non publié]
+
+* CBR : 7-Zip est détecté automatiquement à son emplacement habituel (`C:\Program Files\7-Zip`), sans avoir à modifier le PATH.
+* Message d'erreur RAR plus clair, qui renvoie vers la bonne section du README.
+
 ## [1.0.0] - 2026-10-01
 
 Première version publiée de Beheread, lecteur de mangas pour Windows 10 et 11 (CBZ, CBR, EPUB, PDF).
@@ -26,7 +31,7 @@ L'installateur n'est pas signé numériquement : si Windows affiche « Windows a
 
 Toutes les données restent sur votre PC. Seules les deux fonctions optionnelles utilisent le réseau, et uniquement après votre accord.
 
-### Depuis la version 0.2.0
+### Nouveautés depuis la version de test 0.2.0
 
 * Statistiques refaites : une période au choix (7 jours, 30 jours, 12 mois, tout) gouverne tous les chiffres, chacun comparé à la période précédente ; calendrier de régularité, séries les plus lues, derniers tomes terminés.
 * Mesure de la lecture plus juste : une page compte après 1 s d'affichage, et les pauses de plus de 90 s sont ignorées.
@@ -35,6 +40,6 @@ Toutes les données restent sur votre PC. Seules les deux fonctions optionnelles
 * La bande « Continuer la lecture » défile avec la grille ; les couvertures ne clignotent plus dans un dossier de série.
 * Téléchargement et installation plus légers : l'installateur passe de 35 à 25 Mo.
 
-### Mettre à jour depuis la 0.2.0
+### Vous utilisiez la version de test 0.2.0 ?
 
 Lancez le nouvel installateur : il remplace la version en place et conserve vos données. Au premier lancement, la base est convertie automatiquement ; une copie de l'ancienne est gardée dans `%APPDATA%\MangaReaderPy\beheread-v1.bak`.
