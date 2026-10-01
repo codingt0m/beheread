@@ -11,10 +11,9 @@ import sys
 from pathlib import Path
 
 from PySide6.QtCore import Qt, QTimer
-from PySide6.QtGui import QColor, QIcon, QKeySequence, QPalette, QShortcut
+from PySide6.QtGui import QColor, QKeySequence, QPalette, QShortcut
 from PySide6.QtWidgets import QApplication, QMainWindow, QMessageBox
 
-from beheread.config import resource_path
 from beheread.infra import applogging
 from beheread.infra.archive import ArchiveError
 from beheread.infra.database import DatabaseTooNew
@@ -22,13 +21,12 @@ from beheread.infra.hotkey import GlobalHotkey
 from beheread.infra.single_instance import SingleInstance, send_to_primary
 from beheread.infra.storage import Store, data_dir
 from beheread.services.anilist_tracker import AniListTracker
-from beheread.ui import theme
+from beheread.ui import appicon, theme
 from beheread.ui.library.widget import LibraryWidget
 from beheread.ui.reader.widget import ReaderWidget
 from beheread.version import __version__
 
 APP_NAME = "Beheread"
-ICON_PATH = resource_path("icon.ico")
 
 
 class ReaderWindow(QMainWindow):
@@ -38,8 +36,7 @@ class ReaderWindow(QMainWindow):
 
     def __init__(self):
         super().__init__()
-        if ICON_PATH.exists():
-            self.setWindowIcon(QIcon(str(ICON_PATH)))
+        self.setWindowIcon(appicon.app_icon())
         QShortcut(QKeySequence(Qt.Key_F11), self, self.toggle_fullscreen)
 
     def toggle_fullscreen(self):
@@ -57,13 +54,11 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.store = store
         self.setWindowTitle(APP_NAME)
-        if ICON_PATH.exists():
-            self.setWindowIcon(QIcon(str(ICON_PATH)))
+        self.setWindowIcon(appicon.app_icon())
         self.resize(1200, 800)   # taille de repli si l'utilisateur desmaximise
 
         self.library = LibraryWidget(self.store)
         self.library.mangaActivated.connect(self.open_manga)
-        self.library.themeToggleRequested.connect(self.toggle_theme)
         self.library.preferencesChanged.connect(self.apply_preferences)
 
         # suivi AniList
@@ -208,20 +203,20 @@ class MainWindow(QMainWindow):
         else:
             win.showMinimized()
 
-    def toggle_theme(self):
-        mode = "light" if self.store.ui_pref("theme", "dark") == "dark" else "dark"
-        self.store.set_ui_pref("theme", mode)
-        self._apply_current_theme()
-
     def _apply_current_theme(self):
-        apply_theme(QApplication.instance(), self.store.ui_pref("theme", "dark"))
+        apply_theme(QApplication.instance(), self.store.ui_pref("theme", "dark"),
+                    self.store.ui_pref("accent"))
+        for win in (self, self.reader_window):
+            if win is not None:
+                win.setWindowIcon(appicon.app_icon())
         self.library.apply_theme()
         if self.reader is not None:
             self.reader.apply_theme()
 
     def apply_preferences(self):
         """Preferences enregistrees depuis la bibliotheque : applique ce qui
-        releve de la fenetre principale (theme, raccourci global)."""
+        releve de la fenetre principale (theme, couleur d'accentuation,
+        raccourci global)."""
         self._apply_current_theme()
         self._sync_global_hotkey()
 
@@ -246,7 +241,11 @@ class MainWindow(QMainWindow):
         super().closeEvent(event)
 
 
-def apply_theme(app: QApplication, mode: str):
+def apply_theme(app: QApplication, mode: str, accent=None):
+    """Applique le theme clair/sombre et la couleur d'accentuation (None =
+    accent par defaut) a toute l'application."""
+    theme.set_accent(accent, mode)
+    app.setWindowIcon(appicon.app_icon())
     app.setStyle("Fusion")
     c = theme.colors(mode)
     p = QPalette()
@@ -258,7 +257,7 @@ def apply_theme(app: QApplication, mode: str):
     p.setColor(QPalette.Button, QColor(c["button"]))
     p.setColor(QPalette.ButtonText, QColor(c["text"]))
     p.setColor(QPalette.Highlight, QColor(theme.ACCENT))
-    p.setColor(QPalette.HighlightedText, QColor("#f5f0ee"))
+    p.setColor(QPalette.HighlightedText, QColor(theme.ON_ACCENT))
     p.setColor(QPalette.ToolTipBase, QColor(c["button"]))
     p.setColor(QPalette.ToolTipText, QColor(c["text"]))
     app.setPalette(p)
@@ -301,8 +300,7 @@ def main():
     app = QApplication(sys.argv)
     app.setApplicationName(APP_NAME)
     app.setApplicationVersion(__version__)
-    if ICON_PATH.exists():
-        app.setWindowIcon(QIcon(str(ICON_PATH)))
+    app.setWindowIcon(appicon.app_icon())   # re-teintee par apply_theme une fois les preferences lues
 
     initial_file = _initial_file_from_argv(sys.argv)
     # instance unique : si Beheread est deja ouvert, on lui transmet la demande
@@ -338,7 +336,7 @@ def main():
             "Vos données n'ont pas été effacées ; relancez Beheread après avoir "
             "corrigé le problème (espace disque, droits d'accès…).")
         return
-    apply_theme(app, store.ui_pref("theme", "dark"))
+    apply_theme(app, store.ui_pref("theme", "dark"), store.ui_pref("accent"))
     window = MainWindow(store)
     instance.messageReceived.connect(window.handle_instance_message)
 

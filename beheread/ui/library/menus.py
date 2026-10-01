@@ -155,12 +155,21 @@ class MenusMixin:
         menu = QMenu(self)
         act_open = menu.addAction("Ouvrir")
         act_hide = menu.addAction("Masquer de « Continuer la lecture »")
+        # seulement pour un tome entame : « A suivre » propose un tome non
+        # commence, qui n'a pas de progression a effacer
+        act_reset = (menu.addAction("Réinitialiser la progression")
+                     if self.store.get_progress(path) is not None else None)
         act_read = menu.addAction("Marquer comme lu")
         chosen = menu.exec(global_pos)
+        if chosen is None:
+            return
         if chosen == act_open:
             self.mangaActivated.emit(path)
         elif chosen == act_hide:
             self.store.dismiss_continue(path)
+            self._rebuild_list()
+        elif chosen == act_reset:
+            self.store.remove_progress(path)
             self._rebuild_list()
         elif chosen == act_read:
             self._mark_finished(path)

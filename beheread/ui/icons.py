@@ -27,6 +27,24 @@ def _make(draw_fn, color) -> QIcon:
     return QIcon(pm)
 
 
+def swatch(color, ring=None) -> QIcon:
+    """Pastille de couleur pleine (choix de la couleur d'accentuation) ;
+    `ring` : couleur de l'anneau qui entoure la pastille selectionnee."""
+    pm = QPixmap(_CANVAS, _CANVAS)
+    pm.fill(Qt.transparent)
+    p = QPainter(pm)
+    p.setRenderHint(QPainter.Antialiasing)
+    p.setPen(Qt.NoPen)
+    p.setBrush(QColor(color))
+    p.drawEllipse(QPointF(32, 32), 22, 22)
+    if ring:
+        p.setPen(QPen(QColor(ring), 4))
+        p.setBrush(Qt.NoBrush)
+        p.drawEllipse(QPointF(32, 32), 29, 29)
+    p.end()
+    return QIcon(pm)
+
+
 def _folder_base(p):
     path = QPainterPath()
     path.moveTo(10, 22)
@@ -55,18 +73,9 @@ def folder_minus(color) -> QIcon:
     return _make(draw, color)
 
 
-def folder_cog(color) -> QIcon:
-    """Dossier surmonte d'un petit engrenage : gestion des dossiers sources."""
-    def draw(p):
-        _folder_base(p)
-        # engrenage compact pose sur le dossier
-        cx, cy, r = 38.0, 38.0, 6.0
-        p.drawEllipse(QRectF(cx - r, cy - r, 2 * r, 2 * r))
-        for ang in range(0, 360, 45):
-            a = math.radians(ang)
-            p.drawLine(QPointF(cx + r * math.cos(a), cy + r * math.sin(a)),
-                       QPointF(cx + (r + 4) * math.cos(a), cy + (r + 4) * math.sin(a)))
-    return _make(draw, color)
+def folder(color) -> QIcon:
+    """Dossier simple : gestion des dossiers sources."""
+    return _make(_folder_base, color)
 
 
 def x_mark(color) -> QIcon:
@@ -78,65 +87,20 @@ def x_mark(color) -> QIcon:
 
 
 def refresh(color) -> QIcon:
+    """Fleche circulaire : un arc de trois quarts de tour dans le sens des
+    aiguilles d'une montre, prolonge jusqu'a une pointe en equerre en haut a
+    droite."""
     def draw(p):
-        rect = QRectF(14, 14, 36, 36)
-        p.drawArc(rect, 40 * 16, 250 * 16)
-        # pointe de fleche a l'extremite de l'arc (~40 degres)
-        p.drawLine(QPointF(46.0, 22.0), QPointF(52.0, 20.0))
-        p.drawLine(QPointF(46.0, 22.0), QPointF(46.5, 28.5))
-    return _make(draw, color)
-
-
-def sun(color) -> QIcon:
-    def draw(p):
-        p.drawEllipse(QRectF(24, 24, 16, 16))
-        for x1, y1, x2, y2 in ((32, 8, 32, 15), (32, 49, 32, 56),
-                               (8, 32, 15, 32), (49, 32, 56, 32),
-                               (15, 15, 20, 20), (44, 44, 49, 49),
-                               (49, 15, 44, 20), (20, 44, 15, 49)):
-            p.drawLine(x1, y1, x2, y2)
-    return _make(draw, color)
-
-
-def moon(color) -> QIcon:
-    def draw(p):
+        r = 21.0                                   # rayon de l'arc, centre (32, 32)
+        tip = QPointF(32 + r, 23.0)                # sommet de la pointe
         path = QPainterPath()
-        path.moveTo(40, 12)
-        path.arcTo(QRectF(12, 12, 40, 40), 100, 250)
-        path.arcTo(QRectF(22, 8, 32, 32), -20, -160)
+        path.moveTo(32 + r, 32)
+        path.arcTo(QRectF(32 - r, 32 - r, 2 * r, 2 * r), 0, -270)   # jusqu'en haut
+        # du haut du cercle vers la pointe : on quitte l'arc en douceur
+        path.cubicTo(QPointF(38.0, 11.0), QPointF(43.5, 13.5), QPointF(47.5, 17.5))
+        path.lineTo(tip)
         p.drawPath(path)
-    return _make(draw, color)
-
-
-def grid(color) -> QIcon:
-    def draw(p):
-        for x in (12, 36):
-            for y in (12, 36):
-                p.drawRoundedRect(QRectF(x, y, 16, 16), 3, 3)
-    return _make(draw, color)
-
-
-def list_view(color) -> QIcon:
-    def draw(p):
-        for y in (16, 32, 48):
-            p.drawEllipse(QRectF(11, y - 2.5, 5, 5))
-            p.drawLine(24, y, 52, y)
-    return _make(draw, color)
-
-
-def layers(color) -> QIcon:
-    def draw(p):
-        p.drawPolygon([QPointF(32, 10), QPointF(54, 22), QPointF(32, 34), QPointF(10, 22)])
-        path = QPainterPath()
-        path.moveTo(10, 32)
-        path.lineTo(32, 44)
-        path.lineTo(54, 32)
-        p.drawPath(path)
-        path2 = QPainterPath()
-        path2.moveTo(10, 42)
-        path2.lineTo(32, 54)
-        path2.lineTo(54, 42)
-        p.drawPath(path2)
+        p.drawPolyline([QPointF(tip.x(), 11.0), tip, QPointF(tip.x() - 12.0, tip.y())])
     return _make(draw, color)
 
 
@@ -169,39 +133,28 @@ def expand(color) -> QIcon:
     return _make(draw, color)
 
 
-def help_circle(color) -> QIcon:
-    """Point d'interrogation cercle : aide des raccourcis clavier."""
-    def draw(p):
-        p.drawEllipse(QRectF(9, 9, 46, 46))
-        path = QPainterPath()
-        path.moveTo(25, 26)
-        path.cubicTo(25, 17, 39, 17, 39, 26)
-        path.cubicTo(39, 32, 32, 32, 32, 38)
-        p.drawPath(path)
-        p.drawPoint(QPointF(32, 46))
-    return _make(draw, color)
-
-
 def cog(color) -> QIcon:
-    """Engrenage : preferences."""
+    """Engrenage : preferences. Roue dentee tracee d'un seul contour (dents
+    larges en trapeze) autour d'un moyeu, et non des traits qui rayonnent
+    d'un cercle : a petite taille, ceux-ci se lisaient comme un soleil."""
     def draw(p):
         cx, cy = 32.0, 32.0
-        p.drawEllipse(QRectF(cx - 9, cy - 9, 18, 18))
-        p.drawEllipse(QRectF(cx - 17, cy - 17, 34, 34))
-        for ang in range(0, 360, 45):
-            a = math.radians(ang)
-            p.drawLine(QPointF(cx + 17 * math.cos(a), cy + 17 * math.sin(a)),
-                       QPointF(cx + 24 * math.cos(a), cy + 24 * math.sin(a)))
-    return _make(draw, color)
+        teeth = 6                          # peu de dents : lisible a 18 px
+        outer, inner = 24.0, 17.0          # sommet et pied des dents
+        step = 360.0 / teeth
+        top, base = step * 0.20, step * 0.32   # demi-largeurs angulaires d'une dent
 
+        def point(radius, degrees):
+            a = math.radians(degrees - 90)   # premiere dent en haut
+            return QPointF(cx + radius * math.cos(a), cy + radius * math.sin(a))
 
-def side_panel(color) -> QIcon:
-    """Fenetre avec volet lateral droit : panneau d'informations."""
-    def draw(p):
-        p.drawRoundedRect(QRectF(9, 13, 46, 38), 5, 5)
-        p.drawLine(38, 13, 38, 51)
-        for y in (23, 31, 39):
-            p.drawLine(43, y, 50, y)
+        outline = []
+        for i in range(teeth):
+            mid = i * step
+            outline += [point(inner, mid - base), point(outer, mid - top),
+                        point(outer, mid + top), point(inner, mid + base)]
+        p.drawPolygon(outline)
+        p.drawEllipse(QRectF(cx - 7, cy - 7, 14, 14))
     return _make(draw, color)
 
 

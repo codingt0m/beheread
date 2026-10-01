@@ -71,7 +71,6 @@ from beheread.ui.library.views import ScrollingHeaderHost, SmoothListWidget
 class LibraryWidget(ChromeMixin, DetailPanelMixin, ActionsMixin, MenusMixin,
                     ServicesMixin, QWidget):
     mangaActivated = Signal(str)
-    themeToggleRequested = Signal()
     preferencesChanged = Signal()   # preferences modifiees (theme, raccourci global...)
     volumesFinished = Signal(list)  # tomes marques « lus » depuis la bibliotheque (suivi AniList)
 
@@ -817,11 +816,15 @@ class LibraryWidget(ChromeMixin, DetailPanelMixin, ActionsMixin, MenusMixin,
     def _update_back_button(self):
         if self._current_series is not None:
             name = self._series_display_name.get(self._current_series, "Serie")
-            self.btn_back.setText(name)
-            self.btn_back.setToolTip("Retour à la bibliothèque   Échap")
+            # nom raccourci au besoin : un nom tres long elargirait les deux
+            # cotes de l'en-tete (la recherche reste centree, voir _balance_header)
+            self.btn_back.setText(self.btn_back.fontMetrics().elidedText(
+                name, Qt.ElideRight, 220))
+            self.btn_back.setToolTip(f"{name}\nRetour à la bibliothèque   Échap")
             self.btn_back.show()
         else:
             self.btn_back.hide()
+        self._balance_header()
 
     # ----- interne -----
     def _apply_progress(self, item: QListWidgetItem, path: str):

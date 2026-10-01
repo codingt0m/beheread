@@ -4,8 +4,8 @@ de la bibliotheque. Les calculs sont dans stats.py (purs, testes) ; ce module
 ne fait que dessiner.
 
 Choix de visualisation :
-* une seule teinte par graphique a une seule serie (rouge d'accent = activite
-  de lecture, vert = tomes termines), la meme signification partout ;
+* une seule teinte par graphique a une seule serie (couleur d'accent =
+  activite de lecture, vert = tomes termines), la meme signification partout ;
 * barres fines (<= 24 px) arrondies en haut, carrees a la base, separees par
   au moins 2 px ; grille en traits fins pleins et discrets ;
 * une seule valeur ecrite directement (le maximum) : le survol (souris ou
@@ -40,12 +40,31 @@ from beheread.core import stats
 from beheread.ui import theme
 
 # couleurs de donnees (validees avec le script de la methode dataviz)
-DATA_COLORS = {
-    "dark": {"activity": theme.ACCENT, "finished": "#3fa35f", "unread": "#3987e5",
-             "reading": theme.ACCENT},
-    "light": {"activity": theme.ACCENT, "finished": "#3fa35f", "unread": "#2a78d6",
-              "reading": theme.ACCENT},
-}
+_GREEN, _TEAL, _VIOLET, _AMBER, _PINK = "#3fa35f", "#1f9d9a", "#8a63d2", "#bd8215", "#d6457f"
+_PURPLE = "#8f33cc"
+_BLUE = {"dark": "#3987e5", "light": "#2a78d6"}
+
+
+def data_colors(mode) -> dict:
+    """Couleurs des graphiques pour l'accent courant. L'activite de lecture
+    porte l'accent ; « termines » (vert) et « non lus » (bleu) prennent une
+    autre couleur de la liste quand l'accent choisi s'en approche trop, pour
+    que les trois parts de la repartition restent distinctes. Avec l'accent
+    par defaut : vert et bleu."""
+    blue = _BLUE["light" if mode == "light" else "dark"]
+    accent = theme.ACCENT
+    pairs = [(f, u) for f in (_GREEN, blue, _TEAL, _VIOLET, _AMBER, _PINK, _PURPLE)
+             for u in (blue, _VIOLET, _AMBER, _PINK, _TEAL, _PURPLE, _GREEN) if f != u]
+
+    def margin(pair):
+        # dans la barre empilee, « en cours » (accent) separe les deux autres
+        # parts : elles ne se touchent jamais, la vision normale suffit
+        f, u = pair
+        return min(theme.separation(f, accent), theme.separation(u, accent),
+                   theme.separation(f, u, cvd=False))
+    finished, unread = (next((p for p in pairs if margin(p) >= 1), None)
+                        or max(pairs, key=margin))
+    return {"activity": accent, "reading": accent, "finished": finished, "unread": unread}
 
 MONTHS_FR = ["janv.", "févr.", "mars", "avr.", "mai", "juin", "juil.", "août",
              "sept.", "oct.", "nov.", "déc."]
@@ -368,7 +387,7 @@ class StatsDialog(QDialog):
         self.setWindowTitle("Statistiques de lecture")
         self.resize(940, 760)
         c = theme.colors(mode)
-        dc = DATA_COLORS["light" if mode == "light" else "dark"]
+        dc = data_colors(mode)
         today = today or dt.date.today()
 
         days = stats.merged_days(store.stats)

@@ -210,10 +210,10 @@ class DetailPanel(QFrame):
             #detailKey {{ color: {c['text_dim']}; font-size: 12px; }}
             #detailVal {{ color: {c['text']}; font-size: 12px; }}
             QPushButton#detailPrimary {{
-                color: #f5f0ee; background: {theme.ACCENT}; border: none;
+                color: {theme.ON_ACCENT}; background: {theme.ACCENT}; border: none;
                 border-radius: 8px; padding: 8px 14px; font-size: 13px; font-weight: 700;
             }}
-            QPushButton#detailPrimary:hover {{ background: #d14433; }}
+            QPushButton#detailPrimary:hover {{ background: {theme.ACCENT_HOVER}; }}
             QPushButton#detailAction {{
                 color: {c['text']}; background: {c['button']};
                 border: 1px solid {c['border']}; border-radius: 8px;

@@ -39,7 +39,9 @@ class ServicesMixin:
         was_online = self._online_meta()
         dlg.save()
         self._show_continue = bool(self.store.library_pref("show_continue", True))
-        self._set_details_visible(bool(self.store.library_pref("show_details", True)))
+        self._set_details_visible(bool(self.store.library_pref("show_details", False)))
+        self._set_view_mode(self.store.library_pref("view_mode", "grid"))
+        self._set_group_series(self.store.library_pref("group_series", False))
         if self._online_meta() and not was_online:
             self.meta.forget_failures()
         self._rebuild_list()

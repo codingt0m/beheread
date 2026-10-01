@@ -1,6 +1,6 @@
 """Panneau d'aide des raccourcis clavier (touche F1, ou ? dans le lecteur),
-affiche par-dessus le lecteur ou la bibliotheque. Les raccourcis n'etaient
-jusqu'ici decouvrables que par les info-bulles ou le README."""
+affiche par-dessus le lecteur ou la bibliotheque. Les memes listes sont
+reprises dans l'onglet « Raccourcis » des preferences."""
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QFrame, QGridLayout, QHBoxLayout, QLabel, QVBoxLayout
@@ -61,6 +61,61 @@ LIBRARY_SHORTCUTS = [
 ]
 
 
+def sections_layout(sections, parent, vertical=False):
+    """Sections de raccourcis cote a cote (carte flottante) ou empilees
+    (vertical=True : onglet des preferences, plus etroit)."""
+    box = QVBoxLayout() if vertical else QHBoxLayout()
+    box.setSpacing(18 if vertical else 36)
+    for name, rows in sections:
+        col = QVBoxLayout()
+        col.setSpacing(8)
+        head = QLabel(name.upper(), parent)
+        head.setObjectName("helpSection")
+        col.addWidget(head)
+        grid = QGridLayout()
+        grid.setHorizontalSpacing(14)
+        grid.setVerticalSpacing(6)
+        if vertical:
+            # descriptions alignees d'une section a l'autre, sur toute la largeur restante
+            grid.setColumnMinimumWidth(0, 200)
+            grid.setColumnStretch(1, 1)
+        for r, (keys, desc) in enumerate(rows):
+            keys_row = QHBoxLayout()
+            keys_row.setSpacing(4)
+            for k in keys.split(" / "):
+                kl = QLabel(k, parent)
+                kl.setObjectName("kbd")
+                keys_row.addWidget(kl)
+            keys_row.addStretch(1)
+            grid.addLayout(keys_row, r, 0)
+            dl = QLabel(desc, parent)
+            dl.setObjectName("helpDesc")
+            dl.setWordWrap(True)
+            dl.setMinimumWidth(220)
+            grid.addWidget(dl, r, 1)
+        col.addLayout(grid)
+        col.addStretch(1)
+        box.addLayout(col)
+    return box
+
+
+def sections_css(c) -> str:
+    """Style des sections construites par sections_layout."""
+    return f"""
+        #helpSection {{
+            color: {theme.ACCENT}; font-size: 12px; font-weight: 700;
+            letter-spacing: 1px;
+        }}
+        #helpDesc {{ color: {c['text']}; font-size: 13px; }}
+        #kbd {{
+            color: {c['text']}; background: {c['button']};
+            border: 1px solid {c['border']}; border-bottom-width: 2px;
+            border-radius: 5px; padding: 1px 7px;
+            font-size: 12px; font-weight: 600;
+        }}
+    """
+
+
 class ShortcutOverlay(QFrame):
     """Carte flottante listant les raccourcis par section. Un clic la ferme.
 
@@ -85,35 +140,7 @@ class ShortcutOverlay(QFrame):
         title.setObjectName("helpTitle")
         root.addWidget(title)
 
-        columns = QHBoxLayout()
-        columns.setSpacing(36)
-        root.addLayout(columns)
-        for name, rows in sections:
-            col = QVBoxLayout()
-            col.setSpacing(8)
-            head = QLabel(name.upper(), self)
-            head.setObjectName("helpSection")
-            col.addWidget(head)
-            grid = QGridLayout()
-            grid.setHorizontalSpacing(14)
-            grid.setVerticalSpacing(6)
-            for r, (keys, desc) in enumerate(rows):
-                keys_row = QHBoxLayout()
-                keys_row.setSpacing(4)
-                for k in keys.split(" / "):
-                    kl = QLabel(k, self)
-                    kl.setObjectName("kbd")
-                    keys_row.addWidget(kl)
-                keys_row.addStretch(1)
-                grid.addLayout(keys_row, r, 0)
-                dl = QLabel(desc, self)
-                dl.setObjectName("helpDesc")
-                dl.setWordWrap(True)
-                dl.setMinimumWidth(220)
-                grid.addWidget(dl, r, 1)
-            col.addLayout(grid)
-            col.addStretch(1)
-            columns.addLayout(col)
+        root.addLayout(sections_layout(sections, self))
 
         foot = QLabel("Échap, F1 ou un clic pour fermer", self)
         foot.setObjectName("helpFoot")
@@ -129,19 +156,8 @@ class ShortcutOverlay(QFrame):
                 border-radius: 16px;
             }}
             #helpTitle {{ color: {c['text']}; font-size: 18px; font-weight: 700; }}
-            #helpSection {{
-                color: {theme.ACCENT}; font-size: 12px; font-weight: 700;
-                letter-spacing: 1px;
-            }}
-            #helpDesc {{ color: {c['text']}; font-size: 13px; }}
             #helpFoot {{ color: {c['text_dim']}; font-size: 12px; }}
-            #kbd {{
-                color: {c['text']}; background: {c['button']};
-                border: 1px solid {c['border']}; border-bottom-width: 2px;
-                border-radius: 5px; padding: 1px 7px;
-                font-size: 12px; font-weight: 600;
-            }}
-        """)
+        """ + sections_css(c))
 
     def toggle(self):
         if self.isVisible():

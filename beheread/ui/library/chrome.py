@@ -7,7 +7,7 @@ responsabilite pour garder chaque fichier lisible."""
 from pathlib import Path
 
 from PySide6.QtCore import QSize, Qt
-from PySide6.QtGui import QIcon, QKeySequence, QShortcut
+from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QButtonGroup,
     QComboBox,
@@ -25,10 +25,9 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from beheread.config import resource_path
 from beheread.core.library_model import SORTS, STATUS_FILTERS
 from beheread.infra.archive import SUPPORTED_EXTS
-from beheread.ui import icons, theme
+from beheread.ui import appicon, icons, theme
 
 # modules extraits (voir chacun) : constantes de rendu, delegates, dialogues et
 # taches d'arriere-plan. LibraryWidget (ci-dessous) orchestre le tout.
@@ -63,9 +62,18 @@ class ChromeMixin:
     def _build_header(self):
         self.header = QWidget()
         self.header.setObjectName("headerBar")
-        hl = QHBoxLayout(self.header)
-        hl.setContentsMargins(16, 8, 12, 8)
+        root = QHBoxLayout(self.header)
+        root.setContentsMargins(16, 8, 16, 8)
+        root.setSpacing(6)
+        # trois zones : [identite] [recherche] [boutons]. Les deux zones
+        # laterales recoivent toujours la meme largeur (voir _balance_header),
+        # de sorte que la recherche soit exactement au centre de la fenetre,
+        # quel que soit le contenu de chaque cote.
+        self._header_left = QWidget()
+        hl = QHBoxLayout(self._header_left)
+        hl.setContentsMargins(0, 0, 0, 0)
         hl.setSpacing(6)
+        root.addWidget(self._header_left, 1)
 
         # -- identite : logo + titre, cliquable pour revenir a la racine de
         # la bibliotheque (quitte un dossier de serie et/ou une recherche)
@@ -77,10 +85,7 @@ class ChromeMixin:
         home_layout.setContentsMargins(0, 0, 0, 0)
         home_layout.setSpacing(6)
 
-        self.logo_label = QLabel()
-        icon_path = resource_path("icon.ico")
-        if icon_path.exists():
-            self.logo_label.setPixmap(QIcon(str(icon_path)).pixmap(QSize(28, 28)))
+        self.logo_label = QLabel()   # image posee par apply_theme (suit l'accent)
         self.title_label = QLabel()
         self.title_label.setObjectName("appTitle")
         self.title_label.setTextFormat(Qt.RichText)
@@ -98,10 +103,9 @@ class ChromeMixin:
         self.btn_back.hide()
         hl.addSpacing(6)
         hl.addWidget(self.btn_back)
-
         hl.addStretch(1)
 
-        # -- recherche, mise en valeur au centre
+        # -- recherche, exactement au centre
         self.search_edit = QLineEdit()
         self.search_edit.setObjectName("searchEdit")
         self.search_edit.setPlaceholderText("Rechercher un titre, une série ou un auteur…")
@@ -111,8 +115,16 @@ class ChromeMixin:
         self.search_edit.textChanged.connect(self._on_search_changed)
         self._search_icon_action = self.search_edit.addAction(
             icons.search("#808080"), QLineEdit.LeadingPosition)
-        hl.addWidget(self.search_edit)
+        root.addWidget(self.search_edit)
 
+        # -- a droite : l'essentiel seulement. Theme, vue grille/liste,
+        # regroupement par serie, panneau d'informations et aide des
+        # raccourcis sont dans les preferences.
+        self._header_right = QWidget()
+        hl = QHBoxLayout(self._header_right)
+        hl.setContentsMargins(0, 0, 0, 0)
+        hl.setSpacing(6)
+        root.addWidget(self._header_right, 1)
         hl.addStretch(1)
 
         # -- curseur de taille des couvertures (vue grille)
@@ -130,22 +142,6 @@ class ChromeMixin:
 
         hl.addWidget(self._header_separator())
 
-        self.btn_group = self._icon_button("Regrouper par série", checkable=True)
-        self.btn_group.setChecked(self._group_series)
-        self.btn_group.toggled.connect(self._on_group_toggled)
-        hl.addWidget(self.btn_group)
-
-        self.btn_view = self._icon_button("")
-        self.btn_view.clicked.connect(self._on_view_toggled)
-        hl.addWidget(self.btn_view)
-
-        self.btn_details = self._icon_button("Panneau d'informations", checkable=True)
-        self.btn_details.setChecked(self._show_details)
-        self.btn_details.toggled.connect(self._on_details_toggled)
-        hl.addWidget(self.btn_details)
-
-        hl.addWidget(self._header_separator())
-
         # -- gestion des dossiers (un seul bouton -> panneau facon Plex)
         self.btn_folders = self._icon_button("Gérer les dossiers sources")
         self.btn_folders.clicked.connect(self.manage_folders)
@@ -154,10 +150,6 @@ class ChromeMixin:
         self.btn_refresh = self._icon_button("Rafraîchir", "F5")
         self.btn_refresh.clicked.connect(self.refresh)
         hl.addWidget(self.btn_refresh)
-
-        self.btn_help = self._icon_button("Raccourcis clavier", "F1")
-        self.btn_help.clicked.connect(self._toggle_help)
-        hl.addWidget(self.btn_help)
 
         hl.addWidget(self._header_separator())
 
@@ -170,12 +162,17 @@ class ChromeMixin:
         hl.addWidget(self.btn_prefs)
         QShortcut(QKeySequence("Ctrl+,"), self, self.open_preferences)
 
-        # -- theme clair/sombre
-        self.btn_theme = self._icon_button("")
-        self.btn_theme.clicked.connect(self.themeToggleRequested.emit)
-        hl.addWidget(self.btn_theme)
-
         return self.header
+
+    def _balance_header(self):
+        """Donne la meme largeur minimale aux deux cotes de l'en-tete : avec
+        le meme facteur d'etirement, ils ont alors toujours la meme largeur
+        et la recherche reste au centre. A rappeler quand le contenu d'un
+        cote change (bouton de retour, feuille de style)."""
+        side = max(self._header_left.sizeHint().width(),
+                   self._header_right.sizeHint().width())
+        self._header_left.setMinimumWidth(side)
+        self._header_right.setMinimumWidth(side)
 
     def _header_separator(self):
         sep = QFrame()
@@ -211,7 +208,7 @@ class ChromeMixin:
                 background: {c['button_hover']};
             }}
             QToolButton#headerBtn:checked {{
-                background: rgba(192, 57, 43, 55);
+                background: {theme.ACCENT_SOFT};
             }}
             QToolButton#headerBtn:focus {{
                 border: 2px solid {theme.ACCENT};
@@ -267,25 +264,19 @@ class ChromeMixin:
             }}
         """)
 
-        # titre bicolore : "BEHE" en accent, "READ" dans la couleur du texte
+        # logo et titre bicolore : "BEHE" en accent, "READ" dans la couleur du texte
+        self.logo_label.setPixmap(appicon.app_icon().pixmap(QSize(28, 28)))
         self.title_label.setText(
             f'<span style="color:{theme.ACCENT}">BEHE</span>'
             f'<span style="color:{c["text"]}">READ</span>')
 
         # re-teinte des icones dans la couleur du theme courant
         ic = c["text"]
-        self.btn_folders.setIcon(icons.folder_cog(ic))
+        self.btn_folders.setIcon(icons.folder(ic))
         self.btn_refresh.setIcon(icons.refresh(ic))
-        self.btn_group.setIcon(icons.layers(theme.ACCENT if self._group_series else ic))
         self._search_icon_action.setIcon(icons.search(c["text_dim"]))
-        # convention : l'icone montre le mode/la vue vers lesquels on bascule
-        self.btn_theme.setIcon(icons.sun(ic) if mode == "dark" else icons.moon(ic))
-        self._set_button_label(self.btn_theme, "Passer au thème clair" if mode == "dark"
-                               else "Passer au thème sombre")
-        self.btn_help.setIcon(icons.help_circle(ic))
         self.btn_prefs.setIcon(icons.cog(ic))
         self.btn_stats.setIcon(icons.bar_chart(ic))
-        self.btn_details.setIcon(icons.side_panel(theme.ACCENT if self._show_details else ic))
         self._style_empty_panel(c)
         self._help.apply_colors(c)
         self.shelf.apply_colors(c, theme.ACCENT)
@@ -293,7 +284,7 @@ class ChromeMixin:
         self.detail.apply_colors(c)
         self._style_toolbar(c)
         self.btn_back.setIcon(icons.chevron_left(ic))
-        self._update_view_button()
+        self._balance_header()
 
         self.list.viewport().update()
         self._update_detail()
@@ -329,21 +320,12 @@ class ChromeMixin:
             self.list.setItemDelegate(self.grid_delegate)
             self.list._center_grid()
 
-    def _update_view_button(self):
-        c = theme.colors(self.store.ui_pref("theme", "dark"))
-        if self._view_mode == "grid":
-            self.btn_view.setIcon(icons.list_view(c["text"]))
-            self._set_button_label(self.btn_view, "Passer en vue liste")
-        else:
-            self.btn_view.setIcon(icons.grid(c["text"]))
-            self._set_button_label(self.btn_view, "Passer en vue grille")
-
-    def _on_view_toggled(self):
-        self._view_mode = "list" if self._view_mode == "grid" else "grid"
-        self.store.set_library_pref("view_mode", self._view_mode)
-        self._apply_view_mode()
-        self._update_view_button()
-        self._rebuild_list()
+    def _set_view_mode(self, mode):
+        """Vue grille ou liste (choisie dans les preferences)."""
+        mode = "list" if mode == "list" else "grid"
+        if mode != self._view_mode:
+            self._view_mode = mode
+            self._apply_view_mode()
 
     def _on_grid_scale_changed(self, pct: int):
         """Curseur de taille : ajuste l'echelle des couvertures. Les vignettes
@@ -358,14 +340,14 @@ class ChromeMixin:
             self.list._center_grid()
             self.list.viewport().update()
 
-    def _on_group_toggled(self, checked):
-        self._group_series = checked
-        self.store.set_library_pref("group_series", checked)
-        self._current_series = None   # quitter un eventuel dossier ouvert
-        c = theme.colors(self.store.ui_pref("theme", "dark"))
-        self.btn_group.setIcon(icons.layers(theme.ACCENT if checked else c["text"]))
-        self._set_button_label(self.btn_group, "Regrouper par série (dossiers)")
-        self._rebuild_list(keep_position=False)
+    def _set_group_series(self, grouped):
+        """Regroupement des tomes en dossiers de serie (choisi dans les
+        preferences)."""
+        grouped = bool(grouped)
+        if grouped != self._group_series:
+            self._group_series = grouped
+            self._current_series = None   # quitter un eventuel dossier ouvert
+            self._rebuild_list(keep_position=False)
 
     # ----- actions dossiers -----
     def manage_folders(self):
@@ -447,9 +429,9 @@ class ChromeMixin:
             }}
             QPushButton:hover {{ background: {c['button_hover']}; }}
             QPushButton#consentYes {{
-                color: #f5f0ee; background: {theme.ACCENT}; border: none; font-weight: 700;
+                color: {theme.ON_ACCENT}; background: {theme.ACCENT}; border: none; font-weight: 700;
             }}
-            QPushButton#consentYes:hover {{ background: #d14433; }}
+            QPushButton#consentYes:hover {{ background: {theme.ACCENT_HOVER}; }}
         """)
 
     def _on_sort_changed(self, _index):
@@ -569,11 +551,11 @@ class ChromeMixin:
             #emptyTitle {{ color: {c['text']}; font-size: 20px; font-weight: 700; }}
             #emptyText {{ color: {c['text_dim']}; font-size: 14px; }}
             QPushButton#emptyBtn {{
-                color: #f5f0ee; background: {theme.ACCENT}; border: none;
+                color: {theme.ON_ACCENT}; background: {theme.ACCENT}; border: none;
                 border-radius: 8px; padding: 9px 20px;
                 font-size: 14px; font-weight: 700;
             }}
-            QPushButton#emptyBtn:hover {{ background: #d14433; }}
+            QPushButton#emptyBtn:hover {{ background: {theme.ACCENT_HOVER}; }}
             QPushButton#emptyBtn:focus {{ border: 2px solid {c['text']}; }}
         """)
 

@@ -6,15 +6,17 @@ import html
 from pathlib import Path
 
 from PySide6.QtCore import QSize, Qt, QThreadPool, QTimer, QUrl
-from PySide6.QtGui import QDesktopServices
+from PySide6.QtGui import QColor, QDesktopServices, QIcon
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
+    QColorDialog,
     QComboBox,
     QDialog,
     QFileDialog,
     QFormLayout,
     QFrame,
+    QGridLayout,
     QGroupBox,
     QHBoxLayout,
     QLabel,
@@ -34,6 +36,12 @@ from beheread import config
 from beheread.infra import anilist
 from beheread.infra.anilist_auth import LocalAuthReceiver
 from beheread.ui import icons, theme
+from beheread.ui.help_overlay import (
+    LIBRARY_SHORTCUTS,
+    READER_SHORTCUTS,
+    sections_css,
+    sections_layout,
+)
 from beheread.ui.library.workers import _FolderCountWorker
 
 
@@ -115,9 +123,8 @@ class FolderManagerDialog(QDialog):
         self._empty.setWordWrap(True)
         root.addWidget(self._empty)
 
-        # boutons de validation
+        # boutons de validation : Annuler a gauche, Enregistrer a droite
         buttons = QHBoxLayout()
-        buttons.addStretch(1)
         self.btn_cancel = QPushButton("Annuler")
         self.btn_cancel.setObjectName("fmCancel")
         self.btn_cancel.setCursor(Qt.PointingHandCursor)
@@ -128,6 +135,7 @@ class FolderManagerDialog(QDialog):
         self.btn_save.setDefault(True)
         self.btn_save.clicked.connect(self.accept)
         buttons.addWidget(self.btn_cancel)
+        buttons.addStretch(1)
         buttons.addWidget(self.btn_save)
         root.addLayout(buttons)
 
@@ -260,7 +268,7 @@ class FolderManagerDialog(QDialog):
             }}
             QPushButton#fmCancel:hover {{ background: {c['button_hover']}; }}
             QPushButton#fmSave {{
-                color: white;
+                color: {theme.ON_ACCENT};
                 background: {theme.ACCENT};
                 border: none;
                 border-radius: 8px;
@@ -268,7 +276,7 @@ class FolderManagerDialog(QDialog):
                 font-size: 13px;
                 font-weight: 700;
             }}
-            QPushButton#fmSave:hover {{ background: #d14433; }}
+            QPushButton#fmSave:hover {{ background: {theme.ACCENT_HOVER}; }}
         """)
 
 
@@ -294,9 +302,9 @@ def _dialog_css(c):
         QPushButton:focus {{ border: 2px solid {theme.ACCENT}; }}
         QPushButton:disabled {{ color: {c['text_disabled']}; background: transparent; }}
         QPushButton#primary {{
-            color: #f5f0ee; background: {theme.ACCENT}; border: none; font-weight: 700;
+            color: {theme.ON_ACCENT}; background: {theme.ACCENT}; border: none; font-weight: 700;
         }}
-        QPushButton#primary:hover {{ background: #d14433; }}
+        QPushButton#primary:hover {{ background: {theme.ACCENT_HOVER}; }}
         QSpinBox {{
             color: {c['text']}; background: {c['panel']};
             border: 1px solid {c['border']}; border-radius: 5px; padding: 3px 6px;
@@ -323,6 +331,13 @@ def _buttons_row(dialog, ok_label):
 FIT_CHOICES = [(0, "Ajuster à la fenêtre"), (1, "Ajuster à la largeur"),
                (2, "Ajuster à la hauteur")]
 
+# couleurs d'accentuation proposees (la premiere est celle d'origine), toutes
+# lisibles telles quelles dans les deux themes ; toute autre couleur reste
+# possible par « Personnalisée… »
+ACCENT_PRESETS = [("Rouge Behelit", theme.DEFAULT_ACCENT), ("Orange", "#ce6e24"),
+                  ("Ambre", "#b57b10"), ("Vert", "#2d9959"), ("Turquoise", "#1d9593"),
+                  ("Bleu", "#2f7fd6"), ("Violet", "#8e5bd6"), ("Rose", "#d6457f")]
+
 
 class PreferencesDialog(QDialog):
     """Reglages de l'application, en onglets. Les preferences simples ne sont
@@ -336,18 +351,24 @@ class PreferencesDialog(QDialog):
     def __init__(self, store, colors, actions, tracker=None, parent=None):
         super().__init__(parent)
         self.store = store
+        self.c = colors
         self.actions = actions
         self.tracker = tracker
         self.setWindowTitle("Préférences")
         self.setMinimumWidth(620)
         self.setStyleSheet(_dialog_css(colors) + f"""
+            QToolButton#accentSwatch {{ background: transparent; border: none;
+                                        border-radius: 15px; }}
+            QToolButton#accentSwatch:focus {{ border: 1px solid {colors['text_dim']}; }}
             QTabWidget::pane {{ border: 1px solid {colors['border']}; border-radius: 8px;
                                 top: -1px; background: {colors['window']}; }}
             QTabBar::tab {{ color: {colors['text_dim']}; background: transparent;
                             padding: 6px 14px; border: none; }}
             QTabBar::tab:selected {{ color: {colors['text']};
                                      border-bottom: 2px solid {theme.ACCENT}; }}
-        """)
+            QScrollArea#shortcutScroll, #shortcutHost {{ background: transparent; border: none; }}
+            QLabel#shortcutGroup {{ font-size: 15px; font-weight: 700; }}
+        """ + sections_css(colors))
         root = QVBoxLayout(self)
         root.setContentsMargins(20, 16, 20, 16)
         tabs = QTabWidget()
@@ -356,8 +377,18 @@ class PreferencesDialog(QDialog):
         tabs.addTab(self._reader_tab(), "Lecteur")
         tabs.addTab(self._data_tab(), "Données")
         tabs.addTab(self._anilist_tab(), "AniList")
+        tabs.addTab(self._shortcuts_tab(), "Raccourcis")
+        self.tabs = tabs
         root.addSpacing(8)
         root.addLayout(_buttons_row(self, "Enregistrer"))
+        # Qt plafonne la taille initiale d'une fenetre aux 2/3 de l'ecran : sur
+        # un ecran de 900 px de haut, l'onglet General etait ecrase (lignes
+        # rognees). On prend la taille voulue, dans la limite de l'ecran.
+        self.ensurePolished()
+        wanted = self.sizeHint()
+        screen = (parent.screen() if parent is not None else QApplication.primaryScreen())
+        self.resize(wanted.width(),
+                    min(wanted.height(), screen.availableGeometry().height() - 60))
 
     # ----- helpers -----
     @staticmethod
@@ -383,19 +414,42 @@ class PreferencesDialog(QDialog):
     def _general_tab(self):
         w, v = self._page()
         g = QGroupBox("Apparence et bibliothèque")
-        f = QFormLayout(g)
+        # l'indication sur plusieurs lignes est hors du formulaire : QFormLayout
+        # ne lui reserve pas sa hauteur et ecrase les lignes voisines
+        gv = QVBoxLayout(g)
+        f = QFormLayout()
+        gv.addLayout(f)
         s = self.store
         self.theme = QComboBox()
         self.theme.addItem("Sombre", "dark")
         self.theme.addItem("Clair", "light")
         self.theme.setCurrentIndex(0 if s.ui_pref("theme", "dark") == "dark" else 1)
         f.addRow("Thème", self.theme)
+        self.view_mode = QComboBox()
+        self.view_mode.addItem("Grille de couvertures", "grid")
+        self.view_mode.addItem("Liste compacte", "list")
+        self.view_mode.setCurrentIndex(1 if s.library_pref("view_mode", "grid") == "list" else 0)
+        f.addRow("Affichage", self.view_mode)
+        f.addRow("Couleur d'accentuation", self._accent_row())
+        self.accent_hint = self._hint("")
+        gv.addWidget(self.accent_hint)
+        self.theme.currentIndexChanged.connect(lambda _i: self._set_accent(self._accent))
+        self._set_accent(s.ui_pref("accent"))
+        # cases sur deux colonnes : l'onglet doit tenir sur un petit ecran
+        checks = QGridLayout()
+        checks.setContentsMargins(0, 0, 0, 0)
+        self.group_series = QCheckBox("Regrouper les tomes par série")
+        self.group_series.setToolTip("Les tomes d'un même manga sont rassemblés dans un "
+                                     "dossier de série")
+        self.group_series.setChecked(bool(s.library_pref("group_series", False)))
+        checks.addWidget(self.group_series, 0, 0)
         self.show_continue = QCheckBox("Afficher « Continuer la lecture »")
         self.show_continue.setChecked(bool(s.library_pref("show_continue", True)))
-        f.addRow(self.show_continue)
+        checks.addWidget(self.show_continue, 0, 1)
         self.show_details = QCheckBox("Afficher le panneau d'informations")
-        self.show_details.setChecked(bool(s.library_pref("show_details", True)))
-        f.addRow(self.show_details)
+        self.show_details.setChecked(bool(s.library_pref("show_details", False)))
+        checks.addWidget(self.show_details, 1, 0)
+        gv.addLayout(checks)
         v.addWidget(g)
 
         g = QGroupBox("Discrétion")
@@ -424,6 +478,97 @@ class PreferencesDialog(QDialog):
         gv.addWidget(btn, alignment=Qt.AlignLeft)
         v.addWidget(g)
         v.addStretch(1)
+        return w
+
+    # ----- couleur d'accentuation -----
+    def _accent_row(self):
+        """Pastilles des couleurs proposees, couleur libre et retour a la
+        couleur d'origine."""
+        # un widget, pas un simple layout : QFormLayout ne reserve pas la
+        # hauteur d'un layout imbrique (boutons ecrases, pastilles debordantes)
+        host = QWidget()
+        row = QHBoxLayout(host)
+        row.setContentsMargins(0, 0, 0, 0)
+        row.setSpacing(2)
+        self._swatches = {}
+        for label, value in ACCENT_PRESETS:
+            btn = QToolButton()
+            btn.setObjectName("accentSwatch")
+            btn.setCheckable(True)
+            btn.setFixedSize(30, 30)
+            btn.setIconSize(QSize(26, 26))
+            btn.setCursor(Qt.PointingHandCursor)
+            btn.setToolTip(label)
+            btn.setAccessibleName(f"Couleur d'accentuation : {label}")
+            btn.clicked.connect(lambda _checked=False, v=value: self._set_accent(v))
+            self._swatches[value] = btn
+            row.addWidget(btn)
+        row.addSpacing(8)
+        self.accent_custom = QPushButton("Personnalisée…")
+        self.accent_custom.clicked.connect(self._pick_accent)
+        row.addWidget(self.accent_custom)
+        self.accent_reset = QPushButton("Réinitialiser")
+        self.accent_reset.setToolTip("Revenir à la couleur d'origine")
+        self.accent_reset.clicked.connect(lambda: self._set_accent(None))
+        row.addWidget(self.accent_reset)
+        row.addStretch(1)
+        return host
+
+    def _pick_accent(self):
+        color = QColorDialog.getColor(QColor(self._accent), self, "Couleur d'accentuation")
+        if color.isValid():
+            self._set_accent(color.name())
+
+    def _set_accent(self, value):
+        """Couleur choisie dans le dialogue (None ou valeur invalide = couleur
+        d'origine) ; enregistree par save()."""
+        self._accent = theme.normalize_accent(value) or theme.DEFAULT_ACCENT
+        ring = self.c["text"]
+        for preset, btn in self._swatches.items():
+            chosen = preset == self._accent
+            btn.setChecked(chosen)
+            btn.setIcon(icons.swatch(preset, ring if chosen else None))
+        custom = self._accent not in self._swatches
+        self.accent_custom.setIcon(icons.swatch(self._accent, ring) if custom else QIcon())
+        self.accent_reset.setEnabled(self._accent != theme.DEFAULT_ACCENT)
+        # une seule ligne dans tous les cas : la hauteur du dialogue ne bouge pas
+        mode = self.theme.currentData()
+        if theme.bounded_accent(self._accent, mode) == self._accent:
+            hint = "L'icône des raccourcis et des fichiers dans Windows garde sa couleur d'origine."
+        elif mode == "light":
+            hint = ("Trop claire pour le thème clair : elle y sera assombrie juste assez "
+                    "pour rester lisible.")
+        else:
+            hint = ("Trop sombre pour le thème sombre : elle y sera éclaircie juste assez "
+                    "pour rester lisible.")
+        self.accent_hint.setText(hint)
+
+    def _shortcuts_tab(self):
+        """Tous les raccourcis clavier (la carte d'aide F1 montre ceux de
+        l'ecran courant ; ici, bibliotheque et lecteur a la suite)."""
+        w, v = self._page()
+        scroll = QScrollArea()
+        scroll.setObjectName("shortcutScroll")
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.NoFrame)
+        # la liste defile dans la place laissee par les autres onglets, sans
+        # agrandir le dialogue
+        scroll.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Ignored)
+        host = QWidget()
+        host.setObjectName("shortcutHost")
+        hv = QVBoxLayout(host)
+        hv.setContentsMargins(0, 0, 10, 0)
+        hv.setSpacing(12)
+        for title, sections in (("Dans la bibliothèque", LIBRARY_SHORTCUTS),
+                                ("Dans le lecteur", READER_SHORTCUTS)):
+            head = QLabel(title)
+            head.setObjectName("shortcutGroup")
+            hv.addWidget(head)
+            hv.addLayout(sections_layout(sections, host, vertical=True))
+            hv.addSpacing(8)
+        hv.addStretch(1)
+        scroll.setWidget(host)
+        v.addWidget(scroll)
         return w
 
     def _reader_tab(self):
@@ -583,6 +728,10 @@ class PreferencesDialog(QDialog):
         acceptation du dialogue)."""
         s = self.store
         s.set_ui_pref("theme", self.theme.currentData())
+        # None = couleur d'origine (elle suivrait un changement de la valeur par defaut)
+        s.set_ui_pref("accent", None if self._accent == theme.DEFAULT_ACCENT else self._accent)
+        s.set_library_pref("view_mode", self.view_mode.currentData())
+        s.set_library_pref("group_series", self.group_series.isChecked())
         s.set_library_pref("show_continue", self.show_continue.isChecked())
         s.set_library_pref("show_details", self.show_details.isChecked())
         s.set_reader_pref("manga_mode", bool(self.direction.currentData()))

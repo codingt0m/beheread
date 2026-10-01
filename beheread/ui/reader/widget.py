@@ -260,7 +260,7 @@ class ReaderWidget(HudMixin, EndCardMixin, DisplayMixin, InputMixin,
             f"QPushButton#hudSel:disabled {{ color: {c['text_disabled']};"
             " background: transparent; border-color: transparent; }")
         # meme langage visuel que la barre de reglages (#hudSel) : contour
-        # neutre permanent, survol qui remplit en gris - jamais de rouge, pour
+        # neutre permanent, survol qui remplit en gris - jamais d'accent, pour
         # que "Bibliotheque" et "Plein ecran" s'accordent avec le reste du HUD
         button_css = (
             f"QPushButton {{ color: {c['text']}; background: transparent;"
