@@ -2,7 +2,27 @@
 
 Les numéros de version suivent [SemVer](https://semver.org/lang/fr/). Chaque section ci-dessous sert aussi de notes à la release GitHub du même numéro.
 
-## [Non publié]
+## [1.1.0] - 2026-10-03
+
+### Quel fichier télécharger
+
+* `Beheread-Setup-1.1.0.exe` : l'installateur, recommandé. Il remplace la version en place et conserve vos données.
+* `Beheread-1.1.0-windows-x64.zip` : la version sans installation, à dézipper où vous voulez.
+* `SHA256SUMS.txt` : les sommes de contrôle des deux fichiers.
+
+### Recherche refaite
+
+* **Corrigé** : en mode regroupé par série, taper rapidement (un nom d'auteur par exemple) pouvait afficher « Aucun résultat » alors que des mangas correspondaient.
+* Les résultats suivent le regroupement : on voit les dossiers de série concernés plutôt que tous leurs tomes à plat ; un dossier ouvert pendant une recherche ne montre que ses tomes correspondants, et effacer la recherche ramène à l'endroit quitté.
+* Plusieurs mots, dans n'importe quel ordre et dans n'importe quel champ : `fujimoto fire`, `berserk 12`.
+* Accents, majuscules et ponctuation ignorés : `pokemon` trouve « Pokémon », `gloutons dragons` trouve « Gloutons & Dragons ».
+* Les numéros sont exacts : `berserk 1` trouve le tome 1, pas les tomes 10 à 19.
+* Fautes de frappe tolérées quand rien ne correspond exactement (`fujimotto`, `berzerk`), signalées par « résultats approchants ».
+* La recherche trouve aussi les séries renommées à la main et les titres connus de l'œuvre (anglais, romaji, original) : « Attack on Titan » trouve « L'Attaque des Titans ».
+* Les résultats se complètent quand un auteur arrive en arrière-plan.
+* Plus rapide et plus économe : chaque frappe prend moins de quelques millisecondes, même sur des milliers de tomes, et une recherche ne charge plus en mémoire les couvertures de toute la bibliothèque.
+
+### Autres changements
 
 * Licence : Beheread passe sous PolyForm Noncommercial 1.0.0 (usage commercial interdit).
 * CBR : 7-Zip est détecté automatiquement à son emplacement habituel (`C:\Program Files\7-Zip`), sans avoir à modifier le PATH.

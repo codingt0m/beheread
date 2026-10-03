@@ -82,7 +82,7 @@ Les CBZ, EPUB et PDF fonctionnent sans rien d'autre. Beaucoup de fichiers `.cbr`
 Les vrais fichiers RAR ont besoin d'un outil de décompression, qui n'est pas fourni avec Beheread. Une seule de ces options suffit :
 
 * **WinRAR est installé** : rien à faire, il est détecté automatiquement.
-* **7-Zip est installé** : ajoutez son dossier (`C:\Program Files\7-Zip`) à la variable d'environnement PATH. À partir de la prochaine version, 7-Zip sera détecté automatiquement.
+* **7-Zip est installé** : rien à faire non plus, il est détecté automatiquement à son emplacement habituel (`C:\Program Files\7-Zip`) depuis la version 1.1.0. Installé ailleurs, ajoutez son dossier à la variable d'environnement PATH.
 * **Ni l'un ni l'autre** : téléchargez « UnRAR for Windows » sur [rarlab.com](https://www.rarlab.com/rar_add.htm) et copiez `UnRAR.exe` dans le dossier de Beheread, à côté de `Beheread.exe`. Avec l'installateur, ce dossier est `%LOCALAPPDATA%\Programs\Beheread` (collez ce chemin dans la barre d'adresse de l'Explorateur pour l'ouvrir).
 
 ## Raccourcis essentiels du lecteur
