@@ -7,7 +7,7 @@ en cache sur disque."""
 import logging
 from pathlib import Path
 
-from PySide6.QtCore import QSize, Qt, QTimer, Signal
+from PySide6.QtCore import QSize, Qt, Signal
 from PySide6.QtGui import QGuiApplication, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QHBoxLayout,
@@ -29,6 +29,7 @@ from beheread.core.library_model import (
     volume_status,
 )
 from beheread.core.models import LibraryEntry, VolumeInfo
+from beheread.core.search import SearchIndex, known_titles
 from beheread.core.series import normalize_name, parse_series_ex
 from beheread.infra.storage import Store, is_cloud_placeholder
 from beheread.ui.help_overlay import LIBRARY_SHORTCUTS, ShortcutOverlay
@@ -97,8 +98,22 @@ class LibraryWidget(ChromeMixin, DetailPanelMixin, ActionsMixin, MenusMixin,
         self._series_display_name = {}   # cle normalisee -> nom affiche (vote)
         self._entry_by_path = {}         # path -> entree (acces O(1))
 
+        # recherche : index inverse construit a la demande (voir core/search.py
+        # et _run_search). _search_hits : chemins des tomes correspondants, ou
+        # None sans recherche active.
         self._search_text = ""
-        self._group_series = bool(store.library_pref("group_series", False))
+        self._search_index = SearchIndex()
+        self._search_index_dirty = True
+        self._search_hits = None
+        self._search_approx = False
+        self._pre_search_position = None   # retrouvee en effacant la recherche
+        # lignes de la grille, dans l'ordre : tomes que chacune represente (un
+        # seul, ou ceux d'un dossier de serie) et visibilite (voir _apply_filter)
+        self._row_paths = []
+        self._row_visible = []
+        self._visible_count = 0
+        self._shelf_has_picks = False
+        self._group_series =bool(store.library_pref("group_series", False))
         self._view_mode = store.library_pref("view_mode", "grid")
         # taille des couvertures en vue grille (pourcentage, cf. curseur du
         # header et MangaDelegate.set_scale) ; borne haute alignee sur la
@@ -192,11 +207,6 @@ class LibraryWidget(ChromeMixin, DetailPanelMixin, ActionsMixin, MenusMixin,
 
         self.apply_theme()
 
-        self._search_timer = QTimer(self)
-        self._search_timer.setSingleShot(True)
-        self._search_timer.setInterval(150)
-        self._search_timer.timeout.connect(self._rebuild_list)
-
         self.list.backRequested.connect(self._exit_series)
 
         # offline-first : affiche l'instantane persiste immediatement, puis
@@ -260,12 +270,12 @@ class LibraryWidget(ChromeMixin, DetailPanelMixin, ActionsMixin, MenusMixin,
 
     def _on_scan_started(self):
         if not self._entries:
-            self._update_empty_state(False, bool(self._search_text.strip()))
+            self._update_empty_state(False, self._search_hits is not None)
 
     def _on_scanned(self, paths, cloud_paths):
         self._apply_scan_results(paths, cloud_paths)
         if not self._entries:
-            self._update_empty_state(False, bool(self._search_text.strip()))
+            self._update_empty_state(False, self._search_hits is not None)
 
     def _get_or_fetch_meta(self, e):
         return self.meta.cached_or_fetch(e)
@@ -276,8 +286,9 @@ class LibraryWidget(ChromeMixin, DetailPanelMixin, ActionsMixin, MenusMixin,
         for path in list(self._path_to_item):
             e = self._entry_by_path.get(path)
             if e is not None and normalize_name(e.series) == series_key:
-                self._update_item_meta(path)
+                self._update_item_meta(path, refilter=False)
         self.list.viewport().update()
+        self._search_meta_changed()
 
     def _bind_cover(self, item, path, role):
         self.covers.bind(item, path, role)
@@ -431,9 +442,10 @@ class LibraryWidget(ChromeMixin, DetailPanelMixin, ActionsMixin, MenusMixin,
         prefix = "Temps restant" if (prog and read > 0) else "Temps de lecture"
         return f"{prefix} : {label}"
 
-    def _update_item_meta(self, path):
+    def _update_item_meta(self, path, refilter=True):
         """Met a jour l'auteur/tooltip d'un seul item deja affiche, sans
-        reconstruire toute la liste (voir _on_meta_done)."""
+        reconstruire toute la liste (voir _on_meta_done). refilter : relance
+        la recherche en cours (l'auteur qui arrive peut la satisfaire)."""
         meta = self.store.volume_meta(path)
         tooltip, author_text = self._meta_tooltip_and_author(path, meta)
         item = self._path_to_item.get(path)
@@ -446,6 +458,8 @@ class LibraryWidget(ChromeMixin, DetailPanelMixin, ActionsMixin, MenusMixin,
                 sitem.setData(ROLE_AUTHOR_TEXT, author_text)
         self.list.viewport().update()
         self._refresh_detail_for(path)
+        if refilter:
+            self._search_meta_changed()
 
     def _compute_display_names(self, entries):
         """Une meme serie peut avoir des noms de fichiers formates differemment
@@ -473,86 +487,147 @@ class LibraryWidget(ChromeMixin, DetailPanelMixin, ActionsMixin, MenusMixin,
         current = self._item_identity(self.list.currentItem())
         self.list.clear()
         self._path_to_item = {}   # reconstruit avec la liste (acces O(1) ensuite)
+        self._row_paths = []
+        self._row_visible = []
         self.covers.reset_subscribers()
         self._meta_subscribers = {}
         entries = self._entries
 
-        q = self._search_text.strip().casefold()
         self._series_display_name = self._compute_display_names(self._entries)
         self._info = {e.path: self._entry_info(e) for e in self._entries}
+        self._search_index_dirty = True
 
-        # une recherche pioche a plat dans tous les tomes (elle "traverse" les
-        # dossiers) ; sinon, si le regroupement est actif, on affiche des
-        # dossiers de serie (et le contenu d'un dossier ouvert).
-        grouping = self._group_series and not q
-        if grouping and self._current_series is not None:
+        # la recherche ne change pas la structure de la vue : comme le filtre
+        # de statut, elle s'applique a chaque niveau (dossiers de serie, contenu
+        # d'un dossier ouvert, vue a plat), en masquant en place ce qui ne
+        # correspond pas (voir _apply_filter). Le filtre de statut, lui, est
+        # applique a la construction.
+        if self._group_series and self._current_series is not None:
             self._rebuild_series_contents(entries)
-            self._update_empty_state(self.list.count() > 0, searching=False)
-        elif grouping:
+        elif self._group_series:
             self._rebuild_series_folders(entries)
-            self._update_empty_state(self.list.count() > 0, searching=False)
         else:
-            # vue a plat : on ajoute TOUS les tomes une fois, puis on masque en
-            # place ceux qui ne correspondent pas a la recherche (voir
-            # _apply_row_filter). Les frappes suivantes ne reconstruisent donc
-            # plus toute la liste - le filtrage est instantane.
             self._current_series = None
+            wanted = self._status_filter
             for e in sorted(self._entries,
                             key=lambda e: sort_key(self._sort, self._info[e.path])):
-                self._add_item(e)
-            self._apply_row_filter()
+                if matches_status(self._info[e.path].status, wanted):
+                    self._add_item(e)
+        self._rebuild_shelf()
+        self._run_search()
+        self._apply_filter()
 
         self._update_back_button()
         self.list._center_grid()
-        self._rebuild_shelf()
         self._update_consent_banner()
         if keep_position:
             self.list.doItemsLayout()   # calcule la plage de defilement
             self._restore_current(current)
             self.list_host.set_position(pos)
-        self._update_count()
         self._update_detail()
 
+    # ----- recherche -----
     def _on_search_changed(self, text):
-        prev = self._search_text
+        """Chaque frappe filtre en place (aucune reconstruction, aucun delai) :
+        la recherche est resolue par l'index, puis seules les lignes qui
+        changent d'etat sont masquees ou affichees."""
+        was_searching = self._search_hits is not None
         self._search_text = text
-        if self._can_filter_in_place(prev, text):
-            # meme jeu d'items affiche (vue a plat) : filtrage instantane par
-            # masquage de lignes, sans reconstruction ni debounce.
-            self._search_timer.stop()
-            self._apply_row_filter()
-        else:
-            # changement structurel (dossiers <-> plat, sortie d'une serie) :
-            # reconstruction debouncee
-            self._search_timer.start()
-
-    def _can_filter_in_place(self, prev, cur):
-        """Le filtrage en place n'est possible que si le jeu d'items affiche ne
-        change pas : vue a plat (regroupement desactive), ou recherche deja
-        active qui le reste (regroupement actif). Sinon il faut reconstruire."""
         if self._current_series is not None:
-            return False
-        if not self._group_series:
-            return True
-        return bool(prev.strip()) and bool(cur.strip())
+            # la recherche porte sur toute la bibliotheque : depuis un dossier
+            # de serie ouvert, on revient a la racine pour en montrer les
+            # resultats (et y revenir a l'endroit quitte en l'effacant)
+            if not was_searching:
+                self._pre_search_position = self._root_position
+            self._current_series = None
+            self._rebuild_list(keep_position=False)
+        else:
+            if not was_searching:
+                self._pre_search_position = (
+                    self.list_host.position(), self._item_identity(self.list.currentItem()))
+            self._run_search()
+            self._apply_filter()
+        if self._search_hits is not None:
+            self.list_host.set_position(0)   # les resultats commencent en haut
+        elif was_searching:
+            self._restore_pre_search_position()
 
-    def _apply_row_filter(self):
-        """Masque/affiche chaque ligne selon la recherche courante (titre, serie
-        ou auteur), sans reconstruire la liste."""
-        q = self._search_text.strip().casefold()
-        any_visible = False
-        for i in range(self.list.count()):
-            item = self.list.item(i)
-            e = self._entry_by_path.get(item.data(ROLE_PATH))
-            match = (not q) or (e is not None and (
-                q in e.title.casefold() or q in e.series.casefold()
-                or q in self._authors_text(e).casefold()))
-            if match and e is not None:
-                info = self._info.get(e.path)
-                match = info is None or matches_status(info.status, self._status_filter)
-            self.list.setRowHidden(i, not match)
-            any_visible = any_visible or match
-        self._update_empty_state(has_any_result=any_visible, searching=bool(q))
+    def _restore_pre_search_position(self):
+        saved, self._pre_search_position = self._pre_search_position, None
+        if saved is None:
+            return
+        pos, current = saved
+        self.list.doItemsLayout()   # calcule la plage de defilement
+        self._restore_current(current)
+        self.list_host.set_position(pos)
+
+    def _run_search(self):
+        """Resout la recherche courante en jeu de chemins de tomes
+        (self._search_hits), ou None sans recherche active."""
+        result = None
+        if self._search_text.strip():
+            self._ensure_search_index()
+            result = self._search_index.search(self._search_text)
+        self._search_hits = None if result is None else result.ids
+        self._search_approx = result is not None and result.approximate
+
+    def _ensure_search_index(self):
+        """Aligne l'index sur la bibliotheque, a la demande : rien n'est indexe
+        tant qu'aucune recherche n'est faite, et les tomes inchanges depuis la
+        derniere indexation ne coutent qu'une comparaison."""
+        if self._search_index_dirty:
+            self._search_index.replace_all(
+                {e.path: self._search_texts(e) for e in self._entries})
+            self._search_index_dirty = False
+
+    def _search_texts(self, e):
+        """Champs indexes d'un tome : nom du fichier, serie (nom deduit et nom
+        affiche), auteurs du tome et de la serie, titres connus de l'oeuvre.
+        Metadonnees en cache uniquement : aucune recherche declenchee."""
+        info = self._info.get(e.path)
+        key = info.series_key if info is not None and info.series_key else normalize_name(e.series)
+        meta = self.store.volume_meta(e.path)
+        series_meta = self.store.series_meta(key)
+        texts = [e.title, e.series, self._series_display_name.get(key)]
+        for m in (meta, series_meta):
+            if m and not m.get("not_found"):
+                texts.extend(m.get("authors") or ())
+            texts.extend(known_titles(m))
+        return texts
+
+    def _search_meta_changed(self):
+        """Metadonnees (auteur, titres) arrivees en arriere-plan : l'index est
+        a rafraichir, et la recherche en cours a relancer (un tome peut
+        desormais y correspondre)."""
+        self._search_index_dirty = True
+        if self._search_hits is not None:
+            self._run_search()
+            self._apply_filter()
+
+    def _apply_filter(self):
+        """Masque en place les lignes sans tome correspondant a la recherche
+        (un dossier de serie reste visible si l'un de ses tomes correspond),
+        sans reconstruire la liste : seules les lignes qui changent d'etat
+        sont touchees. Met a jour le compteur, l'etat vide et la bande
+        « Continuer la lecture » (masquee pendant une recherche)."""
+        hits = self._search_hits
+        count = 0
+        for i, paths in enumerate(self._row_paths):
+            if hits is None:
+                n = len(paths)
+            elif len(paths) == 1:
+                n = 1 if paths[0] in hits else 0
+            else:
+                n = len(hits.intersection(paths))
+            visible = n > 0
+            if visible != self._row_visible[i]:
+                self.list.setRowHidden(i, not visible)
+                self._row_visible[i] = visible
+            count += n
+        self._visible_count = count
+        searching = hits is not None
+        self.shelf.setVisible(self._shelf_has_picks and not searching)
+        self._update_empty_state(has_any_result=count > 0, searching=searching)
         self._update_count()
 
     def _update_empty_state(self, has_any_result, searching):
@@ -670,6 +745,8 @@ class LibraryWidget(ChromeMixin, DetailPanelMixin, ActionsMixin, MenusMixin,
         item.setToolTip(tooltip)
         self._apply_progress(item, e.path)
         self.list.addItem(item)
+        self._row_paths.append((e.path,))
+        self._row_visible.append(True)
         self._path_to_item[e.path] = item
         self._bind_cover(item, e.path, ROLE_PIXMAP)
 
@@ -742,6 +819,8 @@ class LibraryWidget(ChromeMixin, DetailPanelMixin, ActionsMixin, MenusMixin,
         item.setToolTip(tooltip)
 
         self.list.addItem(item)
+        self._row_paths.append(tuple(e.path for e in group))
+        self._row_visible.append(True)
         for role, path in zip((ROLE_PIXMAP, ROLE_PIXMAP2, ROLE_PIXMAP3), cover_paths):
             self._bind_cover(item, path, role)
 
@@ -785,11 +864,11 @@ class LibraryWidget(ChromeMixin, DetailPanelMixin, ActionsMixin, MenusMixin,
         changed = self._current_series is not None or bool(self._search_text)
         self._current_series = None
         if self._search_text:
-            self._search_timer.stop()
             self.search_edit.blockSignals(True)
             self.search_edit.clear()
             self.search_edit.blockSignals(False)
             self._search_text = ""
+            self._pre_search_position = None
         if changed:
             self._rebuild_list(keep_position=False)
         self.list.setFocus()
@@ -888,8 +967,10 @@ class LibraryWidget(ChromeMixin, DetailPanelMixin, ActionsMixin, MenusMixin,
     def _rebuild_shelf(self):
         lst = self.shelf.list
         lst.clear()
-        show = (self._show_continue and not self._search_text.strip()
-                and self._current_series is None and self._status_filter == ALL)
+        # construite meme pendant une recherche (qui ne fait que la masquer,
+        # voir _apply_filter) : elle reapparait des que la recherche est effacee
+        show = (self._show_continue and self._current_series is None
+                and self._status_filter == ALL)
         picks = continue_reading(self._info.values(), self.store.continue_dismissed()) if show else []
         for info, kind in picks:
             item = QListWidgetItem(info.title)
@@ -902,6 +983,7 @@ class LibraryWidget(ChromeMixin, DetailPanelMixin, ActionsMixin, MenusMixin,
                 item.setToolTip(f"{info.title}\nReprendre la lecture")
             lst.addItem(item)
             self._bind_cover(item, info.path, ROLE_PIXMAP)
-        self.shelf.setVisible(bool(picks))
+        self._shelf_has_picks = bool(picks)
+        self.shelf.setVisible(self._shelf_has_picks and self._search_hits is None)
 
 

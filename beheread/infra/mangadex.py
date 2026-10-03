@@ -111,6 +111,22 @@ def _all_titles(attr) -> list:
     return [t for t in titles if t]
 
 
+# langues des titres alternatifs gardes pour la recherche dans la bibliotheque
+# (francais, anglais, titres originaux et leurs romanisations) : MangaDex en
+# liste souvent des dizaines (thai, arabe, russe...) qui ne serviraient qu'a
+# gonfler l'index de recherche
+_SEARCH_TITLE_LANGS = {"fr", "en", "ja", "ja-ro", "ko", "ko-ro", "zh", "zh-hk", "zh-ro"}
+
+
+def _search_titles(attr) -> list:
+    """Titres a indexer pour la recherche (voir core/search.known_titles) :
+    titre principal et titres alternatifs dans les langues retenues."""
+    titles = list((attr.get("title") or {}).values())
+    for alt in attr.get("altTitles") or []:
+        titles.extend(t for lang, t in alt.items() if lang in _SEARCH_TITLE_LANGS)
+    return [t for t in dict.fromkeys(titles) if t]
+
+
 def _display_title(attr, fallback: str) -> str:
     """Titre a afficher : anglais de preference, sinon le premier disponible."""
     t = attr.get("title") or {}
@@ -199,6 +215,7 @@ def search_series(name: str):
 
     return {
         "title": _display_title(attr, name),
+        "titles": _search_titles(attr),
         "authors": _main_author(match.get("relationships")),
         "published_year": year,
         "country": _country_of(attr.get("originalLanguage")),

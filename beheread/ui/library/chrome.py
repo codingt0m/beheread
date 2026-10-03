@@ -31,7 +31,7 @@ from beheread.ui import appicon, icons, theme
 
 # modules extraits (voir chacun) : constantes de rendu, delegates, dialogues et
 # taches d'arriere-plan. LibraryWidget (ci-dessous) orchestre le tout.
-from beheread.ui.library.constants import GRID_GAP, ROLE_IS_SERIES, ROLE_SERIES_COUNT
+from beheread.ui.library.constants import GRID_GAP
 from beheread.ui.library.dialogs import FolderManagerDialog
 from beheread.ui.library.views import _ClickableContainer
 from beheread.version import __version__
@@ -452,14 +452,17 @@ class ChromeMixin:
         return dict(STATUS_FILTERS).get(self._status_filter, "")
 
     def _update_count(self):
-        """Nombre de tomes affiches (un dossier de serie compte ses tomes)."""
-        n = 0
-        for i in range(self.list.count()):
-            if self.list.isRowHidden(i):
-                continue
-            item = self.list.item(i)
-            n += int(item.data(ROLE_SERIES_COUNT) or 1) if item.data(ROLE_IS_SERIES) else 1
-        self.count_label.setText(f"{n} tome" + ("s" if n > 1 else "") if self._entries else "")
+        """Nombre de tomes affiches, compte par _apply_filter : un dossier de
+        serie compte ses tomes - pendant une recherche, ceux qui y
+        correspondent."""
+        n = self._visible_count
+        text = f"{n} tome" + ("s" if n > 1 else "") if self._entries else ""
+        approx = bool(text) and n > 0 and self._search_approx
+        if approx:
+            text += " · résultats approchants"
+        self.count_label.setText(text)
+        self.count_label.setToolTip(
+            "Aucun résultat exact : les fautes de frappe sont tolérées." if approx else "")
 
     # ----- consentement aux metadonnees en ligne -----
     def _build_consent_banner(self):

@@ -169,7 +169,11 @@ def search_series(name: str):
     # lecture par defaut d'une serie quand l'archive n'a pas de ComicInfo.xml
     country = media.get("countryOfOrigin")
 
-    return {"title": title, "authors": authors, "published_year": year,
+    # titres alternatifs (romaji, original, synonymes) : indexes par la
+    # recherche de la bibliotheque si la correspondance est fiable
+    # (voir core/search.known_titles)
+    return {"title": title, "titles": list(dict.fromkeys(all_titles)),
+            "authors": authors, "published_year": year,
             "country": country, "anilist_id": media.get("id"),
             "volumes": media.get("volumes"),
             "match_score": round(title_score(name, all_titles), 3)}

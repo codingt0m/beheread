@@ -59,6 +59,7 @@ beheread/
     models.py            Modèles typés (LibraryEntry, VolumeInfo, SeriesInfo)
     series.py            Détection série/tome par nom de fichier, tome suivant
     library_model.py     Statuts de lecture, tris, sélection « Continuer la lecture »
+    search.py            Recherche : normalisation, index inversé, tolérance aux fautes de frappe
     pairing.py           Appairage double page (parité, planches doubles, recul)
     wheel_nav.py         Molette / pavé tactile (défilement puis tour de page)
     stats.py             Statistiques (périodes, comparaison, jours d'affilée, classement)

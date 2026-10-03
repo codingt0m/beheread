@@ -83,6 +83,7 @@ def test_search_series_parses_full_response(monkeypatch):
     result = mangadex.search_series("Run to Heaven")
     assert result == {
         "title": "Run to Heaven",
+        "titles": ["Run to Heaven"],
         "authors": ["Toan"],
         "published_year": 2024,
         "country": "FR",
