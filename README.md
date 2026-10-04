@@ -45,7 +45,7 @@ Les archives « Source code » de la même liste contiennent le code du projet :
 ### 2. Installer
 
 1. Double-cliquez sur `Beheread-Setup-x.y.z.exe`.
-2. Si Windows affiche « Windows a protégé votre ordinateur », cliquez sur **Informations complémentaires**, puis sur **Exécuter quand même**. Cet avertissement apparaît parce que l'installateur n'est pas signé numériquement.
+2. Si Windows affiche « Windows a protégé votre ordinateur » (éditeur inconnu), cliquez sur **Informations complémentaires**, puis sur **Exécuter quand même**. Cet avertissement apparaît parce que Beheread n'est pas signé numériquement : un certificat de signature est payant, et Windows se méfie par défaut de tout programme non signé et encore peu téléchargé. Ce n'est pas le signe d'un problème. Pour vous assurer que le fichier est bien celui publié ici, voir [Vérifier le téléchargement](#vérifier-le-téléchargement-facultatif).
 3. Choisissez **Installer seulement pour moi (recommandé)** : aucun droit administrateur n'est demandé.
 4. Sur la page des tâches supplémentaires, laissez cochée l'option **Ouvrir les fichiers CBZ, CBR et EPUB avec Beheread** pour ouvrir vos mangas d'un double-clic. Cochez **Créer une icône sur le Bureau** si vous en voulez une.
 5. Cliquez sur **Installer**, puis sur **Terminer** : Beheread se lance.
@@ -64,6 +64,7 @@ Par la suite, Beheread s'ouvre depuis le menu Démarrer ou d'un double-clic sur 
 
 1. Dézippez `Beheread-x.y.z-windows-x64.zip` où vous voulez.
 2. Ouvrez le dossier `Beheread` et lancez `Beheread.exe`. Le dossier `_internal` doit rester à côté de lui.
+3. Au premier lancement, Windows peut afficher le même avertissement que pour l'installateur : cliquez sur **Informations complémentaires**, puis sur **Exécuter quand même** (voir l'étape 2 de [Installer](#2-installer)).
 
 Cette version ne crée ni raccourci ni association de fichiers. Elle enregistre ses données au même endroit que la version installée (`%APPDATA%\MangaReaderPy`).
 
@@ -109,11 +110,11 @@ Chaque version publie un fichier `SHA256SUMS.txt`. Dans PowerShell, depuis le do
 Get-FileHash .\Beheread-Setup-x.y.z.exe -Algorithm SHA256
 ```
 
-L'empreinte affichée doit être celle de la ligne correspondante de `SHA256SUMS.txt`.
+(ou `.\Beheread-x.y.z-windows-x64.zip` pour la version sans installation). L'empreinte affichée doit être celle de la ligne correspondante de `SHA256SUMS.txt`.
 
 ## Dépannage
 
-* **« Windows a protégé votre ordinateur »** au lancement de l'installateur : voir l'étape 2 de [Installer](#2-installer).
+* **« Windows a protégé votre ordinateur »** au lancement de l'installateur ou de `Beheread.exe` (version sans installation) : voir l'étape 2 de [Installer](#2-installer).
 * **« Aucun outil de décompression RAR n'a été trouvé »** : voir [Lire les fichiers CBR](#lire-les-fichiers-cbr).
 * **Une vignette reste grise** : l'archive est probablement corrompue ou vide ; ouvrez-la pour voir le message d'erreur détaillé.
 * **Autre comportement anormal** (Beheread qui ne se lance pas, métadonnées qui n'arrivent jamais, dossier qui ne se rafraîchit plus) : consultez `beheread.log` dans `%APPDATA%\MangaReaderPy`, toutes les erreurs y sont consignées.
