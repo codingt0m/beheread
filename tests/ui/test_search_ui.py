@@ -57,11 +57,11 @@ def test_drill_in_shows_matching_volumes_and_back_returns_to_results(window, qtb
     _type(lib, "chainsaw 2")
     assert visible_titles(lib) == [CSM] and lib.count_label.text() == "1 tome"
     lib._enter_series(normalize_name(CSM))
-    assert visible_titles(lib) == [f"{CSM} - Tome 2"]
+    assert visible_titles(lib) == [f"{CSM} · Tome 2"]
     lib._exit_series()
     assert visible_titles(lib) == [CSM]
     lib.search_edit.clear()
-    assert set(visible_titles(lib)) == {CSM, "Fire Punch T01", "Pokémon"}
+    assert set(visible_titles(lib)) == {CSM, "Fire Punch · Tome 1", "Pokémon"}
 
 
 def test_typing_inside_a_series_searches_the_whole_library(window, qtbot, mangas, store):
@@ -69,17 +69,17 @@ def test_typing_inside_a_series_searches_the_whole_library(window, qtbot, mangas
     lib._enter_series(normalize_name(CSM))
     _type(lib, "fire")
     assert lib._current_series is None
-    assert visible_titles(lib) == ["Fire Punch T01"]
+    assert visible_titles(lib) == ["Fire Punch · Tome 1"]
 
 
 def test_flat_view_accents_numbers_and_several_words(window, qtbot, mangas, store):
     lib, _ = _library(window, qtbot, mangas, store, grouped=False)
     _type(lib, "pokemon")
-    assert visible_titles(lib) == ["Pokémon - Tome 1", "Pokémon - Tome 2"]
+    assert visible_titles(lib) == ["Pokémon · Tome 1", "Pokémon · Tome 2"]
     lib.search_edit.setText("chainsaw 1")
-    assert visible_titles(lib) == [f"{CSM} - Tome 1"]
+    assert visible_titles(lib) == [f"{CSM} · Tome 1"]
     lib.search_edit.setText("fujimoto tome 3")
-    assert visible_titles(lib) == [f"{CSM} - Tome 3"]
+    assert visible_titles(lib) == [f"{CSM} · Tome 3"]
     lib.search_edit.setText("dragon ball")
     assert visible_titles(lib) == [] and lib.empty_panel.isVisible()
     assert lib.empty_title.text() == "Aucun résultat"
@@ -90,7 +90,7 @@ def test_search_combines_with_status_filter(window, qtbot, mangas, store):
     store.set_progress(paths["csm2"], 3, 4, True)
     lib._set_status_filter("finished")
     _type(lib, "chainsaw")
-    assert visible_titles(lib) == [f"{CSM} - Tome 2"]
+    assert visible_titles(lib) == [f"{CSM} · Tome 2"]
     lib.search_edit.setText("pokemon")
     assert visible_titles(lib) == []
     assert "Terminés" in lib.empty_label.text()
@@ -125,7 +125,7 @@ def test_alternative_titles_are_searchable_when_reliable(window, qtbot, mangas, 
 
 def test_continue_shelf_hides_while_searching_and_position_comes_back(window, qtbot, mangas, store):
     lib, paths = _library(window, qtbot, mangas, store, grouped=False)
-    store.set_progress(paths["fp"], 2, 4, False)
+    store.set_progress(paths["fp"], 3, 5, False)
     lib._rebuild_list()
     assert lib.shelf.isVisible()
     current = lib.list.item(3)

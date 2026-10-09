@@ -25,6 +25,8 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
+from beheread.core.series import matches_author
+
 BASE_URL = "https://api.mangadex.org/manga"
 TIMEOUT = 10
 MIN_INTERVAL = 0.3
@@ -157,15 +159,20 @@ def _main_author(relationships) -> list:
     return picked[:1]
 
 
+def _people(relationships) -> list:
+    return [_clean_author((rel.get("attributes") or {}).get("name"))
+            for rel in relationships or [] if rel.get("type") in ("author", "artist")]
+
+
 def _country_of(lang: str):
     if not lang:
         return None
     return _LANG_COUNTRY.get(lang.lower(), lang.upper()[:2])
 
 
-def search_series(name: str):
+def search_series(name: str, author_hint=None):
     """Cherche une serie par son nom. Renvoie {title, authors: [str],
-    published_year, country} ou None si introuvable. Leve MangaDexError en cas
+    published_year, country, match_score} ou None si introuvable. Leve MangaDexError en cas
     de probleme reseau/HTTP/format."""
     params = [
         ("title", name),
@@ -197,11 +204,16 @@ def search_series(name: str):
     # premier passant un seuil) : MangaDex renvoie souvent un spin-off/une suite
     # en tete, qui couvre les memes tokens que l'oeuvre principale. On note
     # chaque candidat et on retient le meilleur au-dessus du seuil minimal.
-    best, best_score = None, _MIN_SCORE
+    best, best_score, best_hinted = None, _MIN_SCORE, False
     for it in items:
         score = _title_score(name, _all_titles(it.get("attributes") or {}))
-        if score >= best_score:
-            best, best_score = it, score
+        if score < _MIN_SCORE:
+            continue
+        # homonymes : un auteur qui correspond a l'indice tire du nom de
+        # fichier l'emporte sur un titre a peine plus ressemblant
+        hinted = matches_author(author_hint, _people(it.get("relationships")))
+        if (hinted, score) >= (best_hinted, best_score):
+            best, best_score, best_hinted = it, score, hinted
     match = best
     if match is None:
         return None
@@ -219,4 +231,5 @@ def search_series(name: str):
         "authors": _main_author(match.get("relationships")),
         "published_year": year,
         "country": _country_of(attr.get("originalLanguage")),
+        "match_score": round(best_score, 3),
     }

@@ -101,7 +101,7 @@ class ActionsMixin:
         meta = self.store.volume_meta(path)
         info = self._info.get(path) or self._entry_info(e)
         c = theme.colors(self.store.ui_pref("theme", "dark"))
-        dlg = EditInfoDialog(e.title, info.author, info.year, c, self)
+        dlg = EditInfoDialog(info.title, info.author, info.year, c, self)
         if dlg.exec() != QDialog.Accepted:
             return
         authors, year = dlg.values()

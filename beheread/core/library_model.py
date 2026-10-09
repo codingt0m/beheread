@@ -8,6 +8,7 @@ prepares par la bibliotheque (LibraryWidget._entry_info).
 
 from __future__ import annotations
 
+import re
 from typing import Iterable, List, Optional, Tuple, Union
 
 from beheread.core.models import SeriesInfo, VolumeInfo
@@ -25,16 +26,26 @@ SORT_KEYS = {k for k, _ in SORTS}
 
 CONTINUE_LIMIT = 12
 
+# un tome referme sur l'une de ses premieres pages n'est pas « commence »
+# (couverture, page de garde, sommaire) : sa progression est effacee a la
+# sortie du lecteur (voir SessionMixin.release)
+STARTED_MIN_PAGE = 3   # indice de page (0 = premiere page) : page 4 et au-dela
+
+
+def is_started(page) -> bool:
+    """Vrai si la lecture a depasse les premieres pages du tome."""
+    return (page or 0) >= STARTED_MIN_PAGE
+
 
 def volume_status(progress) -> str:
     """Statut d'un tome d'apres sa progression (page, total, termine) ou None.
-    Un tome ouvert puis referme sur sa premiere page reste « non lu »."""
+    Un tome referme sur l'une de ses trois premieres pages reste « non lu »."""
     if not progress:
         return UNREAD
     page, _total, finished = progress
     if finished:
         return FINISHED
-    return READING if page > 0 else UNREAD
+    return READING if is_started(page) else UNREAD
 
 
 def series_status(statuses: Iterable[str]) -> str:
@@ -52,11 +63,18 @@ def matches_status(status: str, wanted: str) -> bool:
     return wanted == ALL or status == wanted
 
 
+def natural_key(text: str) -> tuple:
+    """Cle de tri « naturelle » : les nombres comparés par valeur (« Tome 2 »
+    avant « Tome 10 »), le reste sans tenir compte de la casse."""
+    parts = re.split(r"(\d+)", (text or "").casefold())
+    return tuple(int(p) if i % 2 else p for i, p in enumerate(parts))
+
+
 def sort_key(sort: str, info: Union[VolumeInfo, SeriesInfo]) -> tuple:
     """Cle de tri croissante pour le critere `sort`. Les valeurs inconnues
     (auteur ou annee absents, jamais lu) sont toujours rangees en dernier ;
     le titre departage les ex aequo."""
-    title = info.title.casefold()
+    title = natural_key(info.title)
     if sort == "added":
         return (-(info.added or 0), title)
     if sort == "read":

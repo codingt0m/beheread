@@ -29,26 +29,32 @@ import urllib.parse
 import urllib.request
 
 from beheread.core import anilist_track
+from beheread.core.series import matches_author
 from beheread.infra.mangadex import title_score
 
 URL = "https://graphql.anilist.co"
 AUTHORIZE_URL = "https://anilist.co/api/v2/oauth/authorize"
 TIMEOUT = 8
-MIN_INTERVAL = 0.7
+# AniList limite a 30 requetes par minute (limite reduite, « degraded
+# state ») : au-dela, il repond 429 et la cascade de metadonnees se rabattait
+# sur des sources moins fiables. 2,1 s entre deux requetes reste en dessous.
+MIN_INTERVAL = 2.1
 USER_AGENT = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
              "(KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36")
 
 _SEARCH = """
 query ($search: String) {
-  Media(search: $search, type: MANGA) {
-    id
-    title { romaji english native }
-    synonyms
-    staff(perPage: 1) { nodes { name { full } } }
-    startDate { year }
-    countryOfOrigin
-    volumes
-    chapters
+  Page(perPage: 5) {
+    media(search: $search, type: MANGA, sort: SEARCH_MATCH) {
+      id
+      title { romaji english native }
+      synonyms
+      staff(perPage: 4) { nodes { name { full } } }
+      startDate { year }
+      countryOfOrigin
+      volumes
+      chapters
+    }
   }
 }
 """
@@ -106,6 +112,16 @@ def _throttle():
         _last_request = time.monotonic()
 
 
+def _mentions_token(error) -> bool:
+    """Vrai si la reponse d'erreur HTTP parle du jeton. AniList repond 400
+    aussi bien a un jeton invalide (« Invalid token ») qu'a une requete
+    refusee : seul le premier cas doit deconnecter le compte."""
+    try:
+        return "token" in error.read().decode("utf-8", "replace").lower()
+    except Exception:
+        return False
+
+
 def _post(query: str, variables: dict, token: str = None):
     """Execute une requete GraphQL. Renvoie le champ `data`, ou None pour un
     404 (recherche sans resultat)."""
@@ -126,7 +142,7 @@ def _post(query: str, variables: dict, token: str = None):
     except urllib.error.HTTPError as e:
         if e.code == 404:
             return None
-        if token and e.code in (400, 401, 403):
+        if token and (e.code in (401, 403) or (e.code == 400 and _mentions_token(e))):
             raise AniListAuthError(f"HTTP {e.code}") from e
         if e.code == 429:
             raise AniListError("limite de requêtes AniList atteinte, nouvel essai plus tard") from e
@@ -140,7 +156,34 @@ def _post(query: str, variables: dict, token: str = None):
 
 # ---------------------------------------------------------------- metadonnees
 
-def search_series(name: str):
+def _pick(candidates, score_of, names_of, author_hint):
+    """Meilleur candidat : le titre le plus ressemblant, ou - parmi ceux qui
+    ressemblent assez - celui dont l'auteur correspond a l'indice tire du nom
+    de fichier (homonymes : « Monster » d'Urasawa et un « MONSTER » coreen).
+    A ressemblance egale, l'ordre de pertinence de la source l'emporte."""
+    scored = [(score_of(c), i, c) for i, c in enumerate(candidates)]
+    if not scored:
+        return None, 0.0
+    if author_hint:
+        hinted = [s for s in scored if s[0] >= anilist_track.AUTO_MATCH_MIN_SCORE
+                  and matches_author(author_hint, names_of(s[2]))]
+        if hinted:
+            scored = hinted
+    score, _i, best = max(scored, key=lambda s: (s[0], -s[1]))
+    return best, score
+
+
+def _staff_names(media):
+    return [(n.get("name") or {}).get("full")
+            for n in ((media.get("staff") or {}).get("nodes") or [])]
+
+
+def _all_media_titles(media):
+    titles = media.get("title") or {}
+    return [t for t in titles.values() if t] + list(media.get("synonyms") or [])
+
+
+def search_series(name: str, author_hint=None):
     """Cherche une serie par son nom. Renvoie {title, authors: [str],
     published_year, country, anilist_id, volumes, match_score} ou None si
     introuvable. Leve AniListError en cas de probleme reseau/HTTP/format (hors
@@ -150,9 +193,17 @@ def search_series(name: str):
     titres de l'oeuvre trouvee (titres + synonymes) : la recherche AniList est
     tolerante et renvoie toujours « quelque chose ». Les metadonnees s'en
     contentent (comme avant) ; le suivi de lecture, qui ecrit sur le compte de
-    l'utilisateur, exige un score suffisant."""
-    data = _post(_SEARCH, {"search": name})
-    media = (data or {}).get("Media")
+    l'utilisateur, exige un score suffisant.
+
+    `author_hint` : indices d'auteur tires du nom de fichier (voir
+    series.author_hint), pour departager des oeuvres homonymes."""
+    data = _post(_SEARCH, {"search": name}) or {}
+    candidates = (data.get("Page") or {}).get("media")
+    if candidates is None:   # ancienne forme de reponse (une seule oeuvre)
+        candidates = [data["Media"]] if data.get("Media") else []
+    media, score = _pick([c for c in candidates if c],
+                         lambda c: title_score(name, _all_media_titles(c)),
+                         _staff_names, author_hint)
     if not media:
         return None
 
@@ -176,7 +227,7 @@ def search_series(name: str):
             "authors": authors, "published_year": year,
             "country": country, "anilist_id": media.get("id"),
             "volumes": media.get("volumes"),
-            "match_score": round(title_score(name, all_titles), 3)}
+            "match_score": round(score, 3)}
 
 
 # ---------------------------------------------------------------- suivi (authentifie)

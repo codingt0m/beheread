@@ -2,6 +2,41 @@
 
 Les numéros de version suivent [SemVer](https://semver.org/lang/fr/). Chaque section ci-dessous sert aussi de notes à la release GitHub du même numéro.
 
+## [Non publié]
+
+### BD franco-belge et sens de lecture
+
+* **Nouveau** : les BD (Lou !, Seuls, Blacksad…) trouvent leur auteur et leur année dans le catalogue de la BnF, quand les bases manga ne les connaissent pas.
+* **Nouveau** : une BD s'ouvre de gauche à droite, un manga traduit de droite à gauche, d'après le format du livre indiqué par la BnF.
+* **Corrigé** : des mangas recevaient l'auteur d'une autre œuvre (Monster, Ping Pong…) : un résultat AniList n'est retenu que si son titre ressemble au nom cherché. Les anciens résultats sont revérifiés automatiquement.
+* **Corrigé** : quand AniList limitait les requêtes, des mangas recevaient un homonyme venu d'une autre source (Vagabond, Parasite…) et parfois le mauvais sens de lecture. Les requêtes AniList sont espacées, et un résultat obtenu sans AniList est revérifié à la session suivante.
+* **Corrigé** : la touche `M` ne change plus le sens par défaut des préférences, qui ne sert plus qu'aux séries que rien ne permet de reconnaître.
+* Les intégrales par cycle (« Seuls - Intégrale du Cycle 1 ») sont rangées dans leur série.
+
+### Reconnaissance des noms de fichiers
+
+* **Corrigé** : dans une bibliothèque rangée par dossiers (« Berserk/Tome 01.cbz », « Vagabond/Tome 01.cbz »), toutes les séries se confondaient en une série « Tome » et des tomes disparaissaient de la bibliothèque. Un fichier sans nom de série prend désormais celui de son dossier.
+* **Nouveau** : le nommage BD « Astérix - 38 - La Fille de Vercingétorix » ou « Tintin 05 - Le Lotus bleu » est reconnu : les albums se regroupent par série, dans l'ordre.
+* **Nouveau** : les tomes s'affichent sous un titre propre (« Berserk · Tome 1 ») au lieu du nom de fichier brut, qui reste dans l'info-bulle ; le tri par titre range le tome 2 avant le tome 10.
+* **Nouveau** : un auteur entre parenthèses dans le nom de fichier (« Monster T01 (Urasawa) ») départage les œuvres homonymes.
+* Les plages de tomes (« Kingdom 01-05 ») sont rangées dans leur série.
+
+### Lecture
+
+* Un tome refermé sur sa page 1, 2 ou 3 n'est plus considéré comme commencé : sa progression est effacée à la sortie du lecteur, et il n'apparaît ni « en cours » ni dans « Continuer la lecture ». Un tome déjà terminé le reste.
+* **Corrigé** : un album nommé « Série - Tome 4 - Titre de l'album », ou un fichier au nommage « scène » (« Chainsaw.Man.T20.Fujimoto.FR.[CBZ]-NoTag »), formait sa propre série au lieu de rejoindre les autres tomes.
+
+### Suivi AniList
+
+* **Nouveau** : les one-shots (« Errance ») sont publiés « 1 tome lu, terminée » une fois lus, quand l'œuvre AniList existe en un seul tome. Leur association automatique exige un titre quasi identique.
+
+### Corrections
+
+* **Corrigé** : supprimer une copie d'un tome présent en double effaçait la progression de l'autre copie.
+* **Corrigé** : la mémoire du lecteur grossissait sans limite en feuilletant un tome dans les deux sens.
+* **Corrigé** : un tome terminé pendant un envoi à AniList pouvait ne jamais être publié.
+* **Corrigé** : une requête refusée par AniList déconnectait le compte.
+
 ## [1.1.0] - 2026-10-03
 
 ### Quel fichier télécharger

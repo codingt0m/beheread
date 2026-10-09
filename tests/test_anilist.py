@@ -18,12 +18,12 @@ class _Resp(io.BytesIO):
         return False
 
 
-def _fake_urlopen(payload, captured=None, status=None):
+def _fake_urlopen(payload, captured=None, status=None, body=b"{}"):
     def urlopen(req, timeout=None):
         if captured is not None:
             captured.append(req)
         if status is not None:
-            raise urllib.error.HTTPError(req.full_url, status, "err", {}, io.BytesIO(b"{}"))
+            raise urllib.error.HTTPError(req.full_url, status, "err", {}, io.BytesIO(body))
         return _Resp(json.dumps(payload).encode("utf-8"))
     return urlopen
 
@@ -70,6 +70,22 @@ def test_token_is_sent_and_rejection_raises_auth_error(monkeypatch):
         anilist.viewer("expire")
 
 
+def test_bad_request_only_means_bad_token_when_it_says_so(monkeypatch):
+    """AniList repond 400 a un jeton invalide comme a une requete refusee :
+    seul le premier cas doit deconnecter le compte."""
+    invalid = b'{"errors": [{"message": "Invalid token", "status": 400}]}'
+    monkeypatch.setattr(anilist.urllib.request, "urlopen",
+                        _fake_urlopen({}, status=400, body=invalid))
+    with pytest.raises(anilist.AniListAuthError):
+        anilist.viewer("expire")
+    refused = b'{"errors": [{"message": "Validation error", "status": 400}]}'
+    monkeypatch.setattr(anilist.urllib.request, "urlopen",
+                        _fake_urlopen({}, status=400, body=refused))
+    with pytest.raises(anilist.AniListError) as exc:
+        anilist.media_entry("secret", 30002)
+    assert not isinstance(exc.value, anilist.AniListAuthError)
+
+
 def test_save_entry_sends_only_known_fields(monkeypatch):
     captured = []
     monkeypatch.setattr(anilist.urllib.request, "urlopen", _fake_urlopen(
@@ -99,6 +115,8 @@ def test_desired_progress_highest_finished():
             (6, "volume", False), (None, None, True), (12.5, "chapter", True)]
     assert track.desired_progress(vols) == {"volumes": 5, "chapters": 12}
     assert track.desired_progress([(1, "volume", False)]) is None
+    # un numero de cycle (integrale de BD) n'est pas un nombre de tomes lus
+    assert track.desired_progress([(2, "cycle", True)]) is None
 
 
 def test_plan_never_decreases():
@@ -184,3 +202,49 @@ def test_delete_queries_can_never_be_sent(monkeypatch):
     with pytest.raises(anilist.AniListRefused):
         anilist._post("mutation ($id: Int) { DeleteMediaListEntry(id: $id) { deleted } }",
                       {"id": 1}, "t")
+
+
+# ---------------------------------------------------------------- one-shots
+
+def test_oneshot_desired_progress():
+    assert track.desired_progress([(None, track.ONESHOT, True)]) == {"volumes": 1, "oneshot": True}
+    assert track.desired_progress([(None, track.ONESHOT, False)]) is None
+
+
+def test_oneshot_published_only_for_single_volume_work():
+    desired = {"volumes": 1, "oneshot": True}
+    single = {"volumes": 1, "entry": None}
+    assert track.plan_update(desired, single) == {"progressVolumes": 1, "status": "COMPLETED"}
+    # oeuvre en plusieurs tomes, ou nombre de tomes inconnu : quel tome ? rien
+    for volumes in (12, None):
+        media = {"volumes": volumes, "entry": None}
+        assert track.oneshot_mismatch(desired, media)
+        assert track.plan_update(desired, media) is None
+    # une serie numerotee n'est pas concernee
+    assert not track.oneshot_mismatch({"volumes": 3}, {"volumes": 12})
+
+
+def test_oneshot_auto_match_needs_near_identical_title():
+    found = {"anilist_id": 45021, "match_score": 0.649}
+    assert track.auto_match(found) == 45021
+    assert track.auto_match(found, track.ONESHOT_MIN_SCORE) is None
+    assert track.auto_match({"anilist_id": 98674, "match_score": 1.0},
+                            track.ONESHOT_MIN_SCORE) == 98674
+
+
+
+def test_author_hint_picks_the_right_homonym(monkeypatch):
+    """Deux oeuvres au titre identique : l'auteur glisse dans le nom de
+    fichier (« Monster T01 (Urasawa) ») designe la bonne."""
+    def media(id_, author, country):
+        return {"id": id_, "title": {"romaji": "MONSTER"}, "synonyms": [],
+                "staff": {"nodes": [{"name": {"full": author}}]},
+                "startDate": {"year": 1994}, "countryOfOrigin": country}
+    page = {"data": {"Page": {"media": [media(1, "Eun-Jae Lee", "KR"),
+                                        media(2, "Naoki Urasawa", "JP")]}}}
+    monkeypatch.setattr(anilist.urllib.request, "urlopen", _fake_urlopen(page))
+    assert anilist.search_series("Monster")["anilist_id"] == 1          # sans indice
+    hinted = anilist.search_series("Monster", author_hint=["Urasawa"])
+    assert hinted["anilist_id"] == 2 and hinted["country"] == "JP"
+    # un indice qui ne designe personne (editeur, team) ne change rien
+    assert anilist.search_series("Monster", author_hint=["Glénat"])["anilist_id"] == 1

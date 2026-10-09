@@ -71,8 +71,8 @@ beheread/
     database.py          Base SQLite : schéma versionné, dépôts, écritures incrémentales
     reading_log.py       Journal de lecture : table SQL, agrégats par période des statistiques
     archive.py           Ouverture CBZ/CBR/EPUB en mémoire, rendu des PDF (QtPdf), scan des dossiers
-    metadata.py          Cascade ComicInfo.xml -> Google Books -> AniList -> MangaDex
-    googlebooks.py, anilist.py, mangadex.py   Clients d'API
+    metadata.py          Cascade ComicInfo.xml -> Google Books -> AniList -> MangaDex -> BnF
+    googlebooks.py, anilist.py, mangadex.py, bnf.py   Clients d'API
     anilist_auth.py      Connexion AniList (récepteur local du jeton)
     secret_store.py      Chiffrement du jeton AniList (DPAPI)
     single_instance.py   Instance unique (verrou + canal local)

@@ -87,6 +87,7 @@ def test_search_series_parses_full_response(monkeypatch):
         "authors": ["Toan"],
         "published_year": 2024,
         "country": "FR",
+        "match_score": 1.0,
     }
 
 
@@ -129,3 +130,22 @@ def test_search_series_empty_data(monkeypatch):
     monkeypatch.setattr(mangadex.urllib.request, "urlopen",
                         lambda *a, **k: _fake_response({"data": []}))
     assert mangadex.search_series("Whatever") is None
+
+
+
+def test_author_hint_picks_the_right_homonym(monkeypatch):
+    def item(id_, author, lang):
+        return {"id": id_, "attributes": {"title": {"en": "Monster"}, "originalLanguage": lang},
+                "relationships": [{"type": "author", "attributes": {"name": author}}]}
+    payload = {"data": [item("a", "Mo You", "zh"), item("b", "Urasawa Naoki", "ja")]}
+
+    class _Resp(io.BytesIO):
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+    monkeypatch.setattr(mangadex.urllib.request, "urlopen",
+                        lambda req, timeout=None: _Resp(json.dumps(payload).encode()))
+    monkeypatch.setattr(mangadex, "_throttle", lambda: None)
+    assert mangadex.search_series("Monster", author_hint=["Urasawa"])["country"] == "JP"

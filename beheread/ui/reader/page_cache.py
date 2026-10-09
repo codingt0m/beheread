@@ -44,9 +44,14 @@ class PageCache(QObject):
         self._loaders.pop(index, None)
         self.images[index] = image
         self._order.append(index)
-        while len(self._order) > CACHE_LIMIT:
-            old = self._order.pop(0)
-            if abs(old - self._center) > PRELOAD_RADIUS and old in self.images:
-                del self.images[old]
-                self.evicted.emit(old)
+        # evince les pages les plus anciennes hors du voisinage de la page
+        # courante ; celles du voisinage restent suivies dans _order (sans quoi
+        # elles ne seraient plus jamais evincees et le cache grossirait sans fin)
+        excess = len(self._order) - CACHE_LIMIT
+        if excess > 0:
+            far = [i for i in self._order if abs(i - self._center) > PRELOAD_RADIUS]
+            for old in far[:excess]:
+                self._order.remove(old)
+                if self.images.pop(old, None) is not None:
+                    self.evicted.emit(old)
         self.loaded.emit(index)

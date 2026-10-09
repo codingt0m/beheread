@@ -7,7 +7,8 @@ responsabilite."""
 import time
 from pathlib import Path
 
-from beheread.core.series import parse_series
+from beheread.core.library_model import is_started
+from beheread.core.series import parse_path
 from beheread.infra.storage import Store
 from beheread.ui.reader.constants import TIME_MIN_SAMPLES
 
@@ -79,10 +80,20 @@ class SessionMixin:
         self._meter.leave(self._now(), self._current_indices(),
                           forward=self._on_last_view(), resume=False)
         self._save_progress()
+        self._forget_barely_started()
         self._persist_reading_pace()
         self._record_session()
         self.archive.close()
         self.session_ended.emit(self.path)
+
+    def _forget_barely_started(self):
+        """Tome referme sur l'une de ses premieres pages (couverture, page de
+        garde) : il n'est pas commence, sa progression est effacee - il ne
+        s'affiche ni « en cours » ni dans « Continuer la lecture ». Un tome
+        deja termine le reste. Le temps passe, lui, reste aux statistiques."""
+        prog = self.store.get_progress(self.path)
+        if prog and not prog[2] and not is_started(self.page):
+            self.store.remove_progress(self.path)
 
     def _record_session(self):
         """Ajoute la seance au journal des statistiques : pages lues et temps
@@ -96,7 +107,7 @@ class SessionMixin:
         override = self.store.series_override(self.path)
         if override and override != Store.SERIES_DETACHED:
             return override
-        name, volume = parse_series(Path(self.path).stem)
+        name, volume, _kind = parse_path(self.path)
         return name if volume is not None else Path(self.path).stem
 
     def leave_direct_mode(self):

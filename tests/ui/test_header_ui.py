@@ -64,7 +64,7 @@ def test_view_mode_and_detail_panel_are_set_in_preferences(window, qtbot, mangas
     scanned(qtbot, lib, 3)
     assert lib.list.viewMode() == QListWidget.IconMode and not lib.detail.isVisible()
     titles = lambda: sorted(lib.list.item(i).text() for i in range(lib.list.count()))
-    assert titles() == ["Alpha - Tome 1", "Alpha - Tome 2", "Beta - Tome 1"]
+    assert titles() == ["Alpha · Tome 1", "Alpha · Tome 2", "Beta · Tome 1"]
 
     def choose(view_index, details, grouped=False):
         def fake_exec(dlg):
@@ -85,11 +85,11 @@ def test_view_mode_and_detail_panel_are_set_in_preferences(window, qtbot, mangas
     # regroupement par serie : meme chemin, plus de bouton dans l'en-tete
     choose(0, False, grouped=True)
     assert store.library_pref("group_series") is True
-    assert titles() == ["Alpha", "Beta - Tome 1"]
+    assert titles() == ["Alpha", "Beta · Tome 1"]
     lib._enter_series("alpha")
     choose(0, False, grouped=False)        # decocher sort aussi du dossier ouvert
     assert store.library_pref("group_series") is False and lib._current_series is None
-    assert titles() == ["Alpha - Tome 1", "Alpha - Tome 2", "Beta - Tome 1"]
+    assert titles() == ["Alpha · Tome 1", "Alpha · Tome 2", "Beta · Tome 1"]
 
 
 def test_preferences_list_every_keyboard_shortcut(qtbot, store):
@@ -129,7 +129,7 @@ def test_continue_shelf_can_reset_progress(window, qtbot, mangas, store, monkeyp
     store.set_progress(paths[0], 4, 4, True)    # termine : « A suivre » propose le tome 2
     lib._rebuild_list()
     shelf = lambda: [lib.shelf.list.item(i).text() for i in range(lib.shelf.list.count())]
-    assert shelf() == ["Alpha - Tome 2"]
+    assert shelf() == ["Alpha · Tome 2"]
 
     seen = []
 
@@ -155,4 +155,4 @@ def test_continue_shelf_can_reset_progress(window, qtbot, mangas, store, monkeyp
     assert "Réinitialiser la progression" in seen
     assert store.get_progress(paths[1]) is None
     assert store.get_progress(paths[0]) == (4, 4, True)   # les autres tomes ne bougent pas
-    assert shelf() == ["Alpha - Tome 2"]                  # redevenu « tome suivant », non commence
+    assert shelf() == ["Alpha · Tome 2"]                  # redevenu « tome suivant », non commence

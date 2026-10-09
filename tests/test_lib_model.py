@@ -26,6 +26,8 @@ def info(title, status=UNREAD, last_read=0, series=None, volume=None, **kw):
 def test_volume_status():
     assert volume_status(None) == UNREAD
     assert volume_status((0, 20, False)) == UNREAD      # ouvert, pas avance
+    assert volume_status((2, 20, False)) == UNREAD      # arrete sur la page 3 : pas commence
+    assert volume_status((3, 20, False)) == READING     # page 4 : commence
     assert volume_status((5, 20, False)) == READING
     assert volume_status((19, 20, True)) == FINISHED
 

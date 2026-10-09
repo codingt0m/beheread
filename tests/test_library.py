@@ -87,7 +87,7 @@ def test_scan_worker_excludes_cloud_placeholders(store, tmp_path, monkeypatch):
 
     results = []
     worker = ScanWorker(store, [str(folder)])
-    worker.signals.done.connect(lambda paths, cloud_paths:
+    worker.signals.done.connect(lambda paths, cloud_paths, _local:
                                 results.append((paths, cloud_paths)))
     worker.run()
 

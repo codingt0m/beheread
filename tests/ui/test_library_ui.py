@@ -1,6 +1,7 @@
 """Tests d'interface de la bibliotheque (pytest-qt)."""
 
 import time
+from pathlib import Path
 
 from PySide6.QtCore import QEvent, QMimeData, QPointF, Qt, QUrl
 from PySide6.QtGui import QDropEvent, QKeyEvent
@@ -61,26 +62,26 @@ def test_status_filters_sort_and_continue_shelf(window, qtbot, mangas, store):
     now = time.time()
     store.set_progress(paths["Alpha - Tome 1"], 3, 4, True)
     _set_ts(store, paths["Alpha - Tome 1"], now - 100)
-    store.set_progress(paths["Solo"], 2, 4, False)
+    store.set_progress(paths["Solo"], 3, 5, False)
     _set_ts(store, paths["Solo"], now - 50)
     lib._rebuild_list()
 
     shelf = [lib.shelf.list.item(i).text() for i in range(lib.shelf.list.count())]
-    assert shelf == ["Solo", "Alpha - Tome 2"]          # en cours, puis tome suivant
+    assert shelf == ["Solo", "Alpha · Tome 2"]          # en cours, puis tome suivant
 
     lib._set_status_filter("reading")
     assert visible_titles(lib) == ["Solo"] and lib.count_label.text() == "1 tome"
     assert not lib.shelf.isVisible()
     lib._set_status_filter("finished")
-    assert visible_titles(lib) == ["Alpha - Tome 1"]
+    assert visible_titles(lib) == ["Alpha · Tome 1"]
     lib._set_status_filter("all")
 
     lib.sort_combo.setCurrentIndex([k for k, _ in SORTS].index("read"))
-    assert visible_titles(lib)[:2] == ["Solo", "Alpha - Tome 1"]
+    assert visible_titles(lib)[:2] == ["Solo", "Alpha · Tome 1"]
 
     store.dismiss_continue(paths["Solo"])
     lib._rebuild_list()
-    assert [lib.shelf.list.item(i).text() for i in range(lib.shelf.list.count())] == ["Alpha - Tome 2"]
+    assert [lib.shelf.list.item(i).text() for i in range(lib.shelf.list.count())] == ["Alpha · Tome 2"]
 
 
 def test_series_detail_and_manual_series_management(window, qtbot, mangas, store, monkeypatch):
@@ -129,6 +130,29 @@ def test_failed_delete_keeps_progress(window, qtbot, mangas, store, monkeypatch)
     monkeypatch.setattr(send2trash, "send2trash", refuse)
     lib._delete_many([path])
     assert store.get_progress(path) == (2, 4, False) and len(lib._entries) == 1
+
+
+def test_deleting_one_copy_keeps_progress_of_identical_copy(window, qtbot, mangas, store,
+                                                            monkeypatch):
+    """Deux copies identiques : la bibliotheque n'en affiche qu'une. Supprimer
+    celle-ci apres un vrai scan ne doit pas effacer la progression, partagee
+    par contenu avec l'autre copie toujours sur le disque."""
+    import shutil
+    first = make_cbz(mangas, "Alpha - Tome 1", seed=1)
+    copy = str(mangas / "Alpha - Tome 1 copie.cbz")
+    shutil.copy(first, copy)
+    store.set_folders([str(mangas)])
+    lib = window.library
+    lib.refresh()
+    scanned(qtbot, lib, 1)
+    shown = lib._entries[0].path
+    other = copy if shown == first else first
+    store.set_progress(shown, 2, 4, False)
+    monkeypatch.setattr(QMessageBox, "question", staticmethod(lambda *a, **k: QMessageBox.Yes))
+    import send2trash
+    monkeypatch.setattr(send2trash, "send2trash", lambda p: Path(p).unlink())
+    lib._delete_many([shown])
+    assert store.get_progress(other) == (2, 4, False)
 
 
 def test_help_overlay_opens_and_closes(window, qtbot):
@@ -204,7 +228,7 @@ def test_continue_shelf_scrolls_with_the_grid(window, qtbot, mangas, store):
     lib = window.library
     lib.refresh()
     scanned(qtbot, lib, 12)
-    store.set_progress(paths[0], 1, 3, False)
+    store.set_progress(paths[0], 3, 6, False)
     lib._rebuild_list()
     qtbot.wait(20)
     host, sb = lib.list_host, lib.list.verticalScrollBar()
@@ -247,3 +271,35 @@ def test_folder_manager_keeps_remove_button_visible_with_long_paths(qtbot):
         assert b.isVisible() and right < viewport.width(), (right, viewport.width())
     buttons[0].click()
     assert dlg.result_folders() == ["C:\\Mangas"]
+
+
+def test_oneshots_are_described_for_anilist(window, qtbot, mangas, store):
+    """Un fichier sans numero, seul de sa serie, est un one-shot pour le suivi
+    AniList ; une serie numerotee garde ses numeros de tome."""
+    from beheread.core.anilist_track import ONESHOT
+    oneshot = make_cbz(mangas, "Errance", seed=1)
+    numbered = make_cbz(mangas, "Alpha - Tome 2", seed=2)
+    store.set_folders([str(mangas)])
+    lib = window.library
+    lib.refresh()
+    scanned(qtbot, lib, 2)
+    store.set_progress(oneshot, 3, 4, True)
+    assert lib.series_volumes_for(oneshot) == ("errance", "Errance", [(None, ONESHOT, True)])
+    assert lib.series_volumes_for(numbered)[2] == [(2, "volume", False)]
+
+
+
+def test_folders_name_series_of_generic_file_names(window, qtbot, mangas, store):
+    """« Berserk/Tome 01.cbz » et « Vagabond/Tome 01.cbz » : deux series
+    distinctes nommees d'apres leur dossier. Autrefois fusionnees en une serie
+    « Tome », la deduplication masquait les tomes de l'une d'elles."""
+    for serie, seed in (("Berserk", 1), ("Vagabond", 2)):
+        (mangas / serie).mkdir()
+        for n in (1, 2):
+            make_cbz(mangas / serie, f"Tome 0{n}", seed=seed * 10 + n)
+    store.set_folders([str(mangas)])
+    lib = window.library
+    lib.refresh()
+    scanned(qtbot, lib, 4)
+    assert sorted(visible_titles(lib)) == ["Berserk · Tome 1", "Berserk · Tome 2",
+                                           "Vagabond · Tome 1", "Vagabond · Tome 2"]

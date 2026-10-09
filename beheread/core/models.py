@@ -22,7 +22,7 @@ class LibraryEntry:
     title: str                      # nom du fichier sans extension
     series: str                     # nom de serie (deduit ou force a la main)
     volume: Optional[Number] = None  # numero de tome/chapitre, None si absent
-    kind: Optional[str] = None      # "volume", "chapter", "bare" (voir series.py)
+    kind: Optional[str] = None      # "volume", "chapter", "cycle", "bare" (voir series.py)
     added: float = 0.0              # date d'ajout a la bibliotheque (epoch)
     detached: bool = False          # sorti a la main de tout regroupement
     manual: bool = False            # place a la main dans une serie

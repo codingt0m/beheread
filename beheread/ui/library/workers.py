@@ -82,11 +82,13 @@ class _MetaSignals(QObject):
 
 
 class MetaWorker(QRunnable):
-    """Cascade ComicInfo.xml -> Google Books -> AniList pour un fichier,
+    """Cascade ComicInfo.xml -> Google Books -> AniList -> MangaDex -> BnF pour un fichier,
     hors du thread UI (voir metadata.py pour le detail de la strategie)."""
 
-    def __init__(self, path: str, series_name: str, volume, cached_series, online=True):
+    def __init__(self, path: str, series_name: str, volume, cached_series, online=True,
+                 author_hint=None):
         super().__init__()
+        self.author_hint = author_hint
         self.online = online   # False : ComicInfo.xml seul (pas de consentement)
         self.path = path
         self.series_name = series_name
@@ -97,7 +99,7 @@ class MetaWorker(QRunnable):
     def run(self):
         data, ok, series_data = metadata.fetch(
             self.path, self.series_name, self.volume, self.cached_series,
-            online=self.online)
+            online=self.online, author_hint=self.author_hint)
         self.signals.done.emit(self.path, data, series_data, ok)
 
 
@@ -110,14 +112,15 @@ class SeriesMetaWorker(QRunnable):
     tomes), pour faire apparaitre l'auteur rapidement au premier scan sans
     attendre les recherches Google Books par tome (throttlees)."""
 
-    def __init__(self, series_key: str, series_name: str):
+    def __init__(self, series_key: str, series_name: str, author_hint=None):
         super().__init__()
+        self.author_hint = author_hint
         self.series_key = series_key
         self.series_name = series_name
         self.signals = _SeriesMetaSignals()
 
     def run(self):
-        series_data, ok = metadata.fetch_series(self.series_name)
+        series_data, ok = metadata.fetch_series(self.series_name, self.author_hint)
         self.signals.done.emit(self.series_key, series_data, ok)
 
 
@@ -145,8 +148,9 @@ def dedupe_by_content(store: Store, paths):
 
 
 class _ScanSignals(QObject):
-    # chemins locaux (dedupliques par contenu), chemins cloud non telecharges
-    done = Signal(list, list)
+    # chemins locaux (dedupliques par contenu), chemins cloud non telecharges,
+    # tous les chemins locaux (copies identiques comprises, pour la purge des caches)
+    done = Signal(list, list, list)
 
 
 class ScanWorker(QRunnable):
@@ -190,7 +194,7 @@ class ScanWorker(QRunnable):
                     cloud.append(p)
                 else:
                     paths.append(p)
-        self.signals.done.emit(dedupe_by_content(self.store, paths), cloud)
+        self.signals.done.emit(dedupe_by_content(self.store, paths), cloud, paths)
 
 
 class _HydrateSignals(QObject):

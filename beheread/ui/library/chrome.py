@@ -472,7 +472,7 @@ class ChromeMixin:
         hl.setContentsMargins(20, 8, 20, 8)
         hl.setSpacing(10)
         text = QLabel("Beheread peut compléter l'auteur et l'année de vos mangas en "
-                      "interrogeant Google Books, AniList et MangaDex à partir du nom "
+                      "interrogeant Google Books, AniList, MangaDex et la BnF à partir du nom "
                       "des fichiers. Rien d'autre n'est envoyé.")
         text.setObjectName("consentText")
         text.setWordWrap(True)

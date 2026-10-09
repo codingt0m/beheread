@@ -211,7 +211,7 @@ def test_stats_open_from_the_library(window, qtbot, mangas, store, monkeypatch):
     lib = window.library
     lib.refresh()
     scanned(qtbot, lib, 2)
-    store.set_progress(path, 2, 6, False)
+    store.set_progress(path, 3, 6, False)
     store.set_page_count(str(mangas / "Alpha - Tome 2.cbz"), 4)
     store.record_reading(path, 2, 60, True, "ancien titre", "alpha (ancien nom)")
     lib._rebuild_list()
@@ -223,8 +223,8 @@ def test_stats_open_from_the_library(window, qtbot, mangas, store, monkeypatch):
     assert dlg.windowState() & Qt.WindowFullScreen
     assert {k: dlg.library[k] for k in ("unread", "reading", "finished")} == {
         "unread": 1, "reading": 1, "finished": 0}
-    assert dlg.library["remaining_pages"] == 4 + 4 and dlg.library["unknown_pages"] == 0
+    assert dlg.library["remaining_pages"] == 3 + 4 and dlg.library["unknown_pages"] == 0
     # serie et tome nommes comme dans la bibliotheque, pas comme au moment de la lecture
     dlg.set_period("all")
     assert [r[0] for r in dlg.series_list.rows] == ["Alpha"]
-    assert _titles(dlg) == ["Alpha - Tome 1"]
+    assert _titles(dlg) == ["Alpha · Tome 1"]

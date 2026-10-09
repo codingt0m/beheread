@@ -4,7 +4,6 @@ Mixin de ReaderWidget : ces methodes partagent l'etat du lecteur
 (self.page, self.cache, self.store...) ; elles sont regroupees ici par
 responsabilite."""
 
-from pathlib import Path
 
 from PySide6.QtCore import (
     QRect,
@@ -13,7 +12,7 @@ from PySide6.QtCore import (
 )
 from PySide6.QtGui import QColor, QPixmap
 
-from beheread.core.series import normalize_name, parse_series
+from beheread.core.series import normalize_name, parse_path
 from beheread.infra.storage import Store
 from beheread.ui.reader.constants import (
     AMBIENT_MS,
@@ -199,7 +198,8 @@ class DisplayMixin:
     # --- bascules (partagees par le clavier et les chips du HUD) -----------
     # Chaque choix est enregistre comme preference du lecteur : il vaut pour
     # tous les mangas, pas seulement pour celui qui est ouvert. Seul le sens
-    # de lecture reste propre a chaque serie (voir _initial_manga_mode).
+    # de lecture reste propre a chaque serie (voir _initial_manga_mode) : il
+    # ne touche pas au sens par defaut des preferences.
     def toggle_double_page(self):
         self.double_page = not self.double_page
         self.store.set_reader_pref("double_page", self.double_page)
@@ -207,7 +207,6 @@ class DisplayMixin:
 
     def toggle_manga_mode(self):
         self.manga_mode = not self.manga_mode
-        self.store.set_reader_pref("manga_mode", self.manga_mode)
         self.store.set_reading_direction(self.path, self._series_key, self.manga_mode)
         self._update_hud()
         self.update()
@@ -222,34 +221,41 @@ class DisplayMixin:
             return None
         if override:
             return normalize_name(override)
-        sname, svolume = parse_series(Path(self.path).stem)
+        sname, svolume, _kind = parse_path(self.path)
         if svolume is None:
             return None
         return normalize_name(sname)
 
     def _detect_manga_mode(self):
         """Sens de lecture detecte automatiquement, sans requete reseau (le
-        lecteur reste hors ligne) - trois paliers, par ordre de priorite :
+        lecteur reste hors ligne) - quatre paliers, par ordre de priorite :
 
-        1. "manga" : genre AniList deja mis en cache (par la bibliotheque, au
+        1. "bnf" : serie inconnue des bases manga mais trouvee au catalogue
+           de la BnF, dont les notices disent s'il s'agit d'albums de BD
+           (gauche -> droite) ou de mangas traduits (droite -> gauche).
+        2. "manga" : genre AniList deja mis en cache (par la bibliotheque, au
            survol/scan) pour ce tome ou sa serie, avec pays d'origine connu -
            trouve dans la base manga d'AniList et pays hors Coree/Chine ->
            droite -> gauche (couvre un manga francais comme Radiant, malgre
            son pays d'origine) ; manhwa/manhua (Coree/Chine), presque
            toujours numeriques et lus gauche -> droite, font exception.
-        2. "japon" : trouve dans la meme base mais sans pays d'origine
+        3. "japon" : trouve dans la meme base mais sans pays d'origine
            renseigne - on suppose Japon par defaut (cas tres largement
            majoritaire) -> droite -> gauche.
-        3. "xml" : rien en cache AniList pour ce tome/cette serie (jamais
+        4. "xml" : rien en cache AniList pour ce tome/cette serie (jamais
            interroge) -> repli sur ComicInfo.xml (champ Manga), local a
            l'archive.
 
-        Rien de neuf n'est interroge ici pour AniList - seul le cache local
-        (meta_cache.json) est lu. None si aucune de ces sources ne donne
-        d'indice exploitable."""
+        Rien de neuf n'est interroge ici - seul le cache local des
+        metadonnees est lu. None si aucune de ces sources ne donne d'indice
+        exploitable (sens par defaut des preferences)."""
         for cached in (self.store.volume_meta(self.path),
                       self.store.series_meta(self._series_key) if self._series_key else None):
             if not cached or cached.get("not_found"):
+                continue
+            if cached.get("source") == "bnf" or "format" in cached:
+                if cached.get("format") in ("bd", "manga"):
+                    return cached["format"] == "manga"   # palier "bnf"
                 continue
             if "country" not in cached:
                 continue   # cache ComicInfo/Google Books : pas une entree AniList
@@ -271,8 +277,9 @@ class DisplayMixin:
 
     def _initial_manga_mode(self):
         """Priorite : choix explicite de l'utilisateur (par serie si ce tome
-        en fait partie, sinon par tome) > detection automatique (ComicInfo.xml)
-        > reglage global par defaut."""
+        en fait partie, sinon par tome) > detection automatique (metadonnees
+        en cache, ComicInfo.xml) > sens par defaut des preferences (que la
+        touche M ne modifie pas)."""
         saved = self.store.reading_direction(self.path, self._series_key)
         if saved is not None:
             return saved

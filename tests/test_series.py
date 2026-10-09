@@ -206,3 +206,94 @@ def test_find_next_volume_ignores_other_series(tmp_path):
     (tmp_path / "Naruto Tome 1.cbz").write_bytes(b"PK\x03\x04dummy")
     (tmp_path / "Bleach Tome 2.cbz").write_bytes(b"PK\x03\x04dummy")
     assert find_next_volume(str(tmp_path / "Naruto Tome 1.cbz")) is None
+
+
+@pytest.mark.parametrize("stem,expected", [
+    ("Seuls Cycle 1", ("Seuls", 1, "cycle")),
+    ("Seuls - Intégrale du Cycle 2", ("Seuls", 2, "cycle")),
+    ("Seuls - Intégrale Cycle 3", ("Seuls", 3, "cycle")),
+    ("Seuls Tome 1", ("Seuls", 1, "volume")),
+])
+def test_bd_cycles_belong_to_their_series(stem, expected):
+    """Une integrale de BD par cycle se range dans sa serie, sans etre
+    confondue avec le tome de meme numero (contenus differents)."""
+    from beheread.core.series import parse_series_ex
+    assert parse_series_ex(stem) == expected
+
+
+
+@pytest.mark.parametrize("stem,expected", [
+    # nommage « scene » : points a la place des espaces, auteur, langue et
+    # groupe de release apres le numero
+    ("Chainsaw.Man.T20.Fujimoto.FR.[CBZ]-NoTag", ("Chainsaw Man", 20)),
+    ("Chainsaw.Man.T21.Tatsuki.Fujimoto.FR.[CBZ]-Dogbanov", ("Chainsaw Man", 21)),
+    ("Berserk.ch385.5", ("Berserk", 385.5)),
+    ("Dr. Stone T03", ("Dr. Stone", 3)),
+    # BD : « Serie - Tome N - Titre de l'album »
+    ("Seuls - Tome 4 - Les cairns rouges", ("Seuls", 4)),
+    ("Blacksad T3 Ame rouge", ("Blacksad", 3)),
+    ("One Piece Tome 12 - Le titre du tome", ("One Piece", 12)),
+    # rien avant le marqueur : la serie est ce qui le suit
+    ("Tome 3 - Berserk", ("Berserk", 3)),
+])
+def test_text_after_the_volume_number_is_not_the_series(stem, expected):
+    assert parse_series(stem) == expected
+
+
+
+@pytest.mark.parametrize("stem,expected", [
+    # BD : « Serie - NN - Titre de l'album »
+    ("Astérix - 38 - La Fille de Vercingétorix", ("Astérix", 38, "volume")),
+    ("Tintin 05 - Le Lotus bleu", ("Tintin", 5, "volume")),
+    ("Lucky Luke 71 - Un cow-boy à Paris", ("Lucky Luke", 71, "volume")),
+    # le premier numero l'emporte : « T1 » appartient au titre de l'album
+    ("Blake et Mortimer - 01 - Le Secret de l'Espadon T1", ("Blake et Mortimer", 1, "volume")),
+    # marqueur explicite juste apres le tiret : le nombre fait partie du nom
+    ("Area 51 - Tome 2", ("Area 51", 2, "volume")),
+    # sous-serie numerotee : le numero fait partie du nom, pas un album
+    ("Jojo's Bizarre Adventure - Part 07 - Steel Ball Run T03 (Araki)",
+     ("Jojo's Bizarre Adventure - Part 07 - Steel Ball Run", 3, "volume")),
+    ("Largo Winch - Tome 20 - 20 secondes", ("Largo Winch", 20, "volume")),
+    # plage de tomes : distincte du tome seul
+    ("Kingdom 01-05", ("Kingdom", 1, "range")),
+    ("Ranma 1-2 T01", ("Ranma 1-2", 1, "volume")),
+    ("My Hero Academia 07-FR", ("My Hero Academia", 7, "bare")),
+])
+def test_bd_album_titles_and_ranges(stem, expected):
+    from beheread.core.series import parse_series_ex
+    assert parse_series_ex(stem) == expected
+
+
+@pytest.mark.parametrize("stem,folder,expected", [
+    ("Tome 01", "Berserk", ("Berserk", 1, "volume")),
+    ("Volume 1", "Vagabond (Inoue) [Manga FR]", ("Vagabond", 1, "volume")),
+    ("01", "Akira", ("Akira", 1, "bare")),
+    ("T03", "Dorohedoro", ("Dorohedoro", 3, "volume")),
+    ("Chapitre 5", "One Piece", ("One Piece", 5, "chapter")),
+    # un vrai nom de fichier garde la priorite sur le dossier
+    ("Berserk T41", "Mangas", ("Berserk", 41, "volume")),
+    ("Errance", "Mangas", ("Errance", None, None)),
+])
+def test_series_name_comes_from_the_folder_when_the_file_has_none(stem, folder, expected):
+    from beheread.core.series import parse_series_ex
+    assert parse_series_ex(stem, folder) == expected
+
+
+def test_display_helpers():
+    from beheread.core.series import clean_title, is_generic_name, volume_label
+    assert volume_label(3, "volume") == "Tome 3"
+    assert volume_label(385.5, "chapter") == "Chapitre 385.5"
+    assert volume_label(2.0, "cycle") == "Cycle 2"
+    assert clean_title("Errance [Digital-1920] (Team)") == "Errance"
+    assert clean_title("In.the.Name.of.God") == "In the Name of God"
+    assert is_generic_name("Tome") and is_generic_name("01") and not is_generic_name("Akira")
+
+
+def test_author_hints_from_file_names():
+    from beheread.core.series import author_hint, matches_author
+    stem = "Monster - Intégrale Deluxe T01 (Urasawa) (2010) [Digital-2000] (TONER-PapriKa+)"
+    assert author_hint(stem) == ["Urasawa", "TONER-PapriKa+"]
+    assert matches_author(author_hint(stem), ["Naoki Urasawa"])
+    assert matches_author(["Oshimi Shuzo"], ["Shuuzou Oshimi"])
+    assert not matches_author(["Glénat"], ["Sui Ishida"])
+    assert not matches_author([], ["Naoki Urasawa"])

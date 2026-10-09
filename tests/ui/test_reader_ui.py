@@ -176,12 +176,23 @@ def test_reading_direction_stays_per_series(window, qtbot, mangas, store):
     first.toggle_manga_mode()
     # le choix vaut pour les tomes de la serie, pas pour une autre serie
     assert _open(window, qtbot, make_cbz(mangas, "Alpha - Tome 2", seed=2)).manga_mode is False
-    store.set_reader_pref("manga_mode", True)     # reglage par defaut des preferences
+    # M ne change pas le sens par defaut : une autre serie le garde
+    assert store.reader_pref("manga_mode", True) is True
     assert _open(window, qtbot, make_cbz(mangas, "Beta - Tome 1", seed=3)).manga_mode is True
+    store.set_reader_pref("manga_mode", False)    # sens par defaut des preferences
+    assert _open(window, qtbot, make_cbz(mangas, "Delta - Tome 1", seed=5)).manga_mode is False
+    store.set_reader_pref("manga_mode", True)
     # sans choix explicite : detection automatique (pays d'origine en cache)
     manhwa = make_cbz(mangas, "Gamma - Tome 1", seed=4)
     store.set_series_meta("gamma", {"country": "KR"})
     assert _open(window, qtbot, manhwa).manga_mode is False
+    # BD trouvee a la BnF : lue de gauche a droite, manga traduit : de droite a gauche
+    bd = make_cbz(mangas, "Lou ! Sonata Volume 1", seed=6)
+    store.set_series_meta("lou sonata", {"source": "bnf", "format": "bd"})
+    assert _open(window, qtbot, bd).manga_mode is False
+    translated = make_cbz(mangas, "Epsilon - Tome 1", seed=7)
+    store.set_series_meta("epsilon", {"source": "bnf", "format": "manga"})
+    assert _open(window, qtbot, translated).manga_mode is True
 
 
 def test_settings_bar_is_compact(window, qtbot, mangas, store):
@@ -235,3 +246,56 @@ def test_instance_message_opens_file_in_existing_window(window, qtbot, mangas):
     second = make_cbz(mangas, "Alpha - Tome 2", seed=2)
     window.handle_instance_message({"open": second})
     assert window.reader is not first and window.reader.path == second
+
+
+def test_page_cache_stays_bounded_when_going_back_and_forth(qapp, monkeypatch):
+    """Aller-retour dans un tome : les pages voisines de la page courante ne
+    sont pas evincees sur le moment, mais doivent le rester plus tard (elles
+    restaient autrefois en memoire pour toute la seance)."""
+    from PySide6.QtGui import QImage
+
+    from beheread.ui.reader import page_cache
+    from beheread.ui.reader.components import _PageSignals
+
+    class Loader:
+        def __init__(self, _archive, index):
+            self.index, self.signals = index, _PageSignals()
+
+    class Pool:
+        def start(self, loader):
+            loader.signals.loaded.emit(loader.index, QImage(1, 1, QImage.Format_RGB32))
+
+    monkeypatch.setattr(page_cache, "PageLoader", Loader)
+    cache = page_cache.PageCache(None, 200)
+    cache.pool = Pool()
+    page = 50
+    for step in [1, 1, 2, -1, -2, -1, 1] * 300:
+        page = max(0, min(199, page + step))
+        cache.ensure_around(page)
+    assert len(cache.images) <= page_cache.CACHE_LIMIT
+    assert set(cache.images) == set(cache._order)
+
+
+
+def test_closing_on_the_first_pages_forgets_the_progress(window, qtbot, mangas, store):
+    """Refermer un tome sur sa page 1, 2 ou 3 : il n'est pas commence, sa
+    progression est effacee. Plus loin, elle est gardee ; un tome deja
+    termine le reste."""
+    path = make_cbz(mangas, "Alpha - Tome 1", pages=8, seed=1)
+    store.set_reader_pref("double_page", False)
+    reader = _open(window, qtbot, path)
+    reader._go_to(2)
+    reader.close_reader()
+    assert store.get_progress(path) is None
+
+    reader = _open(window, qtbot, path)
+    reader._go_to(3)
+    reader.close_reader()
+    assert store.get_progress(path)[0] == 3
+
+    store.set_progress(path, 7, 8, True)
+    window.open_manga(path)            # rouvert sur sa derniere page
+    reader = window.reader
+    reader._go_to(1)
+    reader.close_reader()
+    assert store.get_progress(path) == (1, 8, True)

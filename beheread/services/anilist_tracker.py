@@ -32,6 +32,14 @@ class _Signals(QObject):
     done = Signal(object)
 
 
+def _min_score(desired):
+    """Ressemblance de titre exigee pour associer automatiquement : plus
+    stricte pour un one-shot, qui serait publie « termine »."""
+    if desired and desired.get("oneshot"):
+        return anilist_track.ONESHOT_MIN_SCORE
+    return anilist_track.AUTO_MATCH_MIN_SCORE
+
+
 class _TrackWorker(QRunnable):
     """Traite une liste de travaux {series_key, name, desired, media_id}."""
 
@@ -49,7 +57,7 @@ class _TrackWorker(QRunnable):
                 media_id = job.get("media_id")
                 if media_id is None:
                     found = anilist.search_series(job["name"])
-                    media_id = anilist_track.auto_match(found)
+                    media_id = anilist_track.auto_match(found, _min_score(job["desired"]))
                     if media_id is None:
                         res["status"] = "unmatched"
                         results.append(res)
@@ -62,6 +70,11 @@ class _TrackWorker(QRunnable):
                     continue
                 res["title"] = media.get("title")
                 res["url"] = media.get("url")
+                if anilist_track.oneshot_mismatch(job["desired"], media):
+                    res["status"] = "skipped"
+                    res["summary"] = "œuvre en plusieurs tomes : rien publié"
+                    results.append(res)
+                    continue
                 changes = anilist_track.plan_update(job["desired"], media)
                 if changes and not anilist_track.is_additive(changes, media.get("entry")):
                     logging.error("Mise a jour AniList non additive ignoree : %s", changes)
@@ -202,7 +215,8 @@ class AniListTracker(QObject):
             if media_id is None and mapping.get("unmatched"):
                 continue   # en attente d'une association manuelle
             if media_id is None:
-                media_id = anilist_track.auto_match(self.store.series_meta(key))
+                media_id = anilist_track.auto_match(self.store.series_meta(key),
+                                                    _min_score(job.get("desired")))
             jobs.append({"series_key": key, "name": job.get("name", key),
                          "desired": job.get("desired"), "media_id": media_id})
         if not jobs:
@@ -218,13 +232,20 @@ class AniListTracker(QObject):
         amap = self.store.anilist_series("map")
         last = self.store.anilist_series("last")
         updated, errors = [], 0
+        requeued = False
         for res in results:
             key = res["series_key"]
             if res.get("mapped"):
                 amap[key] = res["mapped"]
             status = res["status"]
-            if status in ("updated", "uptodate"):
-                pending.pop(key, None)
+            if status in ("updated", "uptodate", "skipped"):
+                # un tome termine pendant l'envoi a pu remplacer l'attente de
+                # cette serie : elle n'est retiree que si c'est bien ce qui
+                # vient d'etre publie, sinon elle repart au prochain envoi
+                if (pending.get(key) or {}).get("desired") == res.get("desired"):
+                    pending.pop(key, None)
+                elif key in pending:
+                    requeued = True
                 last[key] = {"ts": time.time(), "title": res.get("title"),
                              "url": res.get("url"), "pushed": res.get("desired"),
                              "summary": res.get("summary") or last.get(key, {}).get("summary")}
@@ -242,6 +263,8 @@ class AniListTracker(QObject):
                 errors += 1
             self.seriesUpdated.emit(key)
         self.store.touch_anilist()
+        if requeued:
+            self._debounce.start()
         if updated:
             self._set_status("AniList mis à jour : " + " ; ".join(updated))
         elif errors:

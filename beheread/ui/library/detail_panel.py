@@ -64,7 +64,7 @@ class DetailPanelMixin:
         return time.strftime("%d/%m/%Y", time.localtime(ts)) if ts else ""
 
     _SOURCE_LABELS = {"comicinfo": "ComicInfo.xml", "googlebooks": "Google Books",
-                      "anilist": "AniList", "mangadex": "MangaDex",
+                      "anilist": "AniList", "mangadex": "MangaDex", "bnf": "BnF",
                       "manual": "Saisie manuelle", "series": "Série"}
 
     def _show_volume_detail(self, path):
@@ -78,11 +78,12 @@ class DetailPanelMixin:
         prog = self.store.get_progress(path)
         status = info.status
 
+        # le titre affiche porte deja serie et numero (« Berserk · Tome 1 ») ;
+        # seul un tome sans numero range dans une serie la rappelle
         subtitle = ""
-        if not e.detached and normalize_name(e.series) != normalize_name(e.title):
+        if (not e.detached and e.volume is None
+                and normalize_name(e.series) != normalize_name(e.title)):
             subtitle = self._series_display_name.get(info.series_key, e.series)
-            if e.volume is not None:
-                subtitle += f"  ·  Tome {e.volume}"
         progress = STATUS_LABELS[status]
         if prog and prog[1] and status == READING:
             progress += f" — page {prog[0] + 1} / {prog[1]}"
@@ -120,7 +121,7 @@ class DetailPanelMixin:
         ]
         if info.series_key and not e.detached:
             self._add_anilist_detail(info.series_key, path, rows, actions)
-        self.detail.show_content(self._cover_for_detail(path), e.title, subtitle,
+        self.detail.show_content(self._cover_for_detail(path), info.title, subtitle,
                                  rows, actions)
 
     def _show_series_detail(self, key):
@@ -149,7 +150,7 @@ class DetailPanelMixin:
             unit = "le chapitre" if featured.kind == "chapter" else "le tome"
             label = f"{label} {unit} {featured.volume}"
         else:
-            label = f"{label} : {featured.title}"
+            label = f"{label} : {self._display_title(featured)}"
         actions = [(label, lambda: self.mangaActivated.emit(fpath), True),
                    ("Ouvrir la série", lambda: self._enter_series(key), False)]
         if agg.status != FINISHED:

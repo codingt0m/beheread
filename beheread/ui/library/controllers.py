@@ -9,11 +9,12 @@ un etat propre, extraites de LibraryWidget et reliees a lui par signaux.
 
 import logging
 import os
+from pathlib import Path
 
 from PySide6.QtCore import QFileSystemWatcher, QObject, QThreadPool, QTimer, Signal
 from PySide6.QtGui import QPixmap
 
-from beheread.core.series import normalize_name
+from beheread.core.series import author_hint, normalize_name
 from beheread.infra import metadata
 from beheread.ui.library.constants import (
     ROLE_IS_SERIES,
@@ -38,7 +39,8 @@ class ScanController(QObject):
     (iCloud Drive / OneDrive) et surveillance des dossiers sources."""
 
     scanStarted = Signal()
-    scanned = Signal(list, list)    # chemins locaux (dedupliques), chemins cloud
+    # chemins locaux (dedupliques), chemins cloud, tous les chemins locaux
+    scanned = Signal(list, list, list)
 
     def __init__(self, store, parent=None):
         super().__init__(parent)
@@ -84,10 +86,10 @@ class ScanController(QObject):
     def refresh_soon(self):
         self._soon.start()
 
-    def _on_done(self, paths, cloud_paths):
+    def _on_done(self, paths, cloud_paths, local_paths):
         self.scanning = False
         self._worker = None
-        self.scanned.emit(paths, cloud_paths)
+        self.scanned.emit(paths, cloud_paths, local_paths)
         self.update_watches()
         self._queue_hydration(cloud_paths)
         if self._again:
@@ -144,7 +146,7 @@ class ScanController(QObject):
 
 class MetadataController(QObject):
     """Metadonnees auteur/date : cascade ComicInfo.xml -> Google Books ->
-    AniList -> MangaDex par tome, et recherche au niveau serie pour que
+    AniList -> MangaDex -> BnF par tome, et recherche au niveau serie pour que
     l'auteur apparaisse vite pour tous les tomes. Un pool par hote distant,
     limite a 1 thread, pour rester poli avec les API."""
 
@@ -177,27 +179,28 @@ class MetadataController(QObject):
 
     def cached_or_fetch(self, entry):
         """Metadonnees en cache de ce tome (ou None si pas encore connues) ;
-        declenche une recherche en arriere-plan si necessaire. Un cache
-        « introuvable » ecrit par une cascade plus ancienne est traite comme
-        absent (retente une fois la nouvelle source disponible)."""
+        declenche une recherche en arriere-plan si necessaire. Un cache ecrit
+        par une cascade plus ancienne (voir metadata.is_stale) est retente ;
+        un resultat perime reste affiche en attendant le nouveau."""
         path = entry.path
         cached = self.store.volume_meta(path)
-        if cached is not None and not metadata.is_stale_not_found(cached):
+        if cached is not None and not metadata.is_stale(cached):
             return None if cached.get("not_found") else cached
         series_key = normalize_name(entry.series)
-        self.ensure_series_author(series_key, entry.series)
+        hint = author_hint(Path(path).stem)
+        self.ensure_series_author(series_key, entry.series, hint)
         if path not in self._pending and path not in self._failed:
             self._pending.add(path)
             cached_series = self.store.series_meta(series_key)
-            if cached_series is not None and metadata.is_stale_not_found(cached_series):
+            if cached_series is not None and metadata.is_stale(cached_series):
                 cached_series = None
             worker = MetaWorker(path, entry.series, entry.volume, cached_series,
-                                online=self.online())
+                                online=self.online(), author_hint=hint)
             worker.signals.done.connect(
                 lambda p, d, s, ok, key=series_key: self._on_volume_done(p, d, s, ok, key))
             self._workers[path] = worker
             self.pool.start(worker)
-        return None
+        return None if not cached or cached.get("not_found") else cached
 
     def _on_volume_done(self, path, data, series_data, ok, series_key):
         self._pending.discard(path)
@@ -206,22 +209,22 @@ class MetadataController(QObject):
             self.store.set_series_meta(series_key, series_data)
         if ok:
             self.store.set_volume_meta(path, data if data else metadata.not_found_sentinel())
-        else:
-            self._failed.add(path)
+        if not ok or (data or {}).get("partial"):
+            self._failed.add(path)   # retente a la prochaine session
         self.volumeUpdated.emit(path)
 
-    def ensure_series_author(self, series_key, series_name):
+    def ensure_series_author(self, series_key, series_name, author_hint=None):
         """Recherche au niveau serie (une fois), seulement si la recherche en
         ligne est autorisee et que rien d'a jour n'est en cache."""
         if not self.online():
             return
         cached = self.store.series_meta(series_key)
-        if cached is not None and not metadata.is_stale_not_found(cached):
+        if cached is not None and not metadata.is_stale(cached):
             return
         if series_key in self._series_pending or series_key in self._series_failed:
             return
         self._series_pending.add(series_key)
-        worker = SeriesMetaWorker(series_key, series_name)
+        worker = SeriesMetaWorker(series_key, series_name, author_hint)
         worker.signals.done.connect(self._on_series_done)
         self._series_workers[series_key] = worker
         self.series_pool.start(worker)
@@ -231,8 +234,8 @@ class MetadataController(QObject):
         self._series_workers.pop(series_key, None)
         if ok and series_data is not None:
             self.store.set_series_meta(series_key, series_data)
-        else:
-            self._series_failed.add(series_key)
+        if not ok or series_data is None or series_data.get("partial"):
+            self._series_failed.add(series_key)   # retente a la prochaine session
         self.seriesUpdated.emit(series_key)
 
 

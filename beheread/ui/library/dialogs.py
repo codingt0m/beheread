@@ -468,7 +468,7 @@ class PreferencesDialog(QDialog):
         gv.addWidget(self.online)
         gv.addWidget(self._hint(
             "Le nom de la série (déduit du nom de fichier) et le numéro de tome sont envoyés "
-            "à Google Books, AniList et MangaDex. Sans cette option, seules les informations "
+            "à Google Books, AniList, MangaDex et la BnF. Sans cette option, seules les informations "
             "ComicInfo.xml contenues dans les fichiers sont utilisées. Votre progression de "
             "lecture ne quitte jamais votre ordinateur (sauf suivi AniList, si vous l'activez)."))
         btn = QPushButton("Oublier les métadonnées téléchargées…")
@@ -578,7 +578,7 @@ class PreferencesDialog(QDialog):
         self.direction.addItem("Manga : de droite à gauche", True)
         self.direction.addItem("Occidental : de gauche à droite", False)
         self.direction.setCurrentIndex(0 if s.reader_pref("manga_mode", True) else 1)
-        f.addRow("Sens de lecture", self.direction)
+        f.addRow("Sens par défaut", self.direction)
         self.fit = QComboBox()
         for value, label in FIT_NAMES.items():
             self.fit.addItem(label, value)
@@ -594,8 +594,9 @@ class PreferencesDialog(QDialog):
         self.page_fade.setChecked(bool(s.reader_pref("page_fade", True)))
         f.addRow(self.page_fade)
         f.addRow(self._hint("Ces réglages valent pour tous les mangas. Seul le sens de lecture "
-                            "fait exception : il est détecté automatiquement, et celui choisi "
-                            "pour une série (touche M) reste prioritaire."))
+                            "fait exception : il est détecté automatiquement (manga, BD), et "
+                            "celui choisi pour une série (touche M) reste prioritaire. Le sens "
+                            "par défaut ne sert qu'aux séries que rien ne permet de reconnaître."))
         v.addWidget(g)
         v.addStretch(1)
         return w

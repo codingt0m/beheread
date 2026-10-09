@@ -10,10 +10,17 @@ volontairement prudentes :
   n'est jamais modifiee : c'est un choix de l'utilisateur ;
 * une serie n'est associee automatiquement a une oeuvre AniList que si le
   titre trouve ressemble vraiment au nom cherche (sinon, association
-  manuelle depuis le panneau d'informations).
+  manuelle depuis le panneau d'informations) ;
+* un one-shot (fichier sans numero de tome, hors de toute serie) n'est publie
+  que si l'oeuvre associee existe en UN seul tome sur AniList : « termine »
+  vaut alors sans ambiguite « 1 tome lu, terminee ». Son association
+  automatique exige un titre quasi identique, une erreur publiant
+  « terminee » sur une oeuvre sans rapport.
 """
 
 AUTO_MATCH_MIN_SCORE = 0.6
+ONESHOT_MIN_SCORE = 0.9
+ONESHOT = "oneshot"   # nature d'un tome sans numero, seul de sa serie
 UNTOUCHABLE = {"COMPLETED", "DROPPED", "PAUSED", "REPEATING"}
 
 # seuls champs que Beheread ecrit, et seules transitions de statut permises
@@ -29,15 +36,22 @@ ALLOWED_STATUS = {
 
 def desired_progress(volumes):
     """Progression a publier pour une serie, d'apres ses tomes :
-    `volumes` = [(numero, nature, termine)] (nature : "volume", "bare" ou
-    "chapter", cf. series.parse_series_ex). Renvoie {"volumes": n,
-    "chapters": m} (cles absentes si rien de termine), ou None.
+    `volumes` = [(numero, nature, termine)] (nature : "volume", "bare", "cycle" ou
+    "chapter", cf. series.parse_series_ex, ou ONESHOT). Renvoie {"volumes": n,
+    "chapters": m} (cles absentes si rien de termine), ou None. Un one-shot
+    termine donne {"volumes": 1, "oneshot": True} (voir oneshot_mismatch).
 
     On publie le plus grand numero TERMINE : lire le tome 5 apres le 3 compte
     comme « 5 tomes lus », comme sur AniList."""
+    if any(kind == ONESHOT for _n, kind, _f in volumes):
+        done = any(f for _n, kind, f in volumes if kind == ONESHOT)
+        return {"volumes": 1, "oneshot": True} if done else None
     best_vol, best_ch = 0, 0
     for number, kind, finished in volumes:
-        if not finished or number is None:
+        # un numero de cycle (integrale de BD) ou une plage de tomes
+        # (« Kingdom 01-05 ») ne dit pas combien de tomes ont ete lus : il
+        # n'est pas publie
+        if not finished or number is None or kind in ("cycle", "range"):
             continue
         n = int(number)
         if kind == "chapter":
@@ -61,10 +75,17 @@ def is_new_progress(desired, pushed) -> bool:
     return any(desired.get(k, 0) > pushed.get(k, 0) for k in ("volumes", "chapters"))
 
 
+def oneshot_mismatch(desired, media) -> bool:
+    """Vrai si un one-shot est associe a une oeuvre qui n'est pas en un seul
+    tome sur AniList (ou dont le nombre de tomes est inconnu) : on ne sait
+    alors pas quel tome a ete lu, rien n'est publie."""
+    return bool(desired and desired.get("oneshot")) and (media or {}).get("volumes") != 1
+
+
 def plan_update(desired, media):
     """Changements a envoyer (dict pour save_entry) ou None si rien a faire.
     `media` : resultat de anilist.media_entry (avec `entry` eventuellement None)."""
-    if not desired or not media:
+    if not desired or not media or oneshot_mismatch(desired, media):
         return None
     entry = media.get("entry") or {}
     status = entry.get("status")
@@ -112,12 +133,13 @@ def is_additive(changes, entry) -> bool:
     return True
 
 
-def auto_match(search_result):
+def auto_match(search_result, min_score=AUTO_MATCH_MIN_SCORE):
     """Identifiant AniList a retenir automatiquement pour une serie, ou None
-    si le resultat de recherche n'est pas assez sur."""
+    si le resultat de recherche n'est pas assez sur (ONESHOT_MIN_SCORE pour
+    un one-shot)."""
     if not search_result or not search_result.get("anilist_id"):
         return None
-    if (search_result.get("match_score") or 0) < AUTO_MATCH_MIN_SCORE:
+    if (search_result.get("match_score") or 0) < min_score:
         return None
     return int(search_result["anilist_id"])
 

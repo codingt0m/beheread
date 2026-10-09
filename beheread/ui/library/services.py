@@ -16,8 +16,9 @@ from PySide6.QtWidgets import (
     QMessageBox,
 )
 
+from beheread.core.anilist_track import ONESHOT
 from beheread.core.library_model import FINISHED
-from beheread.core.series import normalize_name, parse_series_ex
+from beheread.core.series import normalize_name, parse_path
 from beheread.infra import anilist, metadata
 from beheread.ui import theme
 
@@ -68,22 +69,30 @@ class ServicesMixin:
 
     def series_volumes_for(self, path):
         """(cle de serie, nom a chercher sur AniList, [(numero, nature,
-        termine)]) pour le suivi AniList, ou None (tome isole, sans numero)."""
+        termine)]) pour le suivi AniList, ou None. Un one-shot (tome sans
+        numero, seul de sa serie) est decrit par un unique (None, ONESHOT,
+        termine) : il n'est publie que si l'oeuvre AniList est en un seul tome
+        (voir anilist_track). Un tome detache, ou place a la main dans une
+        serie sans numero, n'est jamais publie : on ignore quel tome c'est."""
         def finished(p):
             prog = self.store.get_progress(p)
             return bool(prog and prog[2])
 
         e = self._entry_by_path.get(path)
         if e is None:   # fichier ouvert hors bibliotheque (double-clic)
-            name, number, kind = parse_series_ex(Path(path).stem)
+            name, number, kind = parse_path(path)
             if number is None:
-                return None
+                kind = ONESHOT
             return (normalize_name(name), metadata._fold_accents(name),
                     [(number, kind, finished(path))])
-        if e.detached or e.volume is None:
+        if e.detached:
             return None
         key = normalize_name(e.series)
         grp = self._group_entries(self._entries).get(key) or [e]
+        if e.volume is None:
+            if e.manual or len(grp) != 1:
+                return None
+            return key, metadata._fold_accents(e.series), [(None, ONESHOT, finished(path))]
         name = self._series_raw_name.get(key, e.series)
         return key, metadata._fold_accents(name), [(x.volume, x.kind, finished(x.path))
                                                    for x in grp]
@@ -138,12 +147,12 @@ class ServicesMixin:
         for e in self._entries:
             info = self._info.get(e.path) or self._entry_info(e)
             library[info.status] = library.get(info.status, 0) + 1
-            titles[info.key] = e.title
+            titles[info.key] = info.title
             if info.series_key:
                 series[info.key] = (info.series_key,
                                     self._series_display_name.get(info.series_key, e.series))
             else:
-                series[info.key] = (info.key, e.title)
+                series[info.key] = (info.key, info.title)
             if info.status == FINISHED:
                 continue
             prog = self.store.get_progress(e.path)

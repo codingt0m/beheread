@@ -24,13 +24,14 @@ from beheread.core.library_model import (
     STATUS_FILTERS,
     aggregate_series_info,
     continue_reading,
+    is_started,
     matches_status,
     sort_key,
     volume_status,
 )
 from beheread.core.models import LibraryEntry, VolumeInfo
 from beheread.core.search import SearchIndex, known_titles
-from beheread.core.series import normalize_name, parse_series_ex
+from beheread.core.series import clean_title, normalize_name, parse_path, volume_label
 from beheread.infra.storage import Store, is_cloud_placeholder
 from beheread.ui.help_overlay import LIBRARY_SHORTCUTS, ShortcutOverlay
 
@@ -246,7 +247,7 @@ class LibraryWidget(ChromeMixin, DetailPanelMixin, ActionsMixin, MenusMixin,
             prog = self.store.get_progress(e.path)
             if prog and prog[2]:
                 return 2   # termine
-            if prog and prog[0] > 0:
+            if prog and is_started(prog[0]):
                 return 1   # entame
             return 0
 
@@ -272,8 +273,8 @@ class LibraryWidget(ChromeMixin, DetailPanelMixin, ActionsMixin, MenusMixin,
         if not self._entries:
             self._update_empty_state(False, self._search_hits is not None)
 
-    def _on_scanned(self, paths, cloud_paths):
-        self._apply_scan_results(paths, cloud_paths)
+    def _on_scanned(self, paths, cloud_paths, local_paths):
+        self._apply_scan_results(paths, cloud_paths, local_paths)
         if not self._entries:
             self._update_empty_state(False, self._search_hits is not None)
 
@@ -298,18 +299,20 @@ class LibraryWidget(ChromeMixin, DetailPanelMixin, ActionsMixin, MenusMixin,
         self.shelf.list.viewport().update()
         self._refresh_detail_for(path)
 
-    def _apply_scan_results(self, paths, cloud_paths=()):
+    def _apply_scan_results(self, paths, cloud_paths=(), local_paths=None):
         """Finalise un scan (cote UI) : construit les entrees a partir des
         chemins dedupliques, persiste l'index, met a jour la surveillance et
         reconstruit la liste. Les empreintes ayant deja ete calculees par le
         worker, key_for/series_override ne touchent ici que le cache.
         `cloud_paths` : tomes presents mais non telecharges (espaces reserves
-        cloud), exclus de l'affichage mais proteges de la purge des caches."""
+        cloud), exclus de l'affichage mais proteges de la purge des caches.
+        `local_paths` : tous les fichiers locaux trouves, copies identiques
+        ecartees par la deduplication comprises (defaut : `paths`)."""
         added = self.store.ensure_added(paths)
         entries = []
         for p in paths:
             stem = Path(p).stem
-            sname, svolume, skind = parse_series_ex(stem)
+            sname, svolume, skind = parse_path(p)
             # regroupement : un tome peut etre detache de tout regroupement
             # automatique (clic droit)
             override = self.store.series_override(p)
@@ -334,13 +337,16 @@ class LibraryWidget(ChromeMixin, DetailPanelMixin, ActionsMixin, MenusMixin,
             self.store.save_library_index([e.to_dict() for e in entries])
         # scan reel termine : purge les vignettes/empreintes orphelines (fichiers
         # supprimes ou sortis des dossiers sources depuis le dernier scan). Base
-        # sur `paths` (tous les contenus distincts presents), pas sur `entries`
-        # (deja fusionnees par serie/tome), pour ne pas purger le cache d'une
-        # release deduplifiee mais toujours sur le disque. Les tomes repasses
+        # sur TOUS les fichiers presents, ni sur `entries` (deja fusionnees par
+        # serie/tome) ni sur `paths` (une seule copie par contenu) : l'empreinte
+        # d'une copie identique doit survivre, c'est elle qui empeche
+        # forget_content d'effacer la progression partagee quand l'autre copie
+        # est supprimee. Les tomes repasses
         # en espace reserve cloud ("Liberer de l'espace") sont toujours la :
         # leurs empreintes/vignettes ne doivent pas etre purgees non plus.
         try:
-            self.store.purge_orphan_caches(list(paths) + list(cloud_paths))
+            present = paths if local_paths is None else local_paths
+            self.store.purge_orphan_caches(list(present) + list(cloud_paths))
         except Exception:
             logging.warning("Purge des caches orphelins en echec", exc_info=True)
         if changed:
@@ -588,7 +594,7 @@ class LibraryWidget(ChromeMixin, DetailPanelMixin, ActionsMixin, MenusMixin,
         key = info.series_key if info is not None and info.series_key else normalize_name(e.series)
         meta = self.store.volume_meta(e.path)
         series_meta = self.store.series_meta(key)
-        texts = [e.title, e.series, self._series_display_name.get(key)]
+        texts = [e.title, self._display_title(e), e.series, self._series_display_name.get(key)]
         for m in (meta, series_meta):
             if m and not m.get("not_found"):
                 texts.extend(m.get("authors") or ())
@@ -732,8 +738,21 @@ class LibraryWidget(ChromeMixin, DetailPanelMixin, ActionsMixin, MenusMixin,
     def _volume_sort_key(self, e):
         return (e.volume if e.volume is not None else -1, e.title.casefold())
 
+    def _display_title(self, e):
+        """Titre affiche d'un tome : « Berserk · Tome 1 » plutot que le nom de
+        fichier brut (« Berserk T01 (Miura) (2004) [Digital-1699] ... »),
+        qui reste visible dans l'info-bulle et le panneau d'informations. Sans
+        numero reconnu (one-shot, plage de tomes) : le nom de fichier, debarrasse
+        des groupes de release."""
+        if e.volume is None or e.kind == "range":
+            return clean_title(e.title)
+        name = e.series
+        if not e.detached:
+            name = self._series_display_name.get(normalize_name(e.series), e.series)
+        return f"{name} · {volume_label(e.volume, e.kind)}"
+
     def _add_item(self, e):
-        item = QListWidgetItem(e.title)
+        item = QListWidgetItem(self._display_title(e))
         item.setData(ROLE_PATH, e.path)
         # declenche (ou reutilise) la recherche de metadonnees pour toute la
         # bibliotheque, pas seulement quand on trie par auteur/date : l'info
@@ -940,7 +959,7 @@ class LibraryWidget(ChromeMixin, DetailPanelMixin, ActionsMixin, MenusMixin,
                 year = sm.get("published_year")
         prog = self.store.get_progress(path)
         return VolumeInfo(
-            path=path, key=self.store.key_for(path), title=e.title,
+            path=path, key=self.store.key_for(path), title=self._display_title(e),
             series_key=series_key, volume=e.volume,
             status=volume_status(prog), last_read=self.store.progress_ts(path),
             added=e.added, author=self._authors_text(e), year=year)

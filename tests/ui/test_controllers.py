@@ -20,7 +20,7 @@ def test_scan_controller_scans_and_coalesces(qtbot, store, mangas):
     store.set_folders([str(mangas)])
     scanner = ScanController(store)
     results = []
-    scanner.scanned.connect(lambda paths, cloud: results.append((sorted(paths), cloud)))
+    scanner.scanned.connect(lambda paths, cloud, _local: results.append((sorted(paths), cloud)))
     scanner.refresh()
     scanner.refresh()          # demande pendant le scan : relance a la fin, pas en double
     qtbot.waitUntil(lambda: len(results) == 2 and not scanner.scanning, timeout=10000)
@@ -32,12 +32,12 @@ def test_metadata_controller_fetches_once_and_caches(qtbot, store, mangas, monke
     path = make_cbz(mangas, "Berserk - Tome 1", seed=1)
     calls = {"volume": 0, "series": 0}
 
-    def fake_fetch(p, series, volume, cached_series, online=True):
+    def fake_fetch(p, series, volume, cached_series, online=True, author_hint=None):
         calls["volume"] += 1
         assert online is True
         return {"authors": ["Kentaro Miura"], "published_year": 1990, "source": "googlebooks"}, True, None
 
-    def fake_series(name):
+    def fake_series(name, hint=None):
         calls["series"] += 1
         return {"authors": ["Kentaro Miura"], "published_year": 1989, "source": "anilist"}, True
 
@@ -61,9 +61,9 @@ def test_metadata_controller_offline_never_searches_series(qtbot, store, mangas,
     path = make_cbz(mangas, "Berserk - Tome 1", seed=1)
     seen = []
     monkeypatch.setattr(metadata, "fetch",
-                        lambda p, s, v, c, online=True: (seen.append(online), (None, False, None))[1])
+                        lambda p, s, v, c, online=True, author_hint=None: (seen.append(online), (None, False, None))[1])
     monkeypatch.setattr(metadata, "fetch_series",
-                        lambda name: (_ for _ in ()).throw(AssertionError("reseau interdit")))
+                        lambda name, hint=None: (_ for _ in ()).throw(AssertionError("reseau interdit")))
     ctrl = MetadataController(store, online=lambda: False)
     done = []
     ctrl.volumeUpdated.connect(done.append)
@@ -96,3 +96,54 @@ def test_cover_cache_serves_subscribed_items(qtbot, store, mangas):
     assert other.data(ROLE_PIXMAP) is not None
     covers.rename(path, path + ".x")
     assert covers.get(path + ".x") is not None and covers.get(path) is None
+
+
+def test_metadata_controller_refreshes_stale_results(qtbot, store, mangas, monkeypatch):
+    """Un resultat AniList ecrit par une cascade plus ancienne reste affiche
+    pendant qu'il est recherche de nouveau, puis il est remplace."""
+    path = make_cbz(mangas, "Monster - Tome 6", seed=1)
+    store.set_volume_meta(path, {"authors": ["Hatch"], "source": "anilist"})   # perime
+    store.set_series_meta("monster", {"not_found": True, "cascade_version": 1})
+
+    def fake_fetch(p, series, volume, cached_series, online=True, author_hint=None):
+        assert cached_series is None   # « introuvable » perime : pas reutilise
+        return ({"authors": ["Naoki Urasawa"], "source": "anilist",
+                 "cascade_version": metadata.CASCADE_VERSION}, True, None)
+
+    monkeypatch.setattr(metadata, "fetch", fake_fetch)
+    monkeypatch.setattr(metadata, "fetch_series", lambda name, hint=None: (metadata.not_found_sentinel(), True))
+    ctrl = MetadataController(store, online=lambda: True)
+    updated = []
+    ctrl.volumeUpdated.connect(updated.append)
+    entry = LibraryEntry(path=path, title="Monster - Tome 6", series="Monster", volume=6)
+
+    assert ctrl.cached_or_fetch(entry)["authors"] == ["Hatch"]   # affiche en attendant
+    qtbot.waitUntil(lambda: bool(updated), timeout=10000)
+    assert ctrl.cached_or_fetch(entry)["authors"] == ["Naoki Urasawa"]
+
+
+
+def test_provisional_result_is_not_retried_in_the_same_session(qtbot, store, mangas,
+                                                               monkeypatch):
+    """Un resultat provisoire (AniList injoignable) est affiche, sans
+    nouvelle tentative avant la session suivante."""
+    path = make_cbz(mangas, "Vagabond - Tome 1", seed=1)
+    calls = []
+
+    def fake_fetch(p, series, volume, cached_series, online=True, author_hint=None):
+        calls.append(p)
+        data = {"authors": ["Inoue"], "source": "mangadex", "partial": True,
+                "cascade_version": metadata.CASCADE_VERSION}
+        return data, True, data
+
+    monkeypatch.setattr(metadata, "fetch", fake_fetch)
+    monkeypatch.setattr(metadata, "fetch_series", lambda name, hint=None: (None, False))
+    ctrl = MetadataController(store, online=lambda: True)
+    updated = []
+    ctrl.volumeUpdated.connect(updated.append)
+    entry = LibraryEntry(path=path, title="Vagabond - Tome 1", series="Vagabond", volume=1)
+    ctrl.cached_or_fetch(entry)
+    qtbot.waitUntil(lambda: bool(updated), timeout=10000)
+    assert ctrl.cached_or_fetch(entry)["authors"] == ["Inoue"]
+    qtbot.wait(100)
+    assert calls == [path]
