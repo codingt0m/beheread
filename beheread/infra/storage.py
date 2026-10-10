@@ -1,7 +1,8 @@
 """Persistance locale : dossiers de la bibliotheque, progression de lecture,
-cache des metadonnees et des vignettes. Tout est stocke dans
-%APPDATA%/MangaReaderPy (ou ~/.manga-reader-py hors Windows). Aucune
-connexion reseau.
+cache des metadonnees et des vignettes. Tout est stocke dans le dossier de
+donnees de l'utilisateur : %APPDATA%/MangaReaderPy sous Windows,
+~/Library/Application Support/Beheread sous macOS (voir beheread.platforms).
+Aucune connexion reseau.
 
 Trois points d'architecture :
 
@@ -32,12 +33,12 @@ import json
 import logging
 import os
 import platform
-import sys
 import threading
 import time
 import uuid
 from pathlib import Path
 
+from beheread import platforms
 from beheread.config import THUMB_SCALE
 from beheread.core import backup as backup_model
 from beheread.core import stats as stats_model
@@ -69,38 +70,21 @@ def _as_dict(value) -> dict:
     return value if isinstance(value, dict) else {}
 FP_HEAD = 65536           # octets de tete lus pour l'empreinte de contenu
 
-# Attributs Windows des fichiers "cloud" (iCloud Drive, OneDrive) dont le
-# contenu n'est PAS present sur le disque : le fichier n'est qu'un espace
-# reserve, et la moindre lecture (meme 1 octet) declenche son telechargement
-# complet et bloquant par le fournisseur cloud. On doit donc les detecter
-# AVANT toute ouverture (os.stat suffit et ne declenche rien).
-_FILE_ATTRIBUTE_OFFLINE = 0x00001000
-_FILE_ATTRIBUTE_RECALL_ON_OPEN = 0x00040000
-_FILE_ATTRIBUTE_RECALL_ON_DATA_ACCESS = 0x00400000
-_CLOUD_PLACEHOLDER_ATTRS = (_FILE_ATTRIBUTE_OFFLINE
-                            | _FILE_ATTRIBUTE_RECALL_ON_OPEN
-                            | _FILE_ATTRIBUTE_RECALL_ON_DATA_ACCESS)
-
 
 def is_cloud_placeholder(path) -> bool:
     """True si le fichier est un espace reserve cloud non telecharge (iCloud
     Drive / OneDrive "libere de l'espace") : son contenu n'est pas en local et
-    l'ouvrir forcerait un telechargement bloquant. Base uniquement sur les
-    attributs retournes par os.stat, sans jamais ouvrir le fichier."""
+    la moindre lecture (meme 1 octet) declencherait son telechargement complet
+    et bloquant. Base uniquement sur os.stat, sans jamais ouvrir le fichier."""
     try:
         st = os.stat(path)
     except OSError:
         return False
-    attrs = getattr(st, "st_file_attributes", 0)   # absent hors Windows
-    return bool(attrs & _CLOUD_PLACEHOLDER_ATTRS)
+    return platforms.is_cloud_placeholder(st)
 
 
 def data_dir() -> Path:
-    if sys.platform == "win32":
-        base = os.environ.get("APPDATA", str(Path.home()))
-        d = Path(base) / "MangaReaderPy"
-    else:
-        d = Path.home() / ".manga-reader-py"
+    d = platforms.data_dir()
     d.mkdir(parents=True, exist_ok=True)
     return d
 
@@ -766,7 +750,7 @@ class Store:
             a["token_enc"] = secret_store.protect(token)
             a["user"] = user_name
         else:
-            a.pop("token_enc", None)
+            secret_store.discard(a.pop("token_enc", None))
             a.pop("user", None)
         self._schedule("settings")
         self.flush()

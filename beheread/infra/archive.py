@@ -20,13 +20,13 @@ Voir README.md pour l'installation.
 """
 
 import logging
-import os
 import re
-import sys
 import threading
 import xml.etree.ElementTree as ET
 import zipfile
 from pathlib import Path
+
+from beheread import platforms
 
 IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp"}
 SUPPORTED_EXTS = {".cbz", ".cbr", ".zip", ".rar", ".epub", ".pdf"}
@@ -74,30 +74,16 @@ def _init_rarfile():
         return
 
     from beheread.config import app_root
-    candidates = [app_root() / "unrar.exe", app_root() / "UnRAR.exe"]
-    if sys.platform == "win32":
-        for env in ("ProgramFiles", "ProgramFiles(x86)"):
-            base = os.environ.get(env)
-            if base:
-                candidates.append(Path(base) / "WinRAR" / "UnRAR.exe")
-    for cand in candidates:
-        try:
-            if cand and cand.exists():
-                rarfile.UNRAR_TOOL = str(cand)
-                break
-        except OSError:
-            pass
-    # 7-Zip installe a son emplacement standard : utilise en repli, sans
-    # avoir a ajouter son dossier au PATH.
-    if sys.platform == "win32":
-        for env in ("ProgramFiles", "ProgramFiles(x86)"):
-            base = os.environ.get(env)
-            if not base:
-                continue
-            seven = Path(base) / "7-Zip" / "7z.exe"
+    # outils propres au systeme (voir beheread.platforms.rar_tools) : le
+    # premier present de chaque sorte est retenu, rarfile essaie ensuite
+    # unrar, puis unar, 7-Zip et bsdtar.
+    tools = platforms.rar_tools(app_root())
+    for kind, attr in (("unrar", "UNRAR_TOOL"), ("sevenzip", "SEVENZIP_TOOL"),
+                       ("bsdtar", "BSDTAR_TOOL")):
+        for cand in tools.get(kind, ()):
             try:
-                if seven.exists():
-                    rarfile.SEVENZIP_TOOL = str(seven)
+                if cand.exists():
+                    setattr(rarfile, attr, str(cand))
                     break
             except OSError:
                 pass
@@ -169,8 +155,7 @@ class Archive:
             except _rarfile.RarCannotExec as e:
                 raise ArchiveError(
                     "Aucun outil de décompression RAR n'a été trouvé.\n\n"
-                    "Installez WinRAR ou 7-Zip, ou placez UnRAR.exe dans le "
-                    "dossier de Beheread.\n"
+                    f"{platforms.RAR_HELP}\n"
                     "Voir le README, section « Lire les fichiers CBR ».\n\n"
                     f"Détail : {e}")
             except Exception as e:

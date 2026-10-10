@@ -14,10 +14,10 @@ from PySide6.QtCore import QEvent, Qt, QTimer
 from PySide6.QtGui import QColor, QKeySequence, QPalette, QShortcut
 from PySide6.QtWidgets import QApplication, QMainWindow, QMessageBox
 
+from beheread import platforms
 from beheread.infra import applogging
 from beheread.infra.archive import ArchiveError
 from beheread.infra.database import DatabaseTooNew
-from beheread.infra.hotkey import GlobalHotkey
 from beheread.infra.single_instance import SingleInstance, send_to_primary
 from beheread.infra.storage import Store, data_dir
 from beheread.services.anilist_tracker import AniListTracker
@@ -232,10 +232,10 @@ class MainWindow(QMainWindow):
         """Enregistre ou libere le raccourci global Ctrl+Alt+C selon la
         preference (RegisterHotKey est exclusif : le liberer le rend aux
         autres applications)."""
-        want = bool(self.store.ui_pref("global_hotkey", True))
+        want = platforms.GLOBAL_HOTKEY and bool(self.store.ui_pref("global_hotkey", True))
         app = QApplication.instance()
         if want and self._boss_hotkey is None:
-            self._boss_hotkey = GlobalHotkey(self.toggle_boss)
+            self._boss_hotkey = platforms.GlobalHotkey(self.toggle_boss)
             app.installNativeEventFilter(self._boss_hotkey)
         elif not want and self._boss_hotkey is not None:
             self._boss_hotkey.unregister()
@@ -274,21 +274,6 @@ def apply_theme(app: QApplication, mode: str, accent=None):
         f" border: 1px solid {c['border']}; border-radius: 5px; padding: 3px 6px; }}")
 
 
-def _fix_windows_taskbar_icon():
-    """Sans ceci, Windows regroupe la fenetre sous l'icone de python.exe/
-    pythonw.exe dans la barre des taches (il identifie l'appli par le nom de
-    l'executable, pas par setWindowIcon). Lui donner un identifiant propre
-    force Windows a utiliser l'icone de la fenetre a la place."""
-    if sys.platform != "win32":
-        return
-    try:
-        import ctypes
-        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(
-            "Beheread.MangaReader.1")
-    except Exception:
-        logging.warning("Echec SetCurrentProcessExplicitAppUserModelID", exc_info=True)
-
-
 def _initial_file_from_argv(argv) -> str | None:
     """Fichier a ouvrir directement, passe par l'explorateur Windows lors d'un
     double-clic (Beheread declare comme lecteur .cbz par defaut). Renvoie None
@@ -304,7 +289,7 @@ def _initial_file_from_argv(argv) -> str | None:
 
 def main():
     applogging.setup()
-    _fix_windows_taskbar_icon()
+    platforms.before_app_start()
     app = QApplication(sys.argv)
     app.setApplicationName(APP_NAME)
     app.setApplicationVersion(__version__)

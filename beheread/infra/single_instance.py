@@ -20,11 +20,12 @@ import getpass
 import hashlib
 import json
 import logging
-import sys
 import time
 
 from PySide6.QtCore import QLockFile, QObject, Signal
 from PySide6.QtNetwork import QLocalServer, QLocalSocket
+
+from beheread import platforms
 
 CONNECT_TIMEOUT_MS = 500
 CONNECT_ATTEMPTS = 6        # ~3 s : l'instance principale peut etre en plein demarrage
@@ -63,17 +64,9 @@ def decode(data: bytes):
 
 
 def _allow_foreground():
-    """Windows n'autorise un processus a passer au premier plan que si le
-    processus actif le lui permet. L'instance secondaire (celle que
-    l'utilisateur vient de lancer) cede donc ce droit a l'instance principale,
-    sans quoi celle-ci ne ferait que clignoter dans la barre des taches."""
-    if sys.platform != "win32":
-        return
-    try:
-        import ctypes
-        ctypes.windll.user32.AllowSetForegroundWindow(0xFFFFFFFF)   # ASFW_ANY
-    except Exception:
-        logging.debug("AllowSetForegroundWindow en echec", exc_info=True)
+    """Cede le premier plan a l'instance principale (voir
+    beheread.platforms.allow_foreground)."""
+    platforms.allow_foreground()
 
 
 def send_to_primary(message: dict, name: str = None) -> bool:

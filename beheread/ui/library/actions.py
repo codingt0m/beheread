@@ -5,13 +5,11 @@ Mixin de LibraryWidget : ces methodes partagent l'etat du widget
 responsabilite pour garder chaque fichier lisible."""
 
 import logging
-import os
-import subprocess
-import sys
 from pathlib import Path
 
 from PySide6.QtWidgets import QDialog, QInputDialog, QLineEdit, QMessageBox
 
+from beheread import platforms
 from beheread.core.library_model import FINISHED, aggregate_series_info
 from beheread.core.series import normalize_name
 from beheread.infra.archive import Archive
@@ -204,14 +202,9 @@ class ActionsMixin:
 
     @staticmethod
     def _show_in_explorer(path: str):
-        """Ouvre l'explorateur de fichiers avec le fichier selectionne."""
-        if sys.platform == "win32":
-            # "explorer /select," met le fichier en surbrillance dans son dossier
-            subprocess.Popen(["explorer", "/select,", os.path.normpath(path)])
-        else:
-            from PySide6.QtCore import QUrl
-            from PySide6.QtGui import QDesktopServices
-            QDesktopServices.openUrl(QUrl.fromLocalFile(str(Path(path).parent)))
+        """Ouvre l'explorateur de fichiers (le Finder sous macOS) avec le
+        fichier selectionne."""
+        platforms.reveal_in_file_manager(path)
 
     def _mark_finished(self, path: str):
         prog = self.store.get_progress(path)
