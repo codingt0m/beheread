@@ -112,7 +112,8 @@ class ChromeMixin:
         self.search_edit.setPlaceholderText("Rechercher un titre, une série ou un auteur…")
         self.search_edit.setClearButtonEnabled(True)
         self.search_edit.setAccessibleName("Rechercher dans la bibliothèque")
-        self.search_edit.setFixedSize(300, 32)
+        # la police du Mac est un peu plus large : le texte d'invite y tient en 320 px
+        self.search_edit.setFixedSize(320 if platforms.IS_MACOS else 300, 32)
         self.search_edit.textChanged.connect(self._on_search_changed)
         self._search_icon_action = self.search_edit.addAction(
             icons.search("#808080"), QLineEdit.LeadingPosition)

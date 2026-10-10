@@ -31,6 +31,7 @@ API = (
     "allow_foreground",        # () : instance secondaire -> premier plan a l'instance principale
     "hide_window",             # (fenetre) : la masquer instantanement (touche C du lecteur)
     "reveal_in_file_manager",  # (chemin) : montre le fichier dans l'explorateur / le Finder
+    "REVEAL_LABEL",            # texte de l'action correspondante
     "trash_function",          # () -> fonction (chemin) qui met a la corbeille, ou None
     "TRASH_NAME",              # texte : « la corbeille de Windows », « la Corbeille »...
     "rar_tools",               # (dossier de l'app) -> {"unrar"|"sevenzip"|"bsdtar": [Path]}
@@ -51,6 +52,7 @@ before_app_start = _impl.before_app_start
 allow_foreground = _impl.allow_foreground
 hide_window = _impl.hide_window
 reveal_in_file_manager = _impl.reveal_in_file_manager
+REVEAL_LABEL = _impl.REVEAL_LABEL
 trash_function = _impl.trash_function
 TRASH_NAME = _impl.TRASH_NAME
 rar_tools = _impl.rar_tools

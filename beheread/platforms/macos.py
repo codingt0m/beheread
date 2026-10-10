@@ -110,6 +110,9 @@ def _ns_app_hide():
 # ------------------------------------------------------------------ fichiers
 
 
+REVEAL_LABEL = "Afficher dans le Finder"
+
+
 def reveal_in_file_manager(path: str):
     """`open -R` ouvre le dossier dans le Finder, fichier selectionne."""
     try:

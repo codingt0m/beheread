@@ -57,6 +57,9 @@ def hide_window(win):
 # ------------------------------------------------------------------ fichiers
 
 
+REVEAL_LABEL = "Ouvrir le dossier"
+
+
 def reveal_in_file_manager(path: str):
     """Ouvre le dossier du fichier (sans pouvoir le selectionner)."""
     from PySide6.QtCore import QUrl

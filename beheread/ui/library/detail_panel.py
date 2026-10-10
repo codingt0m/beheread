@@ -9,6 +9,7 @@ import time
 
 from PySide6.QtGui import QPixmap
 
+from beheread import platforms
 from beheread.core.library_model import (
     FINISHED,
     READING,
@@ -117,7 +118,7 @@ class DetailPanelMixin:
         actions += [
             ("Modifier les informations…", lambda: self._edit_volume_info(path), False),
             ("Déplacer vers une série…", lambda: self._move_to_series([path]), False),
-            ("Afficher dans l'explorateur", lambda: self._show_in_explorer(path), False),
+            (platforms.REVEAL_LABEL, lambda: self._show_in_explorer(path), False),
         ]
         if info.series_key and not e.detached:
             self._add_anilist_detail(info.series_key, path, rows, actions)

@@ -117,6 +117,9 @@ def hide_window(win):
 # ------------------------------------------------------------------ fichiers
 
 
+REVEAL_LABEL = "Afficher dans l'explorateur"
+
+
 def reveal_in_file_manager(path: str):
     """"explorer /select," met le fichier en surbrillance dans son dossier."""
     subprocess.Popen(["explorer", "/select,", os.path.normpath(path)])

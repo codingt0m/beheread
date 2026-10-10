@@ -7,6 +7,7 @@ responsabilite pour garder chaque fichier lisible."""
 
 from PySide6.QtWidgets import QMenu
 
+from beheread import platforms
 from beheread.core.library_model import FINISHED
 from beheread.infra.storage import Store
 
@@ -57,7 +58,7 @@ class MenusMixin:
         act_move = menu.addAction(
             "Déplacer vers une série…" if n == 1 else f"Déplacer {n} mangas vers une série…")
         act_rename = menu.addAction("Renommer le fichier…") if n == 1 else None
-        act_explorer = menu.addAction("Afficher dans l'explorateur") if n == 1 else None
+        act_explorer = menu.addAction(platforms.REVEAL_LABEL) if n == 1 else None
 
         # --- regroupement en serie ---
         act_detach = act_restore = None
