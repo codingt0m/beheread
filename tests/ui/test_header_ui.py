@@ -93,7 +93,7 @@ def test_view_mode_and_detail_panel_are_set_in_preferences(window, qtbot, mangas
 
 
 def test_preferences_list_every_keyboard_shortcut(qtbot, store):
-    from beheread.ui import theme
+    from beheread.ui import keys, theme
     dlg = PreferencesDialog(store, theme.colors("dark"), {})
     qtbot.addWidget(dlg)
     titles = [dlg.tabs.tabText(i) for i in range(dlg.tabs.count())]
@@ -101,7 +101,8 @@ def test_preferences_list_every_keyboard_shortcut(qtbot, store):
     page = dlg.tabs.widget(titles.index("Raccourcis"))
     texts = {lab.text() for lab in page.findChildren(QLabel)}
     assert {"Dans la bibliothèque", "Dans le lecteur"} <= texts
-    assert {"Ctrl + F", "F5", "Ambilight", "Rechercher"} <= texts   # bibliotheque et lecteur
+    # bibliotheque et lecteur ; touches nommees selon le systeme (⌘F sous macOS)
+    assert {keys.label("Ctrl + F"), keys.label("F5"), "Ambilight", "Rechercher"} <= texts
     # le dialogue tient dans l'ecran (il n'est plus plafonne aux 2/3 par Qt)
     assert dlg.height() <= dlg.screen().availableGeometry().height()
 

@@ -7,6 +7,7 @@ Voir README.md pour l'installation et le support des fichiers CBR.
 """
 
 import logging
+import os
 import sys
 from pathlib import Path
 
@@ -450,6 +451,10 @@ def main():
     # meme si la fenetre est fermee sans passer par closeEvent (ex. quit OS)
     app.aboutToQuit.connect(store.close)
     app.aboutToQuit.connect(instance.release)
+    if os.environ.get("BEHEREAD_SMOKE_TEST"):
+        # verification d'un build (packaging/macos/build.sh) : l'application
+        # emballee demarre, affiche sa fenetre puis se ferme d'elle-meme
+        QTimer.singleShot(3000, app.quit)
     sys.exit(app.exec())
 
 

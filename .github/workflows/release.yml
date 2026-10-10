@@ -3,7 +3,8 @@
 # Pousser un tag vX.Y.Z (identique a beheread/version.py) construit
 # l'application avec build.bat - le meme script qu'en local - et cree une
 # release GitHub en BROUILLON avec l'installateur, l'archive sans installation
-# et leurs sommes de controle. Les notes viennent de la section X.Y.Z de
+# et leurs sommes de controle. Le job build-macos y ajoute ensuite l'image
+# disque macOS (packaging/macos/build.sh). Les notes viennent de la section X.Y.Z de
 # CHANGELOG.md. Le brouillon se relit puis se publie depuis l'onglet Releases.
 #
 # Lancement manuel (onglet Actions > Release > Run workflow) : essai a blanc,
@@ -92,3 +93,46 @@ jobs:
             "dist/Beheread-Setup-$VERSION.exe" \
             "dist/Beheread-$VERSION-windows-x64.zip" \
             dist/SHA256SUMS.txt
+
+  # Version macOS (Apple Silicon) : construite apres la version Windows, elle
+  # ajoute son image disque au meme brouillon de release. Un echec ici ne
+  # bloque pas la publication de la version Windows (continue-on-error).
+  build-macos:
+    needs: build
+    runs-on: macos-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.13'
+          cache: pip
+          cache-dependency-path: requirements-dev.txt
+
+      - name: Dependances
+        run: python -m pip install -r requirements-dev.txt
+
+      - name: Version
+        id: version
+        run: echo "version=$(python -c 'from beheread.version import __version__; print(__version__)')" >> "$GITHUB_OUTPUT"
+
+      - name: Build (verification, tests, application, image disque)
+        run: bash packaging/macos/build.sh
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: Beheread-${{ steps.version.outputs.version }}-macos
+          if-no-files-found: error
+          path: |
+            dist/Beheread-${{ steps.version.outputs.version }}-macos.dmg
+            dist/SHA256SUMS-macos.txt
+
+      - name: Ajout au brouillon de release
+        if: github.ref_type == 'tag'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          gh release upload "$GITHUB_REF_NAME" \
+            "dist/Beheread-$VERSION-macos.dmg" dist/SHA256SUMS-macos.txt

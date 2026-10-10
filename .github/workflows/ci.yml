@@ -1,9 +1,11 @@
 # Verification continue de Beheread sous Windows et macOS.
 #
-# A chaque push sur main (et sur chaque pull request) : verification du code
-# (ruff) et tests (pytest), sur les deux systemes pris en charge. C'est le
-# filet de securite du portage macOS : une regression d'un cote ou de l'autre
-# se voit sans avoir la machine sous la main.
+# A chaque push sur main (et sur chaque pull request) :
+# * verification du code (ruff) et tests (pytest), sur les deux systemes ;
+# * construction de l'application macOS (.dmg) et captures d'ecran de
+#   l'interface sur un vrai macOS, jointes a l'execution comme artefacts
+#   (onglet Actions) : de quoi verifier le rendu et faire tester l'application
+#   sans Mac sous la main ni release.
 
 name: CI
 
@@ -40,3 +42,39 @@ jobs:
 
       - name: Tests
         run: python -m pytest -q
+
+  macos-app:
+    needs: tests
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.13'
+          cache: pip
+          cache-dependency-path: requirements-dev.txt
+
+      - name: Dependances
+        run: python -m pip install -r requirements-dev.txt
+
+      - name: Captures d'ecran
+        run: python tools/screenshots.py captures
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: captures-macos
+          path: captures/
+          retention-days: 14
+
+      - name: Build (verification, tests, application, image disque)
+        run: bash packaging/macos/build.sh
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: Beheread-macos
+          if-no-files-found: error
+          retention-days: 14
+          path: |
+            dist/Beheread-*-macos.dmg
+            dist/SHA256SUMS-macos.txt
