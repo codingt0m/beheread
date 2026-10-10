@@ -1,4 +1,6 @@
+import sys
 import zipfile
+from pathlib import Path
 
 import pytest
 
@@ -95,3 +97,45 @@ def test_read_after_close_raises_archive_closed(tmp_path):
     ar.close()   # idempotent
     with pytest.raises(ArchiveClosedError):
         ar.read_first_page()
+
+
+# --- vrais fichiers RAR -------------------------------------------------------
+# tests/fixtures/rar5.cbr : 001.jpg, 002.jpg, 010.jpg (contenus "page-1"...)
+# et info.txt, cree avec WinRAR 7 (format RAR5). Sous Windows, l'outil est
+# UnRAR/7-Zip ; sous macOS, bsdtar suffit (fourni avec le systeme).
+
+RAR5 = str(Path(__file__).parent / "fixtures" / "rar5.cbr")
+
+
+def _open_rar_or_skip(path):
+    try:
+        return Archive(path)
+    except ArchiveError as e:
+        if "Aucun outil" in str(e):
+            pytest.skip("aucun outil RAR sur cette machine")
+        raise
+
+
+def test_rar5_pages_are_listed_in_natural_order_and_read():
+    ar = _open_rar_or_skip(RAR5)
+    try:
+        assert len(ar) == 3                       # info.txt n'est pas une page
+        assert [ar.read_page(i) for i in range(3)] == [b"page-1", b"page-2", b"page-10"]
+    finally:
+        ar.close()
+
+
+@pytest.mark.skipif(sys.platform != "darwin", reason="bsdtar : outil RAR de repli de macOS")
+def test_rar5_opens_with_the_bsdtar_shipped_with_macos():
+    archive._init_rarfile()
+    rarfile = archive._rarfile
+    rarfile.tool_setup(unrar=False, unar=False, sevenzip=False, sevenzip2=False,
+                       bsdtar=True, force=True)
+    try:
+        ar = Archive(RAR5)
+        try:
+            assert [ar.read_page(i) for i in range(3)] == [b"page-1", b"page-2", b"page-10"]
+        finally:
+            ar.close()
+    finally:
+        rarfile.tool_setup(force=True)

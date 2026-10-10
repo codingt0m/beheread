@@ -25,9 +25,10 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from beheread import platforms
 from beheread.core.library_model import SORTS, STATUS_FILTERS
 from beheread.infra.archive import SUPPORTED_EXTS
-from beheread.ui import appicon, icons, theme
+from beheread.ui import appicon, icons, keys, theme
 
 # modules extraits (voir chacun) : constantes de rendu, delegates, dialogues et
 # taches d'arriere-plan. LibraryWidget (ci-dessous) orchestre le tout.
@@ -56,7 +57,7 @@ class ChromeMixin:
     def _set_button_label(btn, label, shortcut=""):
         """Info-bulle (avec le raccourci) et nom accessible (lu par les
         lecteurs d'ecran : un bouton a icone seule n'a pas de texte)."""
-        btn.setToolTip(f"{label}   {shortcut}" if shortcut else label)
+        btn.setToolTip(f"{label}   {keys.label(shortcut)}" if shortcut else label)
         btn.setAccessibleName(label)
 
     def _build_header(self):
@@ -160,7 +161,8 @@ class ChromeMixin:
         self.btn_prefs = self._icon_button("Préférences", "Ctrl+,")
         self.btn_prefs.clicked.connect(self.open_preferences)
         hl.addWidget(self.btn_prefs)
-        QShortcut(QKeySequence("Ctrl+,"), self, self.open_preferences)
+        if not platforms.IS_MACOS:   # sous macOS : menu Beheread > Reglages (app.py)
+            QShortcut(QKeySequence("Ctrl+,"), self, self.open_preferences)
 
         return self.header
 

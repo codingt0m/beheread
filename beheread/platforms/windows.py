@@ -109,6 +109,11 @@ def allow_foreground():
         logging.debug("AllowSetForegroundWindow en echec", exc_info=True)
 
 
+def hide_window(win):
+    """Reduit la fenetre : elle reste dans la barre des taches."""
+    win.showMinimized()
+
+
 # ------------------------------------------------------------------ fichiers
 
 

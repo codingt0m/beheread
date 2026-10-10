@@ -33,6 +33,7 @@ from beheread.core.models import LibraryEntry, VolumeInfo
 from beheread.core.search import SearchIndex, known_titles
 from beheread.core.series import clean_title, normalize_name, parse_path, volume_label
 from beheread.infra.storage import Store, is_cloud_placeholder
+from beheread.ui import keys
 from beheread.ui.help_overlay import LIBRARY_SHORTCUTS, ShortcutOverlay
 
 # modules extraits (voir chacun) : constantes de rendu, delegates, dialogues et
@@ -152,7 +153,8 @@ class LibraryWidget(ChromeMixin, DetailPanelMixin, ActionsMixin, MenusMixin,
         layout.setSpacing(0)
 
         layout.addWidget(self._build_header())
-        QShortcut(QKeySequence("F5"), self, self.refresh)
+        for seq in keys.refresh_sequences():
+            QShortcut(seq, self, self.refresh)
         QShortcut(QKeySequence.Find, self, self.search_edit.setFocus)   # Ctrl+F
         QShortcut(QKeySequence(Qt.Key_F1), self, self._toggle_help)
         layout.addWidget(self._build_toolbar())
@@ -184,8 +186,9 @@ class LibraryWidget(ChromeMixin, DetailPanelMixin, ActionsMixin, MenusMixin,
         self.list.customContextMenuRequested.connect(self._show_context_menu)
         self.list.setAccessibleName("Bibliothèque")
         # Suppr : limite a la liste (ne doit pas agir pendant une saisie de recherche)
-        del_shortcut = QShortcut(QKeySequence.Delete, self.list, self._delete_selected)
-        del_shortcut.setContext(Qt.WidgetShortcut)
+        for seq in keys.delete_sequences():
+            del_shortcut = QShortcut(seq, self.list, self._delete_selected)
+            del_shortcut.setContext(Qt.WidgetShortcut)
         self.list.currentItemChanged.connect(lambda *_: self._update_detail())
         # la bande « Continuer » defile avec la grille au lieu de rester fixe
         self.list_host = ScrollingHeaderHost(self.shelf, self.list)

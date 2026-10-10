@@ -60,3 +60,31 @@ def test_dpapi_roundtrip():
     enc = secret_store.protect("jeton-secret")
     assert enc.startswith("dpapi:") and "jeton-secret" not in enc
     assert secret_store.unprotect(enc) == "jeton-secret"
+
+
+def test_cloud_placeholders_are_recognized_by_their_flags():
+    from types import SimpleNamespace
+
+    from beheread.platforms import macos, windows
+    assert windows.is_cloud_placeholder(SimpleNamespace(st_file_attributes=0x00400000))
+    assert not windows.is_cloud_placeholder(SimpleNamespace(st_file_attributes=0x20))
+    assert macos.is_cloud_placeholder(SimpleNamespace(st_flags=0x40000000))   # SF_DATALESS
+    assert not macos.is_cloud_placeholder(SimpleNamespace(st_flags=0))
+
+
+@pytest.mark.skipif(not platforms.IS_MACOS, reason="macOS seulement")
+def test_mac_data_lives_in_application_support():
+    assert platforms.data_dir() == Path.home() / "Library" / "Application Support" / "Beheread"
+
+
+@pytest.mark.skipif(not platforms.IS_MACOS, reason="Trousseau : macOS seulement")
+def test_keychain_roundtrip():
+    import uuid
+    name = f"test-{uuid.uuid4().hex[:8]}"
+    enc = secret_store.protect("jeton-secret", name=name)
+    try:
+        assert enc == f"keychain:{name}"
+        assert secret_store.unprotect(enc) == "jeton-secret"
+    finally:
+        secret_store.discard(enc)
+    assert secret_store.unprotect(enc) is None

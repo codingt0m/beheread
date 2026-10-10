@@ -39,7 +39,7 @@ Choix de visualisation :
 """
 
 import datetime as dt
-from pathlib import Path
+from pathlib import PureWindowsPath
 
 from PySide6.QtCore import QPoint, QRect, QRectF, QSize, Qt, QTimer
 from PySide6.QtGui import QColor, QFont, QGuiApplication, QPainter, QPainterPath, QPen
@@ -1329,7 +1329,9 @@ class StatsDialog(QDialog):
             date = _fmt_day(day, year=day.year != self.today.year)
             name = self.titles.get(volume) or title or series
             if not name and not volume.startswith("c1:"):
-                name = Path(volume).stem   # ancienne entree indexee par chemin
+                # ancienne entree indexee par chemin, peut-etre venue d'un autre
+                # systeme (sauvegarde importee) : PureWindowsPath coupe sur \ et /
+                name = PureWindowsPath(volume).stem
             if name:
                 items.append((name, date, 1))
                 continue

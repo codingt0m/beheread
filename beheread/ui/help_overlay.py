@@ -5,10 +5,17 @@ reprises dans l'onglet « Raccourcis » des preferences."""
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QFrame, QGridLayout, QHBoxLayout, QLabel, QVBoxLayout
 
-from beheread.ui import theme
+from beheread import platforms
+from beheread.ui import keys, theme
 
 # (titre de section, [(touches, description)]) ; plusieurs touches separees
-# par " / " sont affichees comme des pastilles distinctes
+# par " / " sont affichees comme des pastilles distinctes. Les touches sont
+# ecrites a la maniere de Windows et traduites a l'affichage (voir keys.py).
+
+# raccourci global de la touche boss, la ou le systeme le permet
+_GLOBAL_BOSS = ([("Ctrl + Alt + C", "Masquer / réafficher depuis n'importe où")]
+                if platforms.GLOBAL_HOTKEY else [])
+
 READER_SHORTCUTS = [
     ("Navigation", [
         ("↓ / Espace / Molette", "Page suivante (fait d'abord défiler une page plus haute que l'écran)"),
@@ -35,7 +42,7 @@ READER_SHORTCUTS = [
     ("Général", [
         ("Échap", "Retour à la bibliothèque"),
         ("C", "Masquer la fenêtre"),
-        ("Ctrl + Alt + C", "Masquer / réafficher depuis n'importe où"),
+        *_GLOBAL_BOSS,
         ("F1 / ?", "Afficher / masquer cette aide"),
     ]),
 ]
@@ -55,7 +62,7 @@ LIBRARY_SHORTCUTS = [
         ("Tab", "Passer d'un bouton à l'autre dans l'en-tête"),
         ("Ctrl + ,", "Préférences"),
         ("F11", "Plein écran"),
-        ("Ctrl + Alt + C", "Masquer / réafficher depuis n'importe où"),
+        *_GLOBAL_BOSS,
         ("F1", "Afficher / masquer cette aide"),
     ]),
 ]
@@ -79,11 +86,11 @@ def sections_layout(sections, parent, vertical=False):
             # descriptions alignees d'une section a l'autre, sur toute la largeur restante
             grid.setColumnMinimumWidth(0, 200)
             grid.setColumnStretch(1, 1)
-        for r, (keys, desc) in enumerate(rows):
+        for r, (shortcut, desc) in enumerate(rows):
             keys_row = QHBoxLayout()
             keys_row.setSpacing(4)
-            for k in keys.split(" / "):
-                kl = QLabel(k, parent)
+            for k in shortcut.split(" / "):
+                kl = QLabel(keys.label(k), parent)
                 kl.setObjectName("kbd")
                 keys_row.addWidget(kl)
             keys_row.addStretch(1)

@@ -32,7 +32,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from beheread import config
+from beheread import config, platforms
 from beheread.infra import anilist
 from beheread.infra.anilist_auth import LocalAuthReceiver
 from beheread.ui import icons, theme
@@ -458,7 +458,8 @@ class PreferencesDialog(QDialog):
         self.global_hotkey = QCheckBox(
             "Ctrl + Alt + C : masquer / réafficher Beheread depuis n'importe où")
         self.global_hotkey.setChecked(bool(s.ui_pref("global_hotkey", True)))
-        f.addRow(self.global_hotkey)
+        if platforms.GLOBAL_HOTKEY:   # pas de raccourci global sous macOS
+            f.addRow(self.global_hotkey)
         v.addWidget(g)
 
         g = QGroupBox("Métadonnées en ligne")

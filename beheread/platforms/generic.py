@@ -49,6 +49,11 @@ def allow_foreground():
     pass
 
 
+def hide_window(win):
+    """Reduit la fenetre : elle reste dans la barre des taches."""
+    win.showMinimized()
+
+
 # ------------------------------------------------------------------ fichiers
 
 

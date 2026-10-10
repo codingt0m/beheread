@@ -1,4 +1,4 @@
-"""Beheread - lecteur de mangas CBZ / CBR / EPUB / PDF pour Windows 10/11.
+"""Beheread - lecteur de mangas CBZ / CBR / EPUB / PDF pour Windows et macOS.
 Lecture et donnees 100% locales ; seule la recuperation des metadonnees
 (auteur, date) interroge des API publiques (voir metadata.py).
 
@@ -10,9 +10,9 @@ import logging
 import sys
 from pathlib import Path
 
-from PySide6.QtCore import QEvent, Qt, QTimer
-from PySide6.QtGui import QColor, QKeySequence, QPalette, QShortcut
-from PySide6.QtWidgets import QApplication, QMainWindow, QMessageBox
+from PySide6.QtCore import QEvent, QObject, Qt, QTimer, Signal
+from PySide6.QtGui import QAction, QColor, QKeySequence, QPalette, QShortcut
+from PySide6.QtWidgets import QApplication, QMainWindow, QMenuBar, QMessageBox
 
 from beheread import platforms
 from beheread.infra import applogging
@@ -21,12 +21,20 @@ from beheread.infra.database import DatabaseTooNew
 from beheread.infra.single_instance import SingleInstance, send_to_primary
 from beheread.infra.storage import Store, data_dir
 from beheread.services.anilist_tracker import AniListTracker
-from beheread.ui import appicon, theme
+from beheread.ui import appicon, keys, theme
 from beheread.ui.library.widget import LibraryWidget
 from beheread.ui.reader.widget import ReaderWidget
 from beheread.version import __version__
 
 APP_NAME = "Beheread"
+
+# Sous macOS, un fichier ouvert depuis le Finder n'est pas passe en argument :
+# il arrive par un QFileOpenEvent, peu apres le demarrage de la boucle
+# d'evenements. Au lancement, on attend ce delai avant d'afficher la
+# bibliotheque, pour ouvrir directement le lecteur si un fichier arrive.
+LAUNCH_FILE_WAIT_MS = 300
+# filet de securite si macOS ne signale pas la fin de la sortie du plein ecran
+FULLSCREEN_EXIT_TIMEOUT_MS = 1500
 
 
 class ReaderWindow(QMainWindow):
@@ -37,10 +45,30 @@ class ReaderWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowIcon(appicon.app_icon())
-        QShortcut(QKeySequence(Qt.Key_F11), self, self.toggle_fullscreen)
+        for seq in keys.fullscreen_sequences():
+            QShortcut(seq, self, self.toggle_fullscreen)
+
+        self._after_fullscreen_exit = None
 
     def toggle_fullscreen(self):
         self.showMaximized() if self.isFullScreen() else self.showFullScreen()
+
+    def leave_fullscreen_then(self, callback):
+        """Appelle `callback` une fois la fenetre sortie du plein ecran.
+        Sous macOS, le plein ecran est un bureau a part : masquer la fenetre
+        sans en sortir laisserait ce bureau, noir, a l'ecran. La sortie est
+        animee ; changeEvent signale sa fin. Ailleurs : appel immediat."""
+        if not (platforms.IS_MACOS and self.isFullScreen()):
+            callback()
+            return
+        self._after_fullscreen_exit = callback
+        self.showNormal()
+        QTimer.singleShot(FULLSCREEN_EXIT_TIMEOUT_MS, self._run_after_fullscreen_exit)
+
+    def _run_after_fullscreen_exit(self):
+        callback, self._after_fullscreen_exit = self._after_fullscreen_exit, None
+        if callback is not None:
+            callback()
 
     def changeEvent(self, event):
         super().changeEvent(event)
@@ -48,6 +76,8 @@ class ReaderWindow(QMainWindow):
             reader = self.centralWidget()
             if reader is not None:
                 reader.set_fullscreen(self.isFullScreen())
+            if self._after_fullscreen_exit is not None and not self.isFullScreen():
+                QTimer.singleShot(0, self._run_after_fullscreen_exit)
 
     def closeEvent(self, event):
         reader = self.centralWidget()
@@ -77,12 +107,15 @@ class MainWindow(QMainWindow):
 
         self.reader = None
         self.reader_window = None
+        # fichier attendu du Finder au lancement (macOS, voir LAUNCH_FILE_WAIT_MS)
+        self._awaiting_launch_file = False
         # mode "lecture directe" : l'app a ete lancee sur un fichier (double-clic
         # dans l'explorateur). On n'affiche jamais la bibliotheque et on quitte
         # quand le lecteur se ferme, au lieu de revenir a la bibliotheque.
         self.direct_mode = False
 
-        QShortcut(QKeySequence(Qt.Key_F11), self, self.toggle_fullscreen)
+        for seq in keys.fullscreen_sequences():
+            QShortcut(seq, self, self.toggle_fullscreen)
 
         # touche "boss" : Ctrl+Alt+C masque/reaffiche la fenetre courante
         # depuis n'importe ou (raccourci global Windows). Voir aussi la
@@ -92,6 +125,31 @@ class MainWindow(QMainWindow):
         self._sync_global_hotkey()
         QApplication.instance().aboutToQuit.connect(
             lambda: self._boss_hotkey is not None and self._boss_hotkey.unregister())
+
+        if platforms.IS_MACOS:
+            self._build_mac_menu()
+
+    def _build_mac_menu(self):
+        """Barre de menus de macOS, en haut de l'ecran et commune a toutes
+        les fenetres. Qt range « A propos » et « Reglages » dans le menu
+        Beheread, a cote de Masquer et Quitter qu'il fournit d'office."""
+        self._menu_bar = QMenuBar()   # sans parent : barre globale
+        menu = self._menu_bar.addMenu("Beheread")
+        about = menu.addAction(f"À propos de {APP_NAME}", self._show_about)
+        about.setMenuRole(QAction.AboutRole)
+        prefs = menu.addAction("Réglages…", self._open_preferences_from_menu)
+        prefs.setMenuRole(QAction.PreferencesRole)
+        prefs.setShortcut(QKeySequence("Ctrl+,"))   # ⌘, (remplace le raccourci de chrome.py)
+
+    def _show_about(self):
+        QMessageBox.about(
+            self.reader_window or self, f"À propos de {APP_NAME}",
+            f"<b>{APP_NAME} {__version__}</b><br>Lecteur de mangas hors ligne.<br><br>"
+            '<a href="https://github.com/codingt0m/beheread">github.com/codingt0m/beheread</a>')
+
+    def _open_preferences_from_menu(self):
+        if self.reader_window is None and self.isVisible():
+            self.library.open_preferences()
 
     def open_file_directly(self, path: str):
         """Lance l'app directement sur un fichier (double-clic dans
@@ -147,6 +205,28 @@ class MainWindow(QMainWindow):
             old_reader.release()
             old_reader.deleteLater()
 
+    def show_library_unless_file_arrives(self, delay_ms=LAUNCH_FILE_WAIT_MS):
+        """Lancement sous macOS : la bibliotheque ne s'affiche qu'apres un
+        court delai, sauf si le Finder transmet un fichier entre-temps (voir
+        handle_file_open)."""
+        self._awaiting_launch_file = True
+        QTimer.singleShot(delay_ms, self._show_library_after_launch)
+
+    def _show_library_after_launch(self):
+        if self._awaiting_launch_file:
+            self._awaiting_launch_file = False
+            self.showMaximized()
+
+    def handle_file_open(self, path: str):
+        """Fichier transmis par le systeme (QFileOpenEvent : double-clic dans
+        le Finder). Au lancement, ouvre le lecteur seul comme sous Windows ;
+        ensuite, comme une demande d'une seconde instance."""
+        if self._awaiting_launch_file:
+            self._awaiting_launch_file = False
+            self.open_file_directly(path)
+        else:
+            self.handle_instance_message({"open": path})
+
     def _on_open_failed(self):
         """Le fichier passe en ligne de commande n'a pas pu s'ouvrir. En mode
         direct il n'y a pas de bibliotheque de repli : on quitte l'app - sauf
@@ -185,15 +265,22 @@ class MainWindow(QMainWindow):
             win = self.reader_window
             self.reader_window = None
             self.reader = None
-            win.hide()
-            win.deleteLater()
             if self.direct_mode:
                 # lance sur un fichier : pas de bibliotheque a reafficher
+                win.hide()
+                win.deleteLater()
                 QApplication.instance().quit()
                 return
-            self.library.update_progress_display()
-            self.showMaximized()
-            self.activateWindow()
+            win.leave_fullscreen_then(lambda: self._show_library_after_reader(win))
+
+    def _show_library_after_reader(self, win):
+        win.hide()
+        win.deleteLater()
+        if self.reader_window is not None:
+            return   # un autre tome a ete ouvert pendant la sortie du plein ecran
+        self.library.update_progress_display()
+        self.showMaximized()
+        self.activateWindow()
 
     def toggle_fullscreen(self):
         self.showNormal() if self.isFullScreen() else self.showFullScreen()
@@ -276,8 +363,9 @@ def apply_theme(app: QApplication, mode: str, accent=None):
 
 def _initial_file_from_argv(argv) -> str | None:
     """Fichier a ouvrir directement, passe par l'explorateur Windows lors d'un
-    double-clic (Beheread declare comme lecteur .cbz par defaut). Renvoie None
-    si aucun argument valide : lancement normal sur la bibliotheque."""
+    double-clic (Beheread declare comme lecteur .cbz par defaut ; sous macOS,
+    voir FileOpenEvents). Renvoie None si aucun argument valide : lancement
+    normal sur la bibliotheque."""
     for arg in argv[1:]:
         p = Path(arg)
         if p.is_file():
@@ -287,6 +375,22 @@ def _initial_file_from_argv(argv) -> str | None:
     return None
 
 
+class FileOpenEvents(QObject):
+    """Recoit les fichiers que le systeme demande d'ouvrir (QFileOpenEvent :
+    double-clic dans le Finder sous macOS ; Windows passe, lui, le fichier
+    en argument). Filtre installe sur l'application."""
+
+    opened = Signal(str)
+
+    def eventFilter(self, obj, event):
+        if event.type() == QEvent.FileOpen:
+            path = event.file()
+            if path:
+                self.opened.emit(path)
+            return True
+        return False
+
+
 def main():
     applogging.setup()
     platforms.before_app_start()
@@ -294,6 +398,8 @@ def main():
     app.setApplicationName(APP_NAME)
     app.setApplicationVersion(__version__)
     app.setWindowIcon(appicon.app_icon())   # re-teintee par apply_theme une fois les preferences lues
+    file_opens = FileOpenEvents(app)
+    app.installEventFilter(file_opens)
 
     initial_file = _initial_file_from_argv(sys.argv)
     # instance unique : si Beheread est deja ouvert, on lui transmet la demande
@@ -332,9 +438,12 @@ def main():
     apply_theme(app, store.ui_pref("theme", "dark"), store.ui_pref("accent"))
     window = MainWindow(store)
     instance.messageReceived.connect(window.handle_instance_message)
+    file_opens.opened.connect(window.handle_file_open)
 
     if initial_file is not None:
         window.open_file_directly(initial_file)
+    elif platforms.IS_MACOS:
+        window.show_library_unless_file_arrives()
     else:
         window.showMaximized()
     # filet de securite : ecrit les sauvegardes differees encore en attente,

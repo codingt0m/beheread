@@ -11,6 +11,8 @@ from PySide6.QtCore import (
     Qt,
 )
 
+from beheread import platforms
+
 
 class InputMixin:
     # ------------------------------------------------------------ entrees
@@ -76,8 +78,9 @@ class InputMixin:
                 self.next_volume_requested.emit(self._next_volume_path)
         elif key == Qt.Key_C and self.store.reader_pref("boss_key", True):
             # touche "boss" : masque instantanement la fenetre (reste dans la
-            # barre des taches). Ctrl+Alt+C la reaffiche depuis n'importe ou.
-            self.window().showMinimized()
+            # barre des taches, ou le Dock sous macOS). Sous Windows,
+            # Ctrl+Alt+C la reaffiche depuis n'importe ou.
+            platforms.hide_window(self.window())
         elif key == Qt.Key_Escape:
             self.close_reader()
         else:

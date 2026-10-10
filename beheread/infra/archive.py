@@ -14,9 +14,10 @@ Le format reel est detecte par la signature du fichier (certains .cbr sont en
 realite des ZIP renommes, et inversement).
 
 Pour les vrais RAR, la bibliotheque `rarfile` est utilisee. Elle s'appuie sur
-un outil externe : UnRAR.exe (fourni gratuitement par RARLab ou installe avec
-WinRAR), ou a defaut 7-Zip (detecte dans Program Files ou via le PATH) / bsdtar.
-Voir README.md pour l'installation.
+un outil externe, cherche par beheread.platforms.rar_tools : sous Windows
+UnRAR.exe (fourni gratuitement par RARLab ou installe avec WinRAR), ou a
+defaut 7-Zip ; sous macOS unrar ou 7-Zip s'ils sont installes, sinon bsdtar,
+fourni avec le systeme. Voir README.md pour l'installation.
 """
 
 import logging

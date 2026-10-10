@@ -7,7 +7,7 @@ dans le code (suffixes de doublon "(1)", tirets pendants, separateurs varies).
 
 import pytest
 
-from beheread.core.series import normalize_name, parse_series
+from beheread.core.series import normalize_name, parse_series, series_key
 from beheread.infra.archive import find_next_volume
 
 
@@ -297,3 +297,15 @@ def test_author_hints_from_file_names():
     assert matches_author(["Oshimi Shuzo"], ["Shuuzou Oshimi"])
     assert not matches_author(["Glénat"], ["Sui Ishida"])
     assert not matches_author([], ["Naoki Urasawa"])
+
+
+def test_accented_names_group_whatever_their_unicode_form():
+    """Sur macOS, un nom de fichier peut etre en Unicode decompose (NFD,
+    « e » + accent) au lieu de compose (NFC, « é ») : les deux formes
+    rejoignent la meme serie."""
+    import unicodedata
+    nfc = unicodedata.normalize("NFC", "Pokémon Adventures - Tome 3")
+    nfd = unicodedata.normalize("NFD", nfc)
+    assert nfc != nfd
+    assert series_key(nfc) == series_key(nfd)
+    assert normalize_name(parse_series(nfc)[0]) == normalize_name(parse_series(nfd)[0])
