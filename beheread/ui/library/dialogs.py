@@ -598,6 +598,17 @@ class PreferencesDialog(QDialog):
                             "celui choisi pour une série (touche M) reste prioritaire. Le sens "
                             "par défaut ne sert qu'aux séries que rien ne permet de reconnaître."))
         v.addWidget(g)
+
+        g = QGroupBox("Fiche de fin de tome")
+        gv = QVBoxLayout(g)
+        self.babelio = QCheckBox("Proposer « Marquer comme lu sur Babelio »")
+        self.babelio.setChecked(bool(s.reader_pref("babelio_button", False)))
+        gv.addWidget(self.babelio)
+        gv.addWidget(self._hint(
+            "Ouvre la recherche du tome sur babelio.com dans votre navigateur ; c'est vous qui "
+            "le marquez « lu ». Beheread ne se connecte pas à Babelio et n'y envoie que le "
+            "titre du tome, à votre clic."))
+        v.addWidget(g)
         v.addStretch(1)
         return w
 
@@ -744,6 +755,7 @@ class PreferencesDialog(QDialog):
         s.set_reader_pref("ambilight", self.ambilight.isChecked())
         s.set_reader_pref("page_fade", self.page_fade.isChecked())
         s.set_reader_pref("boss_key", self.boss_key.isChecked())
+        s.set_reader_pref("babelio_button", self.babelio.isChecked())
         s.set_ui_pref("global_hotkey", self.global_hotkey.isChecked())
         s.set_anilist_value("tracking", self.tracking.isChecked())
         # une case decochee apres un choix vaut refus explicite ; si

@@ -28,7 +28,7 @@ Les numéros de version suivent [SemVer](https://semver.org/lang/fr/). Chaque se
 
 ### Babelio
 
-* **Nouveau** : la fiche de fin de tome propose « Marquer comme lu sur Babelio », qui ouvre la recherche du tome dans le navigateur. Babelio n'ayant pas d'API, Beheread n'y publie rien.
+* **Nouveau** : la fiche de fin de tome peut proposer « Marquer comme lu sur Babelio » (option des préférences, désactivée par défaut), qui ouvre la recherche du tome dans le navigateur. Babelio n'ayant pas d'API, Beheread n'y publie rien.
 
 ### Suivi AniList
 

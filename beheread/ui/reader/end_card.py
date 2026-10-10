@@ -121,6 +121,8 @@ class EndCardMixin:
             self.end_next_btn.show()
         else:
             self.end_next_btn.hide()
+        # option des preferences (lecteur), lue a chaque affichage de la fiche
+        self.end_babelio_btn.setVisible(bool(self.store.reader_pref("babelio_button", False)))
 
         self.end_card.adjustSize()
         self._place_end_card()

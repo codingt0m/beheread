@@ -156,3 +156,13 @@ def test_continue_shelf_can_reset_progress(window, qtbot, mangas, store, monkeyp
     assert store.get_progress(paths[1]) is None
     assert store.get_progress(paths[0]) == (4, 4, True)   # les autres tomes ne bougent pas
     assert shelf() == ["Alpha · Tome 2"]                  # redevenu « tome suivant », non commence
+
+
+def test_babelio_button_preference_is_off_by_default_and_saved(qtbot, store):
+    from beheread.ui import theme
+    dlg = PreferencesDialog(store, theme.colors("dark"), {})
+    qtbot.addWidget(dlg)
+    assert not dlg.babelio.isChecked()
+    dlg.babelio.setChecked(True)
+    dlg.save()
+    assert store.reader_pref("babelio_button") is True
