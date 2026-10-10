@@ -123,11 +123,11 @@ def test_failed_delete_keeps_progress(window, qtbot, mangas, store, monkeypatch)
     store.set_progress(path, 2, 4, False)
     monkeypatch.setattr(QMessageBox, "question", staticmethod(lambda *a, **k: QMessageBox.Yes))
     monkeypatch.setattr(QMessageBox, "warning", staticmethod(lambda *a, **k: None))
-    import send2trash
+    from beheread import platforms
 
     def refuse(_p):
         raise OSError("fichier verrouille")
-    monkeypatch.setattr(send2trash, "send2trash", refuse)
+    monkeypatch.setattr(platforms, "trash_function", lambda: refuse)
     lib._delete_many([path])
     assert store.get_progress(path) == (2, 4, False) and len(lib._entries) == 1
 
@@ -149,8 +149,8 @@ def test_deleting_one_copy_keeps_progress_of_identical_copy(window, qtbot, manga
     other = copy if shown == first else first
     store.set_progress(shown, 2, 4, False)
     monkeypatch.setattr(QMessageBox, "question", staticmethod(lambda *a, **k: QMessageBox.Yes))
-    import send2trash
-    monkeypatch.setattr(send2trash, "send2trash", lambda p: Path(p).unlink())
+    from beheread import platforms
+    monkeypatch.setattr(platforms, "trash_function", lambda: lambda p: Path(p).unlink())
     lib._delete_many([shown])
     assert store.get_progress(other) == (2, 4, False)
 

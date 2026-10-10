@@ -1,11 +1,12 @@
 # Beheread
 
 [![Dernière version](https://img.shields.io/github/v/release/codingt0m/beheread?label=version)](https://github.com/codingt0m/beheread/releases/latest)
-[![Windows 10 et 11](https://img.shields.io/badge/Windows-10%20%7C%2011%20(64%20bits)-0078D6)](https://github.com/codingt0m/beheread/releases/latest)
+[![Windows 10 et 11](https://img.shields.io/badge/Windows-10%20%7C%2011%20(64%20bits)-0078D6)](docs/INSTALLATION-WINDOWS.md)
+[![macOS 13+](https://img.shields.io/badge/macOS-13%2B%20(puce%20Apple)-555555)](docs/INSTALLATION-MACOS.md)
 [![Téléchargements](https://img.shields.io/github/downloads/codingt0m/beheread/total?label=t%C3%A9l%C3%A9chargements)](https://github.com/codingt0m/beheread/releases)
 [![Licence PolyForm Noncommercial](https://img.shields.io/badge/licence-PolyForm%20Noncommercial-orange)](LICENSE)
 
-**Un lecteur de mangas pour Windows, simple et hors ligne.** Beheread lit les fichiers CBZ, CBR, EPUB et PDF, range vos tomes par série et reprend chaque lecture à la page où vous l'avez laissée.
+**Un lecteur de mangas pour Windows et macOS, simple et hors ligne.** Beheread lit les fichiers CBZ, CBR, EPUB et PDF, range vos tomes par série et reprend chaque lecture à la page où vous l'avez laissée.
 
 ### [⬇ Télécharger Beheread](https://github.com/codingt0m/beheread/releases/latest)
 
@@ -23,68 +24,38 @@ Captures d'écran : déposer les images dans docs/images/ puis retirer ce commen
 * **Statistiques de lecture** : temps de lecture, pages lues, tomes terminés et régularité, par période.
 * **Métadonnées** (optionnel) : auteur et date de sortie de vos tomes.
 * **Suivi AniList** (optionnel) : votre liste AniList se met à jour toute seule pendant que vous lisez.
-* **Sauvegarde** : export et import de la progression, pour changer de PC.
+* **Sauvegarde** : export et import de la progression, pour changer d'ordinateur, y compris entre Windows et Mac.
 
-Toutes vos données restent **sur votre PC**. Seules les deux fonctions optionnelles utilisent le réseau, et uniquement si vous les activez. L'application fonctionne normalement sans connexion.
+Toutes vos données restent **sur votre ordinateur**. Seules les deux fonctions optionnelles utilisent le réseau, et uniquement si vous les activez. L'application fonctionne normalement sans connexion.
 
 ## Installation
 
-Rien d'autre à installer : tout ce dont Beheread a besoin est inclus dans le téléchargement.
+Rien d'autre à installer : tout ce dont Beheread a besoin est inclus dans le téléchargement. Sur la page de la [dernière version](https://github.com/codingt0m/beheread/releases/latest), dans la liste **Assets** en bas de page, téléchargez le fichier de votre système :
 
-### 1. Télécharger
-
-Ouvrez la page de la [dernière version](https://github.com/codingt0m/beheread/releases/latest) et, dans la liste **Assets** en bas de page, téléchargez l'un de ces deux fichiers :
-
-| Fichier | Quand le choisir |
-|---|---|
-| `Beheread-Setup-x.y.z.exe` | **Recommandé.** Installe Beheread, crée son raccourci dans le menu Démarrer et permet d'ouvrir vos mangas d'un double-clic. |
-| `Beheread-x.y.z-windows-x64.zip` | Version sans installation, à dézipper où vous voulez (voir [plus bas](#version-sans-installation)). |
+| Système | Fichier | Guide pas à pas |
+|---|---|---|
+| **Windows** 10 et 11 (64 bits) | `Beheread-Setup-x.y.z.exe` (installateur, recommandé) ou `Beheread-x.y.z-windows-x64.zip` (sans installation) | [Installer sous Windows](docs/INSTALLATION-WINDOWS.md) |
+| **macOS** 13 ou plus récent, Mac à puce Apple (M1 et suivants) | `Beheread-x.y.z-macos.dmg` | [Installer sous macOS](docs/INSTALLATION-MACOS.md) |
 
 Les archives « Source code » de la même liste contiennent le code du projet : elles ne servent pas à utiliser l'application.
 
-### 2. Installer
+En bref :
 
-1. Double-cliquez sur `Beheread-Setup-x.y.z.exe`.
-2. Si Windows affiche « Windows a protégé votre ordinateur » (éditeur inconnu), cliquez sur **Informations complémentaires**, puis sur **Exécuter quand même**. Cet avertissement apparaît parce que Beheread n'est pas signé numériquement : un certificat de signature est payant, et Windows se méfie par défaut de tout programme non signé et encore peu téléchargé. Ce n'est pas le signe d'un problème. Pour vous assurer que le fichier est bien celui publié ici, voir [Vérifier le téléchargement](#vérifier-le-téléchargement-facultatif).
-3. Choisissez **Installer seulement pour moi (recommandé)** : aucun droit administrateur n'est demandé.
-4. Sur la page des tâches supplémentaires, laissez cochée l'option **Ouvrir les fichiers CBZ, CBR et EPUB avec Beheread** pour ouvrir vos mangas d'un double-clic. Cochez **Créer une icône sur le Bureau** si vous en voulez une.
-5. Cliquez sur **Installer**, puis sur **Terminer** : Beheread se lance.
+* **Windows** : lancez l'installateur. Si Windows affiche « Windows a protégé votre ordinateur », cliquez sur **Informations complémentaires**, puis sur **Exécuter quand même** : Beheread n'est pas signé numériquement (un certificat est payant), ce n'est pas le signe d'un problème.
+* **macOS** : ouvrez le `.dmg` et faites glisser Beheread dans **Applications**. Au premier lancement, macOS le bloque car il n'est pas signé par Apple : autorisez-le une fois dans *Réglages Système > Confidentialité et sécurité > Ouvrir quand même* ([détails](docs/INSTALLATION-MACOS.md#3-autoriser-le-premier-lancement)).
 
-Beheread s'installe dans `%LOCALAPPDATA%\Programs\Beheread`. Pour les PDF, il est proposé dans « Ouvrir avec » sans remplacer votre lecteur PDF habituel.
+Ensuite, sur l'écran d'accueil, cliquez sur **Ajouter un dossier** et choisissez le dossier qui contient vos mangas. Ses sous-dossiers sont parcourus aussi, et vos fichiers ne sont ni déplacés ni modifiés. Double-cliquez sur une couverture pour lire ; **F1** affiche la liste des raccourcis.
 
-### 3. Premier lancement
-
-1. Sur l'écran d'accueil, cliquez sur **Ajouter un dossier** et choisissez le dossier qui contient vos mangas. Ses sous-dossiers sont parcourus aussi, et vos fichiers ne sont ni déplacés ni modifiés.
-2. Un bandeau propose de rechercher en ligne l'auteur et la date de sortie de vos tomes : répondez **Activer** ou **Non merci**. Ce choix se modifie ensuite dans les préférences.
-3. Double-cliquez sur une couverture pour lire. **F1** affiche la liste des raccourcis.
-
-Par la suite, Beheread s'ouvre depuis le menu Démarrer ou d'un double-clic sur un fichier CBZ, CBR ou EPUB.
-
-### Version sans installation
-
-1. Dézippez `Beheread-x.y.z-windows-x64.zip` où vous voulez.
-2. Ouvrez le dossier `Beheread` et lancez `Beheread.exe`. Le dossier `_internal` doit rester à côté de lui.
-3. Au premier lancement, Windows peut afficher le même avertissement que pour l'installateur : cliquez sur **Informations complémentaires**, puis sur **Exécuter quand même** (voir l'étape 2 de [Installer](#2-installer)).
-
-Cette version ne crée ni raccourci ni association de fichiers. Elle enregistre ses données au même endroit que la version installée (`%APPDATA%\MangaReaderPy`).
-
-### Mettre à jour
-
-Beheread ne se met pas à jour tout seul. Téléchargez le nouvel installateur et lancez-le : il remplace la version en place, en fermant Beheread s'il est ouvert. Votre bibliothèque, votre progression et vos réglages sont conservés.
-
-### Désinstaller
-
-Ouvrez *Paramètres Windows > Applications > Applications installées*, puis choisissez **Désinstaller** sur la ligne Beheread. L'application et ses associations de fichiers sont retirées ; vos données de lecture sont conservées dans `%APPDATA%\MangaReaderPy`. Supprimez ce dossier pour tout effacer.
+L'application est la même sur les deux systèmes, et une sauvegarde (*Préférences > Données > Exporter…*) se réimporte de l'un à l'autre : la progression suit vos tomes d'un PC à un Mac.
 
 ## Lire les fichiers CBR
 
 Les CBZ, EPUB et PDF fonctionnent sans rien d'autre. Beaucoup de fichiers `.cbr` sont en réalité des ZIP renommés : Beheread reconnaît le format réel du fichier, donc ceux-là s'ouvrent aussi sans rien installer.
 
-Les vrais fichiers RAR ont besoin d'un outil de décompression, qui n'est pas fourni avec Beheread. Une seule de ces options suffit :
+Les vrais fichiers RAR ont besoin d'un outil de décompression :
 
-* **WinRAR est installé** : rien à faire, il est détecté automatiquement.
-* **7-Zip est installé** : rien à faire non plus, il est détecté automatiquement à son emplacement habituel (`C:\Program Files\7-Zip`) depuis la version 1.1.0. Installé ailleurs, ajoutez son dossier à la variable d'environnement PATH.
-* **Ni l'un ni l'autre** : téléchargez « UnRAR for Windows » sur [rarlab.com](https://www.rarlab.com/rar_add.htm) et copiez `UnRAR.exe` dans le dossier de Beheread, à côté de `Beheread.exe`. Avec l'installateur, ce dossier est `%LOCALAPPDATA%\Programs\Beheread` (collez ce chemin dans la barre d'adresse de l'Explorateur pour l'ouvrir).
+* **Windows** : WinRAR ou 7-Zip, s'ils sont installés, sont détectés automatiquement ; sinon, déposez `UnRAR.exe` dans le dossier de Beheread ([détails](docs/INSTALLATION-WINDOWS.md#lire-les-fichiers-cbr)).
+* **macOS** : rien à installer, l'outil fourni avec macOS suffit pour la plupart des fichiers ; pour un fichier qui résiste, installez 7-Zip ([détails](docs/INSTALLATION-MACOS.md#lire-les-fichiers-cbr)).
 
 ## Raccourcis essentiels du lecteur
 
@@ -97,31 +68,27 @@ Les vrais fichiers RAR ont besoin d'un outil de décompression, qui n'est pas fo
 | Recadrer les marges | R |
 | Ajuster à la hauteur / à la largeur | F |
 | Zoom | + / -, 0 pour réinitialiser |
+| Plein écran | F11 (Mac : ⌃⌘F) |
 | Retour à la bibliothèque | Échap |
 | Liste de tous les raccourcis | F1 |
 
-Toutes les fonctions sont détaillées dans le [guide d'utilisation](docs/GUIDE.md).
+Sur Mac, les raccourcis avec Ctrl utilisent ⌘ (⌘F pour rechercher, ⌘, pour les réglages) ; la liste affichée par F1 montre toujours les touches de votre système. Toutes les fonctions sont détaillées dans le [guide d'utilisation](docs/GUIDE.md).
 
 ## Vérifier le téléchargement (facultatif)
 
-Chaque version publie un fichier `SHA256SUMS.txt`. Dans PowerShell, depuis le dossier du téléchargement :
-
-```
-Get-FileHash .\Beheread-Setup-x.y.z.exe -Algorithm SHA256
-```
-
-(ou `.\Beheread-x.y.z-windows-x64.zip` pour la version sans installation). L'empreinte affichée doit être celle de la ligne correspondante de `SHA256SUMS.txt`.
+Chaque version publie les sommes de contrôle de ses fichiers (`SHA256SUMS.txt` pour Windows, `SHA256SUMS-macos.txt` pour macOS). La marche à suivre est dans chaque guide : [Windows](docs/INSTALLATION-WINDOWS.md#vérifier-le-téléchargement-facultatif), [macOS](docs/INSTALLATION-MACOS.md#vérifier-le-téléchargement-facultatif).
 
 ## Dépannage
 
-* **« Windows a protégé votre ordinateur »** au lancement de l'installateur ou de `Beheread.exe` (version sans installation) : voir l'étape 2 de [Installer](#2-installer).
+* **Avertissement de sécurité à l'installation ou au premier lancement** : voir le guide de votre système ([Windows](docs/INSTALLATION-WINDOWS.md#2-installer), [macOS](docs/INSTALLATION-MACOS.md#3-autoriser-le-premier-lancement)).
 * **« Aucun outil de décompression RAR n'a été trouvé »** : voir [Lire les fichiers CBR](#lire-les-fichiers-cbr).
 * **Une vignette reste grise** : l'archive est probablement corrompue ou vide ; ouvrez-la pour voir le message d'erreur détaillé.
-* **Autre comportement anormal** (Beheread qui ne se lance pas, métadonnées qui n'arrivent jamais, dossier qui ne se rafraîchit plus) : consultez `beheread.log` dans `%APPDATA%\MangaReaderPy`, toutes les erreurs y sont consignées.
-* **Signaler un problème** : ouvrez une [issue](https://github.com/codingt0m/beheread/issues), en joignant si possible les lignes concernées de `beheread.log`.
+* **Autre comportement anormal** (Beheread qui ne se lance pas, métadonnées qui n'arrivent jamais, dossier qui ne se rafraîchit plus) : consultez le journal `beheread.log`, toutes les erreurs y sont consignées. Il se trouve dans `%APPDATA%\MangaReaderPy` sous Windows, dans `~/Library/Application Support/Beheread` sous macOS.
+* **Signaler un problème** : ouvrez une [issue](https://github.com/codingt0m/beheread/issues), en précisant votre système et en joignant si possible les lignes concernées de `beheread.log`.
 
 ## Documentation
 
+* Installation pas à pas : [Windows](docs/INSTALLATION-WINDOWS.md), [macOS](docs/INSTALLATION-MACOS.md).
 * [Guide d'utilisation](docs/GUIDE.md) : bibliothèque, lecteur, statistiques, métadonnées, AniList, données.
 * [Notes de version](CHANGELOG.md)
 * [Développement](docs/DEVELOPPEMENT.md) : lancer depuis les sources, construire, publier, structure du code, tests.

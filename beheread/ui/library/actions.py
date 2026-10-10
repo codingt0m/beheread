@@ -244,15 +244,12 @@ class ActionsMixin:
         self._rebuild_list()
 
     def _delete_many(self, paths, series_label=None):
-        """Supprime les fichiers donnes (corbeille si send2trash est dispo,
+        """Supprime les fichiers donnes (corbeille du systeme si possible,
         sinon suppression definitive). `series_label` : si fourni, la
         confirmation annonce la suppression de toute une serie."""
-        # suppression vers la corbeille si send2trash est disponible (repli sur
-        # une suppression definitive sinon)
-        try:
-            from send2trash import send2trash
-        except Exception:
-            send2trash = None
+        # corbeille du systeme si elle est utilisable (voir
+        # beheread.platforms.trash_function), suppression definitive sinon
+        send2trash = platforms.trash_function()
         to_trash = send2trash is not None
 
         verb = "Mettre à la corbeille" if to_trash else "Supprimer définitivement"
@@ -272,7 +269,7 @@ class ActionsMixin:
                 names += f"\n… et {len(paths) - 10} de plus"
             message = f"{verb} {len(paths)} mangas ?\n\n{names}"
         if to_trash:
-            message += "\n\nLes fichiers seront envoyés dans la corbeille de Windows."
+            message += f"\n\nLes fichiers seront envoyés dans {platforms.TRASH_NAME}."
         else:
             message += "\n\nLes fichiers seront supprimés du disque. Cette action est irréversible."
 

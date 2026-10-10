@@ -36,6 +36,8 @@ APP_NAME = "Beheread"
 LAUNCH_FILE_WAIT_MS = 300
 # filet de securite si macOS ne signale pas la fin de la sortie du plein ecran
 FULLSCREEN_EXIT_TIMEOUT_MS = 1500
+# taille de la police de base sous macOS (1 pt = 1 px), voir apply_theme
+MAC_FONT_POINTS = 12.0
 
 
 class ReaderWindow(QMainWindow):
@@ -343,6 +345,12 @@ def apply_theme(app: QApplication, mode: str, accent=None):
     theme.set_accent(accent, mode)
     app.setWindowIcon(appicon.app_icon())
     app.setStyle("Fusion")
+    if platforms.IS_MACOS and app.font().pointSizeF() != MAC_FONT_POINTS:
+        # meme taille de texte que sous Windows (9 pt a 96 ppp = 12 px) : la
+        # police du Mac fait 13 px par defaut, ce qui elargit tous les libelles
+        font = app.font()
+        font.setPointSizeF(MAC_FONT_POINTS)
+        app.setFont(font)
     c = theme.colors(mode)
     p = QPalette()
     p.setColor(QPalette.Window, QColor(c["window"]))

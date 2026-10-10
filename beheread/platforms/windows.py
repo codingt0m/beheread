@@ -122,6 +122,18 @@ def reveal_in_file_manager(path: str):
     subprocess.Popen(["explorer", "/select,", os.path.normpath(path)])
 
 
+def trash_function():
+    """send2trash (corbeille du systeme), ou None s'il est absent."""
+    try:
+        from send2trash import send2trash
+    except Exception:
+        return None
+    return send2trash
+
+
+TRASH_NAME = "la corbeille de Windows"
+
+
 def rar_tools(app_dir: Path) -> dict:
     """Outils de decompression RAR candidats, par ordre de preference
     (voir archive._init_rarfile) : UnRAR.exe depose a cote de Beheread ou

@@ -118,6 +118,23 @@ def reveal_in_file_manager(path: str):
         logging.warning("Ouverture du Finder impossible", exc_info=True)
 
 
+def _move_to_trash(path: str):
+    """Corbeille du Finder, par Qt (NSFileManager) : sans PyObjC, dont
+    send2trash a besoin sous macOS."""
+    from PySide6.QtCore import QFile
+    result = QFile.moveToTrash(path)
+    ok = result[0] if isinstance(result, tuple) else result
+    if not ok:
+        raise OSError(f"impossible de mettre « {path} » à la Corbeille")
+
+
+def trash_function():
+    return _move_to_trash
+
+
+TRASH_NAME = "la Corbeille"
+
+
 # Une application lancee depuis le Finder n'herite pas du PATH du terminal :
 # les outils installes par Homebrew sont donc cherches a leurs emplacements
 # standard (Apple Silicon, puis Intel).

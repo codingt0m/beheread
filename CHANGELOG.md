@@ -4,6 +4,16 @@ Les numéros de version suivent [SemVer](https://semver.org/lang/fr/). Chaque se
 
 ## [Non publié]
 
+### Version macOS (nouveau)
+
+* **Nouveau** : Beheread existe pour Mac (puce Apple, macOS 13 ou plus récent), avec les mêmes fonctions et la même interface que sous Windows. Téléchargez `Beheread-x.y.z-macos.dmg` et suivez le [guide d'installation macOS](https://github.com/codingt0m/beheread/blob/main/docs/INSTALLATION-MACOS.md) : l'application n'étant pas signée par Apple, macOS demande une autorisation au premier lancement.
+* Les touches suivent les habitudes du Mac (⌘F, ⌘, pour les réglages, ⌃⌘F pour le plein écran, ⌘⌫ pour supprimer) ; la liste des raccourcis (F1) affiche celles de votre système.
+* Les CBR s'ouvrent sans rien installer, avec l'outil de décompression fourni avec macOS.
+* Une sauvegarde exportée sous Windows s'importe sur Mac, et inversement : la progression suit vos tomes d'un ordinateur à l'autre.
+* Seule différence : le raccourci global `Ctrl+Alt+C` n'existe pas sur Mac ; la touche `C` du lecteur masque Beheread, un clic sur son icône du Dock le fait revenir.
+* **Corrigé** : dans les statistiques, un ancien tome terminé venu d'une sauvegarde d'un autre système affichait son chemin complet au lieu de son titre.
+* Les guides d'installation sont désormais séparés : [Windows](https://github.com/codingt0m/beheread/blob/main/docs/INSTALLATION-WINDOWS.md) et [macOS](https://github.com/codingt0m/beheread/blob/main/docs/INSTALLATION-MACOS.md).
+
 ### BD franco-belge et sens de lecture
 
 * **Nouveau** : les BD (Lou !, Seuls, Blacksad…) trouvent leur auteur et leur année dans le catalogue de la BnF, quand les bases manga ne les connaissent pas.

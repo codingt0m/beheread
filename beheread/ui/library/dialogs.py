@@ -533,7 +533,9 @@ class PreferencesDialog(QDialog):
         # une seule ligne dans tous les cas : la hauteur du dialogue ne bouge pas
         mode = self.theme.currentData()
         if theme.bounded_accent(self._accent, mode) == self._accent:
-            hint = "L'icône des raccourcis et des fichiers dans Windows garde sa couleur d'origine."
+            hint = ("L'icône de l'application dans le Finder garde sa couleur d'origine."
+                    if platforms.IS_MACOS else
+                    "L'icône des raccourcis et des fichiers dans Windows garde sa couleur d'origine.")
         elif mode == "light":
             hint = ("Trop claire pour le thème clair : elle y sera assombrie juste assez "
                     "pour rester lisible.")
@@ -680,9 +682,12 @@ class PreferencesDialog(QDialog):
         gv.addLayout(row)
         gv.addWidget(self._hint(
             "Votre navigateur s'ouvre sur AniList pour autoriser Beheread ; la connexion se "
-            "termine ensuite toute seule. L'accès est chiffré sur ce PC (protection Windows "
-            "liée à votre session), reste valable un an, et peut être révoqué à tout moment "
-            "depuis les réglages de votre compte AniList."))
+            "termine ensuite toute seule. "
+            + ("L'accès est rangé dans le Trousseau de ce Mac"
+               if platforms.IS_MACOS else
+               "L'accès est chiffré sur ce PC (protection Windows liée à votre session)")
+            + ", reste valable un an, et peut être révoqué à tout moment depuis les "
+            "réglages de votre compte AniList."))
         self.tracking = QCheckBox("Mettre à jour ma liste à la fin de chaque séance de lecture")
         self.tracking.setChecked(bool(self.store.anilist().get("tracking", True)))
         gv.addWidget(self.tracking)

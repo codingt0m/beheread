@@ -88,3 +88,20 @@ def test_keychain_roundtrip():
     finally:
         secret_store.discard(enc)
     assert secret_store.unprotect(enc) is None
+
+
+@pytest.mark.skipif(not platforms.IS_MACOS, reason="Corbeille du Finder : macOS seulement")
+def test_mac_trash_moves_the_file_to_the_trash(tmp_path):
+    f = tmp_path / "a-jeter.cbz"
+    f.write_bytes(b"PK")
+    platforms.trash_function()(str(f))
+    assert not f.exists()
+    trashed = list((Path.home() / ".Trash").glob("a-jeter*.cbz"))
+    assert trashed
+    for t in trashed:
+        t.unlink()
+
+
+def test_trash_function_is_available_on_supported_systems():
+    if platforms.IS_WINDOWS or platforms.IS_MACOS:
+        assert callable(platforms.trash_function())

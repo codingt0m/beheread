@@ -64,6 +64,18 @@ def reveal_in_file_manager(path: str):
     QDesktopServices.openUrl(QUrl.fromLocalFile(str(Path(path).parent)))
 
 
+def trash_function():
+    """send2trash (corbeille du systeme), ou None s'il est absent."""
+    try:
+        from send2trash import send2trash
+    except Exception:
+        return None
+    return send2trash
+
+
+TRASH_NAME = "la corbeille"
+
+
 def rar_tools(app_dir: Path) -> dict:
     """UnRAR depose a cote de l'application, sinon les outils du PATH que
     rarfile cherche de lui-meme (unrar, unar, 7z, bsdtar)."""

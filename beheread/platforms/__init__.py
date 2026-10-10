@@ -31,6 +31,8 @@ API = (
     "allow_foreground",        # () : instance secondaire -> premier plan a l'instance principale
     "hide_window",             # (fenetre) : la masquer instantanement (touche C du lecteur)
     "reveal_in_file_manager",  # (chemin) : montre le fichier dans l'explorateur / le Finder
+    "trash_function",          # () -> fonction (chemin) qui met a la corbeille, ou None
+    "TRASH_NAME",              # texte : « la corbeille de Windows », « la Corbeille »...
     "rar_tools",               # (dossier de l'app) -> {"unrar"|"sevenzip"|"bsdtar": [Path]}
     "RAR_HELP",                # texte : comment obtenir un outil RAR
     "GLOBAL_HOTKEY",           # bool : raccourci global (touche boss) disponible
@@ -49,6 +51,8 @@ before_app_start = _impl.before_app_start
 allow_foreground = _impl.allow_foreground
 hide_window = _impl.hide_window
 reveal_in_file_manager = _impl.reveal_in_file_manager
+trash_function = _impl.trash_function
+TRASH_NAME = _impl.TRASH_NAME
 rar_tools = _impl.rar_tools
 RAR_HELP = _impl.RAR_HELP
 GLOBAL_HOTKEY = _impl.GLOBAL_HOTKEY

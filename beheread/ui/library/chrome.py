@@ -414,6 +414,9 @@ class ChromeMixin:
                 color: {c['text_dim']}; background: transparent;
                 border: 1px solid {c['border']}; border-radius: 12px;
                 padding: 3px 12px; font-size: 12px; font-weight: 600;
+                /* 24 px de haut au moins : Qt n'arrondit pas un coin dont le
+                   rayon depasse la moitie de la hauteur (cas des polices du Mac) */
+                min-height: 16px;
             }}
             QPushButton#statusChip:hover {{ color: {c['text']}; background: {c['button']}; }}
             QPushButton#statusChip:checked {{
