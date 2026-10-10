@@ -10,6 +10,7 @@ ecran (WA_DontShowOnScreen) mais avec la plateforme graphique du systeme,
 donc ses vraies polices (la plateforme « offscreen » n'en a pas)."""
 
 import datetime as dt
+import os
 import sys
 import tempfile
 import time
@@ -182,7 +183,10 @@ def main(out: Path):
 
     QThreadPool.globalInstance().waitForDone(5000)
     store.close()
-    print("\n".join(f"{out / name}.png" for name in shots))
+    print("\n".join(f"{out / name}.png" for name in shots), flush=True)
+    # sortie immediate : les captures sont ecrites, et la destruction des
+    # objets Qt par Python en fin de script (ordre non garanti) peut planter
+    os._exit(0)
 
 
 if __name__ == "__main__":

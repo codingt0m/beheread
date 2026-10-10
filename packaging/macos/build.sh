@@ -31,7 +31,11 @@ echo "=== Verification du demarrage ==="
 # l'application emballee doit se lancer (bibliotheques Qt completes) puis se
 # fermer d'elle-meme ; donnees dans un dossier jetable
 SMOKE_HOME=$(mktemp -d)
-HOME="$SMOKE_HOME" BEHEREAD_SMOKE_TEST=1 "$APP/Contents/MacOS/Beheread"
+status=0
+HOME="$SMOKE_HOME" BEHEREAD_SMOKE_TEST=1 "$APP/Contents/MacOS/Beheread" || status=$?
+echo "Code de sortie de l'application : $status"
+cat "$SMOKE_HOME/Library/Application Support/Beheread/beheread.log" || true
+test "$status" -eq 0
 test -f "$SMOKE_HOME/Library/Application Support/Beheread/beheread.db"
 rm -rf "$SMOKE_HOME"
 

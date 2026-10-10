@@ -58,15 +58,6 @@ jobs:
       - name: Dependances
         run: python -m pip install -r requirements-dev.txt
 
-      - name: Captures d'ecran
-        run: python tools/screenshots.py captures
-
-      - uses: actions/upload-artifact@v7
-        with:
-          name: captures-macos
-          path: captures/
-          retention-days: 14
-
       - name: Build (verification, tests, application, image disque)
         run: bash packaging/macos/build.sh
 
@@ -78,3 +69,14 @@ jobs:
           path: |
             dist/Beheread-*-macos.dmg
             dist/SHA256SUMS-macos.txt
+
+      - name: Captures d'ecran
+        if: ${{ !cancelled() }}
+        run: python tools/screenshots.py captures
+
+      - uses: actions/upload-artifact@v7
+        if: ${{ !cancelled() }}
+        with:
+          name: captures-macos
+          path: captures/
+          retention-days: 14
