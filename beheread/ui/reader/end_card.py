@@ -8,8 +8,9 @@ from pathlib import Path
 
 from PySide6.QtCore import (
     Qt,
+    QUrl,
 )
-from PySide6.QtGui import QPixmap
+from PySide6.QtGui import QDesktopServices, QPixmap
 from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
@@ -18,6 +19,8 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
 )
 
+from beheread.core import babelio
+from beheread.infra.storage import Store
 from beheread.ui import theme
 
 
@@ -59,6 +62,17 @@ class EndCardMixin:
         row.addWidget(self.end_next_btn)
         row.addWidget(self.end_lib_btn)
         v.addLayout(row)
+
+        # Babelio n'a pas d'API : on ouvre sa recherche dans le navigateur, et
+        # c'est l'utilisateur qui marque le tome « lu » (voir core/babelio.py)
+        self.end_babelio_btn = QPushButton("Marquer comme lu sur Babelio", self.end_card)
+        self.end_babelio_btn.setObjectName("endBabelio")
+        self.end_babelio_btn.setCursor(Qt.PointingHandCursor)
+        self.end_babelio_btn.setFocusPolicy(Qt.NoFocus)
+        self.end_babelio_btn.setToolTip(
+            "Ouvre la recherche de ce tome sur babelio.com dans votre navigateur")
+        self.end_babelio_btn.clicked.connect(self._on_end_babelio)
+        v.addWidget(self.end_babelio_btn, alignment=Qt.AlignCenter)
 
         self.end_card.hide()
 
@@ -126,3 +140,22 @@ class EndCardMixin:
     def _on_end_next(self):
         if self._next_volume_path:
             self.next_volume_requested.emit(self._next_volume_path)
+
+    def _babelio_page(self) -> Path:
+        """Ecrit la page locale qui lance la recherche Babelio de ce tome (nom
+        de serie force par l'utilisateur pris en compte) et renvoie son
+        chemin."""
+        p = Path(self.path)
+        override = self.store.series_override(self.path)
+        name = None if override in (None, Store.SERIES_DETACHED) else override
+        query = babelio.search_query(p.stem, p.parent.name, name)
+        page = self.store.dir / "babelio_search.html"
+        page.write_text(babelio.search_page(query), encoding="utf-8")
+        return page
+
+    def _on_end_babelio(self):
+        try:
+            page = self._babelio_page()
+        except OSError:
+            return
+        QDesktopServices.openUrl(QUrl.fromLocalFile(str(page)))

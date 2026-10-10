@@ -26,6 +26,10 @@ Les numéros de version suivent [SemVer](https://semver.org/lang/fr/). Chaque se
 * Un tome refermé sur sa page 1, 2 ou 3 n'est plus considéré comme commencé : sa progression est effacée à la sortie du lecteur, et il n'apparaît ni « en cours » ni dans « Continuer la lecture ». Un tome déjà terminé le reste.
 * **Corrigé** : un album nommé « Série - Tome 4 - Titre de l'album », ou un fichier au nommage « scène » (« Chainsaw.Man.T20.Fujimoto.FR.[CBZ]-NoTag »), formait sa propre série au lieu de rejoindre les autres tomes.
 
+### Babelio
+
+* **Nouveau** : la fiche de fin de tome propose « Marquer comme lu sur Babelio », qui ouvre la recherche du tome dans le navigateur. Babelio n'ayant pas d'API, Beheread n'y publie rien.
+
 ### Suivi AniList
 
 * **Nouveau** : les one-shots (« Errance ») sont publiés « 1 tome lu, terminée » une fois lus, quand l'œuvre AniList existe en un seul tome. Leur association automatique exige un titre quasi identique.

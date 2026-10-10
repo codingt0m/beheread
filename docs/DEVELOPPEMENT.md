@@ -58,6 +58,7 @@ beheread/
   core/                  Logique pure, sans Qt ni accès disque/réseau, testée isolément
     models.py            Modèles typés (LibraryEntry, VolumeInfo, SeriesInfo)
     series.py            Détection série/tome par nom de fichier, tome suivant
+    babelio.py           Recherche Babelio d'un tome (page locale ouverte depuis la fiche de fin)
     library_model.py     Statuts de lecture, tris, sélection « Continuer la lecture »
     search.py            Recherche : normalisation, index inversé, tolérance aux fautes de frappe
     pairing.py           Appairage double page (parité, planches doubles, recul)

@@ -117,7 +117,7 @@ Chaque changement de page est adouci par un fondu enchaîné rapide (~130ms).
 
 **Estimation du temps restant.** Après quelques tours de page, le HUD affiche une estimation du temps de lecture restant dans le tome (« ~18 min restantes »), calculée sur votre rythme de la session (les longues pauses sont ignorées).
 
-**Fiche de fin de tome.** À la dernière page, une fiche récapitulative s'affiche : couverture, nombre de pages, temps de lecture de la session, et un bouton pour enchaîner sur le tome suivant (s'il est détecté) ou revenir à la bibliothèque.
+**Fiche de fin de tome.** À la dernière page, une fiche récapitulative s'affiche : couverture, nombre de pages, temps de lecture de la session, et un bouton pour enchaîner sur le tome suivant (s'il est détecté) ou revenir à la bibliothèque. Le bouton **Marquer comme lu sur Babelio** ouvre la recherche de ce tome sur babelio.com dans votre navigateur : Beheread ne s'y connecte pas et n'y publie rien (Babelio n'offre pas d'API), c'est vous qui le marquez « lu » sur votre compte.
 
 **Touche « boss » (C).** Un appui sur `C` masque instantanément la fenêtre de lecture (elle reste dans la barre des tâches). Le raccourci global `Ctrl+Alt+C` la masque et la réaffiche depuis n'importe quelle application, pratique pour dissimuler sa lecture d'une seule touche.
 

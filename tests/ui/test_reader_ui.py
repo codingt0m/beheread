@@ -299,3 +299,21 @@ def test_closing_on_the_first_pages_forgets_the_progress(window, qtbot, mangas, 
     reader._go_to(1)
     reader.close_reader()
     assert store.get_progress(path) == (1, 8, True)
+
+
+def test_end_card_opens_the_volume_on_babelio(window, qtbot, mangas, store, monkeypatch):
+    from pathlib import Path
+
+    from PySide6.QtGui import QDesktopServices
+    opened = []
+    monkeypatch.setattr(QDesktopServices, "openUrl", lambda url: opened.append(url))
+    path = make_cbz(mangas, "Alpha - Tome 2", pages=3)
+    reader = _open(window, qtbot, path)
+    for _ in range(3):
+        reader.next_page(animate=False)
+    assert reader.end_card.isVisible()
+    reader.end_babelio_btn.click()
+    assert len(opened) == 1 and opened[0].isLocalFile()
+    page = Path(opened[0].toLocalFile()).read_text(encoding="utf-8")
+    assert 'action="https://www.babelio.com/recherche.php"' in page
+    assert 'name="Recherche" value="alpha tome 2"' in page
