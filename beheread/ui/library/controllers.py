@@ -24,6 +24,7 @@ from PySide6.QtCore import (
 from PySide6.QtGui import QPixmap
 
 from beheread.core.series import author_hint, normalize_name
+from beheread.i18n import tr
 from beheread.infra import metadata
 from beheread.ui.library.workers import (
     HydrateWorker,
@@ -455,5 +456,5 @@ class CoverCache(QObject):
         # vignette « illisible » ; le detail est dans le menu contextuel
         self._pending.discard(path)
         self._workers.pop(path, None)
-        self._failed[path] = message or "Erreur inconnue"
+        self._failed[path] = message or tr("Erreur inconnue")
         self.coverReady.emit(path)   # la case se redessine en « illisible »

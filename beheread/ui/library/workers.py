@@ -12,6 +12,7 @@ from PySide6.QtGui import QImage
 
 from beheread.config import THUMB_SCALE
 from beheread.core.library_model import natural_key as _natural_key
+from beheread.i18n import tr
 from beheread.infra import metadata
 from beheread.infra.archive import Archive, scan_tree
 from beheread.infra.storage import Store, is_cloud_stat
@@ -70,7 +71,7 @@ class ThumbWorker(QRunnable):
             finally:
                 ar.close()
             if img.isNull():
-                raise ValueError("couverture illisible")
+                raise ValueError(tr("couverture illisible"))
             img = img.scaled(THUMB_W * THUMB_SCALE, THUMB_H * THUMB_SCALE,
                              Qt.KeepAspectRatio, Qt.SmoothTransformation)
             # JPEG q=88 : ~5x plus petit qu'un PNG, encodage/relecture plus

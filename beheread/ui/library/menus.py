@@ -9,6 +9,7 @@ from PySide6.QtWidgets import QMenu
 
 from beheread import platforms
 from beheread.core.library_model import FINISHED
+from beheread.i18n import tr
 from beheread.infra.storage import Store
 
 # modules extraits (voir chacun) : constantes de rendu, delegates, dialogues et
@@ -45,44 +46,46 @@ class MenusMixin:
 
         menu = QMenu(self)
         act_reset = menu.addAction(
-            "Réinitialiser la progression" if n == 1 else f"Réinitialiser la progression ({n})")
+            tr("Réinitialiser la progression") if n == 1
+            else tr("Réinitialiser la progression ({n})", n=n))
         act_finished = menu.addAction(
-            "Marquer comme lu" if n == 1 else f"Marquer {n} mangas comme lus")
-        # "Marquer comme non lu" : annule un marquage "termine" (accidentel ou
+            tr("Marquer comme lu") if n == 1 else tr("Marquer {n} mangas comme lus", n=n))
+        # tr("Marquer comme non lu") : annule un marquage "termine" (accidentel ou
         # non) sans perdre la page courante - propose seulement si au moins un
         # tome selectionne est effectivement marque termine.
         paths = [it.data(ROLE_PATH) for it in items]
         act_unread = None
         if any((self.store.get_progress(p) or (0, 0, False))[2] for p in paths):
             act_unread = menu.addAction(
-                "Marquer comme non lu" if n == 1 else f"Marquer {n} mangas comme non lus")
+                tr("Marquer comme non lu") if n == 1 else tr("Marquer {n} mangas comme non lus", n=n))
         menu.addSeparator()
         act_reload_meta = menu.addAction(
-            "Recharger les métadonnées" if n == 1 else f"Recharger les métadonnées ({n})")
-        act_edit = menu.addAction("Modifier les informations…") if n == 1 else None
-        act_cover = menu.addAction("Choisir la couverture…") if n == 1 else None
+            tr("Recharger les métadonnées") if n == 1
+            else tr("Recharger les métadonnées ({n})", n=n))
+        act_edit = menu.addAction(tr("Modifier les informations…")) if n == 1 else None
+        act_cover = menu.addAction(tr("Choisir la couverture…")) if n == 1 else None
         act_move = menu.addAction(
-            "Déplacer vers une série…" if n == 1 else f"Déplacer {n} mangas vers une série…")
-        act_rename = menu.addAction("Renommer le fichier…") if n == 1 else None
-        act_explorer = menu.addAction(platforms.REVEAL_LABEL) if n == 1 else None
+            tr("Déplacer vers une série…") if n == 1 else tr("Déplacer {n} mangas vers une série…", n=n))
+        act_rename = menu.addAction(tr("Renommer le fichier…")) if n == 1 else None
+        act_explorer = menu.addAction(tr(platforms.REVEAL_LABEL)) if n == 1 else None
         act_error = None
         if n == 1 and self.covers.error(paths[0]) is not None:
-            act_error = menu.addAction("Voir l'erreur…")
+            act_error = menu.addAction(tr("Voir l'erreur…"))
 
         # --- regroupement en serie ---
         act_detach = act_restore = None
         if any(self._is_grouped_in_series(p) for p in paths):
             menu.addSeparator()
             act_detach = menu.addAction(
-                "Sortir de la série" if n == 1 else f"Sortir {n} mangas de leur série")
+                tr("Sortir de la série") if n == 1 else tr("Sortir {n} mangas de leur série", n=n))
         if any(self.store.series_override(p) is not None for p in paths):
             if act_detach is None:
                 menu.addSeparator()
-            act_restore = menu.addAction("Rétablir le regroupement automatique")
+            act_restore = menu.addAction(tr("Rétablir le regroupement automatique"))
 
         menu.addSeparator()
         act_delete = menu.addAction(
-            "Supprimer le manga…" if n == 1 else f"Supprimer {n} mangas…")
+            tr("Supprimer le manga…") if n == 1 else tr("Supprimer {n} mangas…", n=n))
 
         chosen = menu.exec(self.list.viewport().mapToGlobal(pos))
         if chosen is None:
@@ -136,17 +139,17 @@ class MenusMixin:
         display = self._series_display_name.get(key) or item.text()
 
         menu = QMenu(self)
-        act_open = menu.addAction("Ouvrir la série")
+        act_open = menu.addAction(tr("Ouvrir la série"))
         finished = all(getattr(self._info.get(p), "status", None) == FINISHED for p in paths)
-        act_read = None if finished else menu.addAction("Marquer la série comme lue")
+        act_read = None if finished else menu.addAction(tr("Marquer la série comme lue"))
         menu.addSeparator()
-        act_edit = menu.addAction("Modifier les informations…")
-        act_rename = menu.addAction("Renommer la série…")
-        act_merge = menu.addAction("Fusionner avec une autre série…")
-        act_anilist = (menu.addAction("Associer à AniList…")
+        act_edit = menu.addAction(tr("Modifier les informations…"))
+        act_rename = menu.addAction(tr("Renommer la série…"))
+        act_merge = menu.addAction(tr("Fusionner avec une autre série…"))
+        act_anilist = (menu.addAction(tr("Associer à AniList…"))
                        if self.tracker is not None and self.tracker.connected() else None)
         menu.addSeparator()
-        act_delete = menu.addAction(f"Supprimer la série ({n} tomes)…")
+        act_delete = menu.addAction(tr("Supprimer la série ({n} tomes)…", n=n))
         chosen = menu.exec(self.list.viewport().mapToGlobal(pos))
         if chosen is None:
             return
@@ -167,13 +170,13 @@ class MenusMixin:
 
     def _show_shelf_menu(self, path, global_pos):
         menu = QMenu(self)
-        act_open = menu.addAction("Ouvrir")
-        act_hide = menu.addAction("Masquer de « Continuer la lecture »")
+        act_open = menu.addAction(tr("Ouvrir"))
+        act_hide = menu.addAction(tr("Masquer de « Continuer la lecture »"))
         # seulement pour un tome entame : « A suivre » propose un tome non
         # commence, qui n'a pas de progression a effacer
-        act_reset = (menu.addAction("Réinitialiser la progression")
+        act_reset = (menu.addAction(tr("Réinitialiser la progression"))
                      if self.store.get_progress(path) is not None else None)
-        act_read = menu.addAction("Marquer comme lu")
+        act_read = menu.addAction(tr("Marquer comme lu"))
         chosen = menu.exec(global_pos)
         if chosen is None:
             return

@@ -21,6 +21,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from PySide6.QtCore import QObject, Signal
 
+from beheread.i18n import tr
+
 MAX_BODY = 16 * 1024
 MAX_ERROR_CHARS = 200   # message d'erreur transmis par la page (non fiable)
 
@@ -139,7 +141,7 @@ class LocalAuthReceiver(QObject):
         else:
             # texte venu du navigateur (adresse de la page) : borne, et affiche
             # en texte brut par la fenetre de connexion
-            self.failed.emit(str(data.get("error") or "Connexion annulée.")[:MAX_ERROR_CHARS])
+            self.failed.emit(str(data.get("error") or tr("Connexion annulée."))[:MAX_ERROR_CHARS])
 
     def stop(self):
         server, self._server = self._server, None

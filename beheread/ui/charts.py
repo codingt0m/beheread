@@ -23,6 +23,7 @@ from PySide6.QtWidgets import (
 )
 
 from beheread.core import stats
+from beheread.i18n import N_, fmt_int, tr, trn
 from beheread.ui import theme
 
 # couleurs de donnees (validees avec le script de la methode dataviz)
@@ -52,13 +53,24 @@ def data_colors(mode) -> dict:
                         or max(pairs, key=margin))
     return {"activity": accent, "reading": accent, "finished": finished, "unread": unread}
 
-MONTHS_FR = ["janv.", "févr.", "mars", "avr.", "mai", "juin", "juil.", "août",
-             "sept.", "oct.", "nov.", "déc."]
-DAYS_FR = ["lun.", "mar.", "mer.", "jeu.", "ven.", "sam.", "dim."]
+# noms abreges, traduits a l'affichage (voir month_name et day_name)
+MONTHS_FR = [N_("janv."), N_("févr."), N_("mars"), N_("avr."), N_("mai"), N_("juin"),
+             N_("juil."), N_("août"), N_("sept."), N_("oct."), N_("nov."), N_("déc.")]
+DAYS_FR = [N_("lun."), N_("mar."), N_("mer."), N_("jeu."), N_("ven."), N_("sam."), N_("dim.")]
+
+
+def month_name(month) -> str:
+    """Nom abrege du mois (1 a 12) dans la langue de l'interface."""
+    return tr(MONTHS_FR[month - 1])
+
+
+def day_name(weekday) -> str:
+    """Nom abrege du jour (0 = lundi) dans la langue de l'interface."""
+    return tr(DAYS_FR[weekday])
 
 
 def _fmt_int(n) -> str:
-    return f"{int(n):,}".replace(",", " ")   # espace fine insecable
+    return fmt_int(n)
 
 
 def _small_font(widget) -> QFont:
@@ -176,7 +188,7 @@ class StatTile(QFrame):
         self.sub.setVisible(bool(sub))
         self.setToolTip(tip)
         self.setAccessibleName(" - ".join(
-            t for t in (f"{self.label} : {value}", delta, sub) if t))
+            t for t in (tr("{label} : {value}", label=self.label, value=value), delta, sub) if t))
 
 
 class BarChart(QWidget):
@@ -501,18 +513,18 @@ class CalendarHeatmap(QWidget):
         p.setPen(dim)
         if monthly:
             cw = (self.width() - 6 * self.GAP) / 7
-            for col, name in enumerate(DAYS_FR):
+            for col in range(7):
                 p.drawText(QRectF(col * (cw + self.GAP), 0, cw, self.HEADER - 4),
-                           Qt.AlignCenter, name)
+                           Qt.AlignCenter, day_name(col))
         elif cells:
             size = cells[0][0].width()
             for row in ((0, 2, 4) if size >= 9 else ()):   # illisible sur des cases minuscules
                 p.drawText(QRectF(0, self.HEADER + row * (size + 2), 18, size),
-                           Qt.AlignVCenter | Qt.AlignLeft, DAYS_FR[row][0].upper())
+                           Qt.AlignVCenter | Qt.AlignLeft, day_name(row)[0].upper())
             last_right = -1.0
             for rect, i in cells:
                 day = self.days[i].start
-                label = MONTHS_FR[day.month - 1]
+                label = month_name(day.month)
                 x = min(rect.left(), self.width() - fm.horizontalAdvance(label))
                 if day.day == 1 and x > last_right + 6:
                     p.drawText(QRectF(x, 0, 60, self.HEADER - 4),
@@ -537,7 +549,7 @@ class CalendarHeatmap(QWidget):
         # legende de l'echelle, a droite sous la grille
         box, x = 10, float(self.width())
         y = max((rect.bottom() for rect, _i in cells), default=float(self.HEADER)) + 10
-        more = "Plus"
+        more = tr("Plus")
         x -= fm.horizontalAdvance(more)
         p.setPen(dim)
         p.drawText(QRectF(x, y - 3, 60, box + 6), Qt.AlignVCenter | Qt.AlignLeft, more)
@@ -548,7 +560,7 @@ class CalendarHeatmap(QWidget):
             p.setBrush(self._fill(level))
             p.drawRoundedRect(QRectF(x, y, box, box), 2, 2)
             x -= 3
-        less = "Moins"
+        less = tr("Moins")
         x -= 3 + fm.horizontalAdvance(less)
         p.setPen(dim)
         p.drawText(QRectF(x, y - 3, 60, box + 6), Qt.AlignVCenter | Qt.AlignLeft, less)
@@ -557,13 +569,14 @@ class CalendarHeatmap(QWidget):
     # ----- survol et clavier : infobulle par jour -----
     def tip(self, i) -> str:
         b = self.days[i]
-        date = f"{DAYS_FR[b.start.weekday()]} {b.start.strftime('%d/%m/%Y')}"
+        date = f"{day_name(b.start.weekday())} {b.start.strftime(tr('%d/%m/%Y'))}"
         if not (b.seconds or b.pages):
-            head, detail = "Pas de lecture", date
+            head, detail = tr("Pas de lecture"), date
         else:
-            head, detail = stats.fmt_duration(b.seconds), f"{date} · {_plural(b.pages, 'page')}"
+            head = stats.fmt_duration(b.seconds)
+            detail = f"{date} · " + trn(b.pages, "{n} page", "{n} pages")
         if b.finished:
-            detail += f" · {_plural(b.finished, 'tome terminé', 'tomes terminés')}"
+            detail += " · " + trn(b.finished, "{n} tome terminé", "{n} tomes terminés")
         return f"{head}\n{detail}"
 
     def _show_tip(self, i):
@@ -666,7 +679,7 @@ class FinishedList(QWidget):
             p.setPen(dim)
             p.drawText(QRect(18, len(shown) * self.ROW, width - 18, self.ROW),
                        Qt.AlignVCenter | Qt.AlignLeft,
-                       f"et {_plural(more, 'autre')} sur la période")
+                       trn(more, "et {n} autre sur la période", "et {n} autres sur la période"))
         p.end()
 
 
@@ -682,8 +695,10 @@ class StackedBar(QWidget):
         self.c = colors
         self.setMinimumHeight(26 + self.LINE)
         total = sum(n for _l, n, _c in parts)
-        self.setToolTip("\n".join(f"{l} : {_fmt_int(n)} ({round(100 * n / total) if total else 0} %)"
-                                  for l, n, _c in parts))
+        self.setToolTip("\n".join(
+            tr("{label} : {value}", label=l, value=_fmt_int(n))
+            + " (" + tr("{n} %", n=round(100 * n / total) if total else 0) + ")"
+            for l, n, _c in parts))
 
     def _legend(self, fm) -> list:
         """[(x, y, texte, couleur)] des entrees de la legende, a la ligne
@@ -766,13 +781,13 @@ class ChartCard(QFrame):
             self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
             self.table.setMinimumHeight(body.minimumHeight())
             self.stack.addWidget(self.table)
-            btn = QPushButton("Tableau")
+            btn = QPushButton(tr("Tableau"))
             btn.setObjectName("toggle")
             btn.setCheckable(True)
             btn.setCursor(Qt.PointingHandCursor)
-            btn.setToolTip("Afficher les valeurs sous forme de tableau")
+            btn.setToolTip(tr("Afficher les valeurs sous forme de tableau"))
             btn.toggled.connect(lambda on: (self.stack.setCurrentIndex(1 if on else 0),
-                                            btn.setText("Graphique" if on else "Tableau")))
+                                            btn.setText(tr("Graphique") if on else tr("Tableau"))))
             head.addWidget(btn)
         v.addLayout(head)
         v.addWidget(self.subtitle)
@@ -796,9 +811,3 @@ class ChartCard(QFrame):
                     item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
                 self.table.setItem(r, col, item)
 
-
-# ---------------------------------------------------------------- mise en forme du rapport
-
-
-def _plural(n, singular, plural=None) -> str:
-    return f"{_fmt_int(n)} {singular if n < 2 else (plural or singular + 's')}"

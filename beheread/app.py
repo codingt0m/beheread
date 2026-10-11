@@ -13,11 +13,21 @@ import os
 import sys
 from pathlib import Path
 
-from PySide6.QtCore import QEvent, QObject, Qt, QTimer, Signal
+from PySide6.QtCore import (
+    QEvent,
+    QLibraryInfo,
+    QLocale,
+    QObject,
+    Qt,
+    QTimer,
+    QTranslator,
+    Signal,
+)
 from PySide6.QtGui import QAction, QColor, QKeySequence, QPalette, QShortcut
 from PySide6.QtWidgets import QApplication, QMainWindow, QMenuBar, QMessageBox
 
-from beheread import platforms
+from beheread import i18n, platforms
+from beheread.i18n import tr
 from beheread.infra import applogging, archive
 from beheread.infra.archive import ArchiveError
 from beheread.infra.database import DatabaseTooNew
@@ -157,16 +167,16 @@ class MainWindow(QMainWindow):
         Beheread, a cote de Masquer et Quitter qu'il fournit d'office."""
         self._menu_bar = QMenuBar()   # sans parent : barre globale
         menu = self._menu_bar.addMenu("Beheread")
-        about = menu.addAction(f"À propos de {APP_NAME}", self._show_about)
+        about = menu.addAction(tr("À propos de {app}", app=APP_NAME), self._show_about)
         about.setMenuRole(QAction.AboutRole)
-        prefs = menu.addAction("Réglages…", self._open_preferences_from_menu)
+        prefs = menu.addAction(tr("Réglages…"), self._open_preferences_from_menu)
         prefs.setMenuRole(QAction.PreferencesRole)
         prefs.setShortcut(QKeySequence("Ctrl+,"))   # ⌘, (remplace le raccourci de chrome.py)
 
     def _show_about(self):
         QMessageBox.about(
-            self.reader_window or self, f"À propos de {APP_NAME}",
-            f"<b>{APP_NAME} {__version__}</b><br>Lecteur de mangas hors ligne.<br><br>"
+            self.reader_window or self, tr("À propos de {app}", app=APP_NAME),
+            f"<b>{APP_NAME} {__version__}</b><br>" + tr("Lecteur de mangas hors ligne.") + "<br><br>"
             '<a href="https://github.com/codingt0m/beheread">github.com/codingt0m/beheread</a>')
 
     def _open_preferences_from_menu(self):
@@ -186,12 +196,12 @@ class MainWindow(QMainWindow):
                                   entry=self.library.entry(path))
         except ArchiveError as e:
             logging.warning("Ouverture impossible (%s): %s", path, e)
-            QMessageBox.warning(self, "Impossible d'ouvrir le manga", plain(e))
+            QMessageBox.warning(self, tr("Impossible d'ouvrir le manga"), plain(e))
             self._on_open_failed()
             return
         except Exception as e:
             logging.exception("Erreur inattendue a l'ouverture de %s", path)
-            QMessageBox.warning(self, "Erreur", plain(f"{path}\n\n{e}"))
+            QMessageBox.warning(self, tr("Erreur"), plain(f"{path}\n\n{e}"))
             self._on_open_failed()
             return
 
@@ -422,6 +432,21 @@ class FileOpenEvents(QObject):
         return False
 
 
+def apply_language(app: QApplication, preference):
+    """Langue de l'interface (preference « language » : « system », « fr »
+    ou « en ») pour toute la session, et en francais, traduction des textes
+    fournis par Qt (boutons Oui / Non, dialogues de fichiers...)."""
+    code = i18n.resolve(preference, QLocale.system().name())
+    i18n.set_language(code)
+    if code == "fr" and not getattr(app, "_qt_translator", None):
+        translator = QTranslator(app)
+        if translator.load("qtbase_fr", QLibraryInfo.path(QLibraryInfo.TranslationsPath)):
+            app.installTranslator(translator)
+            app._qt_translator = translator
+        else:
+            logging.info("Traduction francaise de Qt introuvable")
+
+
 def main():
     applogging.setup()
     platforms.before_app_start()
@@ -429,6 +454,8 @@ def main():
     app.setApplicationName(APP_NAME)
     app.setApplicationVersion(__version__)
     app.setWindowIcon(appicon.app_icon())   # re-teintee par apply_theme une fois les preferences lues
+    # langue du systeme pour les messages d'avant la lecture des preferences
+    i18n.set_language(i18n.resolve("system", QLocale.system().name()))
     file_opens = FileOpenEvents(app)
     app.installEventFilter(file_opens)
 
@@ -449,8 +476,8 @@ def main():
         logging.warning("Instance principale occupee : lancement annule")
         QMessageBox.information(
             None, APP_NAME,
-            "Beheread est déjà ouvert mais ne répond pas pour le moment.\n\n"
-            "Patientez quelques secondes puis réessayez.")
+            tr("Beheread est déjà ouvert mais ne répond pas pour le moment.\n\n"
+               "Patientez quelques secondes puis réessayez."))
         return
 
     try:
@@ -459,9 +486,9 @@ def main():
         logging.exception("Base de donnees trop recente")
         QMessageBox.critical(
             None, APP_NAME,
-            "Vos données ont été enregistrées par une version plus récente de Beheread.\n\n"
-            "Installez la dernière version de Beheread pour les ouvrir. (Elles n'ont pas "
-            "été modifiées.)")
+            tr("Vos données ont été enregistrées par une version plus récente de Beheread.\n\n"
+               "Installez la dernière version de Beheread pour les ouvrir. (Elles n'ont pas "
+               "été modifiées.)"))
         return
     except Exception:
         # ex. import des anciennes donnees interrompu (il sera retente) ou
@@ -469,12 +496,14 @@ def main():
         logging.exception("Ouverture des donnees impossible")
         QMessageBox.critical(
             None, APP_NAME,
-            "Beheread n'a pas pu ouvrir vos données de lecture.\n\n"
-            f"Dossier : {data_dir()}\n"
-            "Le détail de l'erreur est dans le fichier beheread.log de ce dossier. "
-            "Vos données n'ont pas été effacées ; relancez Beheread après avoir "
-            "corrigé le problème (espace disque, droits d'accès…).")
+            tr("Beheread n'a pas pu ouvrir vos données de lecture.\n\n"
+               "Dossier : {folder}\n"
+               "Le détail de l'erreur est dans le fichier beheread.log de ce dossier. "
+               "Vos données n'ont pas été effacées ; relancez Beheread après avoir "
+               "corrigé le problème (espace disque, droits d'accès…).", folder=data_dir()))
         return
+    # avant de construire l'interface : ses textes sont traduits a la creation
+    apply_language(app, store.ui_pref("language", "system"))
     apply_theme(app, store.ui_pref("theme", "dark"), store.ui_pref("accent"))
     window = MainWindow(store)
     instance.messageReceived.connect(window.handle_instance_message)

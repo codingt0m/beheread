@@ -51,9 +51,24 @@ def tr(text, **values) -> str:
 
 def trn(n, singular, plural, **values) -> str:
     """Forme du singulier ou du pluriel selon `n` (en francais, 0 et 1 sont
-    au singulier ; en anglais, seul 1 l'est), avec {n} disponible."""
+    au singulier ; en anglais, seul 1 l'est), avec {n} disponible (mis en
+    forme par fmt_int pour un entier)."""
     one = n in (0, 1) if _language == "fr" else n == 1
-    return tr(singular if one else plural, n=n, **values)
+    shown = fmt_int(n) if isinstance(n, int) else n
+    return tr(singular if one else plural, n=shown, **values)
+
+
+def fmt_int(n) -> str:
+    """Entier avec separateur de milliers : 12 345 (espace fine insecable)
+    en francais, 12,345 en anglais."""
+    text = f"{int(n):,}"
+    return text.replace(",", " ") if _language == "fr" else text
+
+
+def fmt_decimal(x, digits=1) -> str:
+    """Nombre a virgule : 2,5 en francais, 2.5 en anglais."""
+    text = f"{x:.{digits}f}"
+    return text.replace(".", ",") if _language == "fr" else text
 
 
 def N_(text):

@@ -24,7 +24,8 @@ MACOS = sys.platform == 'darwin'
 # Widgets, QtPdf, QtNetwork) ne charge jamais - environ 45 Mo :
 # * opengl32sw.dll : OpenGL logiciel, utile aux seules applications OpenGL/QML ;
 # * le clavier virtuel et, tires par lui seul, Qt Quick, QML et Qt OpenGL.
-# S'y ajoutent les traductions de Qt (aucun QTranslator n'est installe).
+# S'y ajoutent les traductions de Qt, sauf qtbase_fr.qm (boutons et dialogues
+# standard en francais, voir beheread.app.apply_language).
 _UNUSED_QT = ('opengl32sw.dll', 'qt6quick', 'qt6qml', 'qt6opengl.dll',
               'qt6virtualkeyboard', 'qtvirtualkeyboardplugin')
 # Les memes sous macOS, ou Qt est livre en frameworks (QtQuick.framework...).
@@ -35,7 +36,7 @@ _UNUSED_QT_MAC = ('qtquick', 'qtqml', 'qtopengl', 'qtvirtualkeyboard',
 def _unused(dest):
     dest = dest.replace('\\', '/').lower()
     if '/translations/' in dest:
-        return True
+        return not dest.endswith('/qtbase_fr.qm')
     if MACOS:
         return any(part.startswith(_UNUSED_QT_MAC) for part in dest.split('/'))
     return dest.rsplit('/', 1)[-1].startswith(_UNUSED_QT)

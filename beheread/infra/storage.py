@@ -43,6 +43,7 @@ from beheread import platforms
 from beheread.config import THUMB_SCALE
 from beheread.core import backup as backup_model
 from beheread.core import stats as stats_model
+from beheread.i18n import fmt_decimal, language, tr
 from beheread.infra import secret_store
 from beheread.infra.database import Database, JsonTable
 from beheread.infra.reading_log import ReadingLog
@@ -851,11 +852,11 @@ class Store:
         # un fichier quelconque choisi par l'utilisateur : rien n'est charge
         # en memoire au-dela de ce qu'une vraie sauvegarde peut peser
         if os.path.getsize(path) > MAX_BACKUP_BYTES:
-            raise ValueError("Ce fichier est trop volumineux pour être une sauvegarde Beheread.")
+            raise ValueError(tr("Ce fichier est trop volumineux pour être une sauvegarde Beheread."))
         with open(path, encoding="utf-8") as f:
             data = json.load(f)
         if not backup_model.is_valid(data):
-            raise ValueError("Ce fichier n'est pas une sauvegarde Beheread.")
+            raise ValueError(tr("Ce fichier n'est pas une sauvegarde Beheread."))
         progress = len(backup_model.merge_progress(self.progress, data.get("progress", {})))
         if progress:
             self._schedule("progress")
@@ -878,11 +879,13 @@ class Store:
         rows = self.reading_log.csv_rows()
         tmp = Path(str(path) + ".tmp")
         with open(tmp, "w", encoding="utf-8-sig", newline="") as f:
-            out = csv.writer(f, delimiter=";")
-            out.writerow(["Date", "Appareil", "Série", "Tome", "Pages lues",
-                          "Temps de lecture (min)", "Séances", "Tome terminé"])
+            # separateurs du tableur de la langue : « ; » et virgule decimale en
+            # francais, « , » et point en anglais
+            out = csv.writer(f, delimiter=";" if language() == "fr" else ",")
+            out.writerow([tr("Date"), tr("Appareil"), tr("Série"), tr("Tome"), tr("Pages lues"),
+                          tr("Temps de lecture (min)"), tr("Séances"), tr("Tome terminé")])
             for day, device, series, title, pages, seconds, sessions, finished in rows:
-                minutes = f"{(seconds or 0) / 60:.1f}".replace(".", ",")
+                minutes = fmt_decimal((seconds or 0) / 60)
                 out.writerow([day, device, series, title, pages, minutes, sessions,
                               "oui" if finished else ""])
         os.replace(tmp, path)

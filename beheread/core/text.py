@@ -6,6 +6,8 @@ import html
 import re
 import unicodedata
 
+from beheread.i18n import N_
+
 # noms qui ne sont pas des noms de serie : un fichier nomme seulement
 # « Tome 01 » ou « Volume 1 » tire son nom de serie de son dossier (voir
 # series.parse_series_ex) et n'est jamais cherche en ligne (sinon AniList
@@ -50,18 +52,39 @@ def clean_description(text) -> str:
     return _SOURCE_NOTE.sub("", text).strip()
 
 
-# genres des bases en ligne (AniList, MangaDex : en anglais) -> francais
+# genres des bases en ligne (AniList, MangaDex : en anglais) -> francais,
+# nom affiche traduit par tr dans la langue de l'interface
 GENRES_FR = {
-    "action": "Action", "adventure": "Aventure", "boys' love": "Boys' love",
-    "comedy": "Comédie", "crime": "Policier", "drama": "Drame", "ecchi": "Ecchi",
-    "fantasy": "Fantasy", "girls' love": "Girls' love", "historical": "Historique",
-    "horror": "Horreur", "isekai": "Isekai", "magical girls": "Magical girl",
-    "mahou shoujo": "Magical girl", "mecha": "Mecha", "medical": "Médical",
-    "music": "Musique", "mystery": "Mystère", "philosophical": "Philosophique",
-    "psychological": "Psychologique", "romance": "Romance", "sci-fi": "Science-fiction",
-    "slice of life": "Tranche de vie", "sports": "Sport", "superhero": "Super-héros",
-    "supernatural": "Surnaturel", "thriller": "Thriller", "tragedy": "Tragédie",
-    "wuxia": "Wuxia", "hentai": "Hentai",
+    "action": N_("Action"),
+    "adventure": N_("Aventure"),
+    "boys' love": N_("Boys' love"),
+    "comedy": N_("Comédie"),
+    "crime": N_("Policier"),
+    "drama": N_("Drame"),
+    "ecchi": N_("Ecchi"),
+    "fantasy": N_("Fantasy"),
+    "girls' love": N_("Girls' love"),
+    "historical": N_("Historique"),
+    "horror": N_("Horreur"),
+    "isekai": N_("Isekai"),
+    "magical girls": N_("Magical girl"),
+    "mahou shoujo": N_("Magical girl"),
+    "mecha": N_("Mecha"),
+    "medical": N_("Médical"),
+    "music": N_("Musique"),
+    "mystery": N_("Mystère"),
+    "philosophical": N_("Philosophique"),
+    "psychological": N_("Psychologique"),
+    "romance": N_("Romance"),
+    "sci-fi": N_("Science-fiction"),
+    "slice of life": N_("Tranche de vie"),
+    "sports": N_("Sport"),
+    "superhero": N_("Super-héros"),
+    "supernatural": N_("Surnaturel"),
+    "thriller": N_("Thriller"),
+    "tragedy": N_("Tragédie"),
+    "wuxia": N_("Wuxia"),
+    "hentai": N_("Hentai"),
 }
 
 

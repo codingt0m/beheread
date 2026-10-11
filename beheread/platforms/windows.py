@@ -7,6 +7,8 @@ from pathlib import Path
 
 from PySide6.QtCore import QAbstractNativeEventFilter
 
+from beheread.i18n import N_
+
 NAME = "windows"
 
 # ------------------------------------------------------------------ donnees
@@ -123,7 +125,7 @@ def hide_window(win):
 # ------------------------------------------------------------------ fichiers
 
 
-REVEAL_LABEL = "Afficher dans l'explorateur"
+REVEAL_LABEL = N_("Afficher dans l'explorateur")
 
 
 def reveal_in_file_manager(path: str):
@@ -146,7 +148,7 @@ def trash_function():
     return send2trash
 
 
-TRASH_NAME = "la corbeille de Windows"
+TRASH_NAME = N_("la corbeille de Windows")
 
 
 def rar_tools(app_dir: Path) -> dict:
@@ -164,7 +166,7 @@ def rar_tools(app_dir: Path) -> dict:
     return {"unrar": unrar, "sevenzip": sevenzip, "bsdtar": []}
 
 
-RAR_HELP = ("Installez WinRAR ou 7-Zip, ou placez UnRAR.exe dans le "
+RAR_HELP = N_("Installez WinRAR ou 7-Zip, ou placez UnRAR.exe dans le "
             "dossier de Beheread.")
 
 

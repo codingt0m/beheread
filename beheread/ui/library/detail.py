@@ -274,7 +274,7 @@ class DetailPanel(QFrame):
             if w is not None:
                 w.deleteLater()
         for genre in list(genres)[:6]:
-            chip = QLabel(genre)
+            chip = QLabel(tr(genre))
             chip.setObjectName("detailGenre")
             chip.setTextFormat(Qt.PlainText)   # base en ligne : non fiable
             self.genres.addWidget(chip)

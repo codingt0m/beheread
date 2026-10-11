@@ -20,6 +20,7 @@ from beheread.core.library_model import (
     owned_numbers,
 )
 from beheread.core.series import normalize_name
+from beheread.i18n import N_, fmt_decimal, tr, trn
 
 # modules extraits (voir chacun) : constantes de rendu, delegates, dialogues et
 # taches d'arriere-plan. LibraryWidget (ci-dessous) orchestre le tout.
@@ -65,11 +66,12 @@ class DetailPanelMixin:
 
     @staticmethod
     def _fmt_date(ts):
-        return time.strftime("%d/%m/%Y", time.localtime(ts)) if ts else ""
+        return time.strftime(tr("%d/%m/%Y"), time.localtime(ts)) if ts else ""
 
+    # libelles traduits a l'affichage (tr)
     _SOURCE_LABELS = {"comicinfo": "ComicInfo.xml", "googlebooks": "Google Books",
                       "anilist": "AniList", "mangadex": "MangaDex", "bnf": "BnF",
-                      "manual": "Saisie manuelle", "series": "Série"}
+                      "manual": N_("Saisie manuelle"), "series": N_("Série")}
 
     def _show_volume_detail(self, path):
         e = self._entry_by_path.get(path)
@@ -88,41 +90,41 @@ class DetailPanelMixin:
         if (not e.detached and e.volume is None
                 and normalize_name(e.series) != normalize_name(e.title)):
             subtitle = self._series_display_name.get(info.series_key, e.series)
-        progress = STATUS_LABELS[status]
+        progress = tr(STATUS_LABELS[status])
         if prog and prog[1] and status == READING:
-            progress += f" — page {prog[0] + 1} / {prog[1]}"
+            progress += " — " + tr("page {page} / {total}", page=prog[0] + 1, total=prog[1])
         total = (prog[1] if prog and prog[1] else None) or self.store.page_count(path)
         estimate = self._time_estimate_text(path)
         try:
-            size = f"{os.path.getsize(path) / 1_048_576:.1f} Mo".replace(".", ",")
+            size = f"{fmt_decimal(os.path.getsize(path) / 1_048_576)} {tr('Mo')}"
         except OSError:
             size = ""
         byline = " · ".join(p for p in (info.author, str(info.year) if info.year else "") if p)
         subtitle = "\n".join(p for p in (subtitle, byline) if p)
         rows = [
-            ("Statut", progress),
-            ("Pages", str(total) if total else ""),
-            ("Série", self._series_counts_text(info.series_key) if info.series_key else ""),
-            ("Source", self._SOURCE_LABELS.get((meta or {}).get("source"), "")),
-            ("Durée", estimate.split(" : ", 1)[-1] if estimate else ""),
-            ("Ajouté le", self._fmt_date(info.added)),
-            ("Lu le", self._fmt_date(info.last_read)),
-            ("Taille", size),
+            (tr("Statut"), progress),
+            (tr("Pages"), str(total) if total else ""),
+            (tr("Série"), self._series_counts_text(info.series_key) if info.series_key else ""),
+            (tr("Source"), tr(self._SOURCE_LABELS.get((meta or {}).get("source"), ""))),
+            (tr("Durée"), estimate.split(" : ", 1)[-1] if estimate else ""),
+            (tr("Ajouté le"), self._fmt_date(info.added)),
+            (tr("Lu le"), self._fmt_date(info.last_read)),
+            (tr("Taille"), size),
             # le chemin peut revenir a la ligne au lieu d'elargir le panneau
-            ("Fichier", breakable(path)),
+            (tr("Fichier"), breakable(path)),
         ]
-        primary = {READING: "Reprendre la lecture", FINISHED: "Relire"}.get(status, "Lire")
+        primary = {READING: tr("Reprendre la lecture"), FINISHED: tr("Relire")}.get(status, tr("Lire"))
         actions = [(primary, lambda: self.mangaActivated.emit(path), True)]
         if status == FINISHED:
-            actions.append(("Marquer comme non lu",
+            actions.append((tr("Marquer comme non lu"),
                             lambda: (self._mark_unread(path), self._rebuild_list()), False))
         else:
-            actions.append(("Marquer comme lu",
+            actions.append((tr("Marquer comme lu"),
                             lambda: (self._mark_finished(path), self._rebuild_list()), False))
         actions += [
-            ("Modifier les informations…", lambda: self._edit_volume_info(path), False),
-            ("Déplacer vers une série…", lambda: self._move_to_series([path]), False),
-            (platforms.REVEAL_LABEL, lambda: self._show_in_explorer(path), False),
+            (tr("Modifier les informations…"), lambda: self._edit_volume_info(path), False),
+            (tr("Déplacer vers une série…"), lambda: self._move_to_series([path]), False),
+            (tr(platforms.REVEAL_LABEL), lambda: self._show_in_explorer(path), False),
         ]
         if info.series_key and not e.detached:
             self._add_anilist_detail(info.series_key, path, rows, actions)
@@ -147,8 +149,9 @@ class DetailPanelMixin:
             return ""
         published = self._series_published(key)
         if published:
-            return f"{published} tomes parus · {owned} possédé{'s' if owned > 1 else ''}"
-        return f"{owned} tomes possédés"
+            return trn(owned, "{published} tomes parus · {n} possédé",
+                       "{published} tomes parus · {n} possédés", published=published)
+        return tr("{n} tomes possédés", n=owned)
 
     def _metadata_notice(self, e):
         """Avertissement du panneau quand la recherche d'auteur et d'annee de
@@ -157,17 +160,17 @@ class DetailPanelMixin:
         failure = self.meta.failure(e.path)
         if failure is None:
             return None
-        text = ("Auteur et année introuvables pour l'instant : les services en ligne "
-                "ne répondent pas.")
+        text = tr("Auteur et année introuvables pour l'instant : les services en ligne "
+                  "ne répondent pas.")
         due = failure["due"]
         if due is not None:
             minutes = max(1, round(due / 60))
-            text += f" Nouvel essai automatique dans {minutes} min."
+            text += " " + tr("Nouvel essai automatique dans {minutes} min.", minutes=minutes)
 
         def retry():
             self.meta.retry_now(e)
             self._update_detail()
-        return text, "Réessayer maintenant", retry
+        return text, tr("Réessayer maintenant"), retry
 
     def _show_series_detail(self, key):
         grp = self._group_entries(self._entries).get(key)
@@ -186,30 +189,35 @@ class DetailPanelMixin:
         owned = owned_numbers(v.volume for v in vols)
         missing = missing_volumes(owned, self._series_published(key))
         rows = [
-            ("Tomes", self._series_counts_text(key)),
-            ("Manquants", describe_numbers(missing)),
-            ("Lus", f"{read} sur {len(vols)}"),
-            ("Statut", STATUS_LABELS[agg.status]),
-            ("Ajoutée le", self._fmt_date(agg.added)),
-            ("Lue le", self._fmt_date(agg.last_read)),
+            (tr("Tomes"), self._series_counts_text(key)),
+            (tr("Manquants"), describe_numbers(missing)),
+            (tr("Lus"), tr("{read} sur {count}", read=read, count=len(vols))),
+            (tr("Statut"), tr(STATUS_LABELS[agg.status])),
+            (tr("Ajoutée le"), self._fmt_date(agg.added)),
+            (tr("Lue le"), self._fmt_date(agg.last_read)),
         ]
         fpath = featured.path
-        label = "Continuer" if started else "Commencer"
         if featured.volume is not None:
             # libelle court et propre plutot que le nom de fichier complet
-            unit = "le chapitre" if featured.kind == "chapter" else "le tome"
-            label = f"{label} {unit} {featured.volume}"
+            if featured.kind == "chapter":
+                label = (tr("Continuer le chapitre {n}", n=featured.volume) if started
+                         else tr("Commencer le chapitre {n}", n=featured.volume))
+            else:
+                label = (tr("Continuer le tome {n}", n=featured.volume) if started
+                         else tr("Commencer le tome {n}", n=featured.volume))
         else:
-            label = f"{label} : {self._display_title(featured)}"
+            title = self._display_title(featured)
+            label = (tr("Continuer : {title}", title=title) if started
+                     else tr("Commencer : {title}", title=title))
         actions = [(label, lambda: self.mangaActivated.emit(fpath), True),
-                   ("Ouvrir la série", lambda: self._enter_series(key), False)]
+                   (tr("Ouvrir la série"), lambda: self._enter_series(key), False)]
         if agg.status != FINISHED:
-            actions.append(("Marquer la série comme lue",
+            actions.append((tr("Marquer la série comme lue"),
                             lambda: self._mark_series_finished(key), False))
         actions += [
-            ("Modifier les informations…", lambda: self._edit_series_info(key), False),
-            ("Renommer la série…", lambda: self._rename_series(key), False),
-            ("Fusionner avec une autre série…", lambda: self._merge_series(key), False),
+            (tr("Modifier les informations…"), lambda: self._edit_series_info(key), False),
+            (tr("Renommer la série…"), lambda: self._rename_series(key), False),
+            (tr("Fusionner avec une autre série…"), lambda: self._merge_series(key), False),
         ]
         self._add_anilist_detail(key, fpath, rows, actions)
         genres, summary = self._work_details(None, key)
@@ -223,11 +231,11 @@ class DetailPanelMixin:
             return
         text, mapping = self.tracker.series_state(key)
         rows.append(("AniList", text))
-        actions.append(("Associer à AniList…", lambda: self._associate_anilist(key, path), False))
+        actions.append((tr("Associer à AniList…"), lambda: self._associate_anilist(key, path), False))
         if mapping.get("ignored"):
-            actions.append(("Suivre sur AniList",
+            actions.append((tr("Suivre sur AniList"),
                             lambda: (self.tracker.associate(key), self.tracker.resync_series(key, path)),
                             False))
         else:
-            actions.append(("Ne pas suivre sur AniList",
+            actions.append((tr("Ne pas suivre sur AniList"),
                             lambda: self.tracker.associate(key, ignore=True), False))

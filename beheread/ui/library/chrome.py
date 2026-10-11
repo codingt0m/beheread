@@ -27,6 +27,7 @@ from PySide6.QtWidgets import (
 
 from beheread import platforms
 from beheread.core.library_model import SORTS, STATUS_FILTERS
+from beheread.i18n import tr, trn
 from beheread.infra.archive import SUPPORTED_EXTS
 from beheread.ui import appicon, icons, keys, theme
 
@@ -80,7 +81,7 @@ class ChromeMixin:
         # la bibliotheque (quitte un dossier de serie et/ou une recherche)
         self.home_btn = _ClickableContainer()
         self.home_btn.setCursor(Qt.PointingHandCursor)
-        self.home_btn.setToolTip(f"Retour à la bibliothèque   ·   Beheread v{__version__}")
+        self.home_btn.setToolTip(tr("Retour à la bibliothèque") + f"   ·   Beheread v{__version__}")
         self.home_btn.clicked.connect(self._go_home)
         home_layout = QHBoxLayout(self.home_btn)
         home_layout.setContentsMargins(0, 0, 0, 0)
@@ -109,9 +110,9 @@ class ChromeMixin:
         # -- recherche, exactement au centre
         self.search_edit = QLineEdit()
         self.search_edit.setObjectName("searchEdit")
-        self.search_edit.setPlaceholderText("Rechercher un titre, une série ou un auteur…")
+        self.search_edit.setPlaceholderText(tr("Rechercher un titre, une série ou un auteur…"))
         self.search_edit.setClearButtonEnabled(True)
-        self.search_edit.setAccessibleName("Rechercher dans la bibliothèque")
+        self.search_edit.setAccessibleName(tr("Rechercher dans la bibliothèque"))
         # la police du Mac est un peu plus large : le texte d'invite y tient en 320 px
         self.search_edit.setFixedSize(320 if platforms.IS_MACOS else 300, 32)
         self.search_edit.textChanged.connect(self._on_search_changed)
@@ -136,8 +137,8 @@ class ChromeMixin:
         self.size_slider.setMinimum(self.GRID_SCALE_MIN)
         self.size_slider.setMaximum(self.GRID_SCALE_MAX)
         self.size_slider.setValue(self._grid_scale_pct)
-        self.size_slider.setToolTip("Taille des couvertures")
-        self.size_slider.setAccessibleName("Taille des couvertures")
+        self.size_slider.setToolTip(tr("Taille des couvertures"))
+        self.size_slider.setAccessibleName(tr("Taille des couvertures"))
         self.size_slider.setFocusPolicy(Qt.TabFocus)
         self.size_slider.valueChanged.connect(self._on_grid_scale_changed)
         hl.addWidget(self.size_slider)
@@ -145,21 +146,21 @@ class ChromeMixin:
         hl.addWidget(self._header_separator())
 
         # -- gestion des dossiers (un seul bouton -> panneau facon Plex)
-        self.btn_folders = self._icon_button("Gérer les dossiers sources")
+        self.btn_folders = self._icon_button(tr("Gérer les dossiers sources"))
         self.btn_folders.clicked.connect(self.manage_folders)
         hl.addWidget(self.btn_folders)
 
-        self.btn_refresh = self._icon_button("Rafraîchir", "F5")
+        self.btn_refresh = self._icon_button(tr("Rafraîchir"), "F5")
         self.btn_refresh.clicked.connect(self.refresh)
         hl.addWidget(self.btn_refresh)
 
         hl.addWidget(self._header_separator())
 
-        self.btn_stats = self._icon_button("Statistiques de lecture")
+        self.btn_stats = self._icon_button(tr("Statistiques de lecture"))
         self.btn_stats.clicked.connect(self.open_stats)
         hl.addWidget(self.btn_stats)
 
-        self.btn_prefs = self._icon_button("Préférences", "Ctrl+,")
+        self.btn_prefs = self._icon_button(tr("Préférences"), "Ctrl+,")
         self.btn_prefs.clicked.connect(self.open_preferences)
         hl.addWidget(self.btn_prefs)
         if not platforms.IS_MACOS:   # sous macOS : menu Beheread > Reglages (app.py)
@@ -374,14 +375,14 @@ class ChromeMixin:
         hl = QHBoxLayout(self.toolbar)
         hl.setContentsMargins(20, 6, 20, 6)
         hl.setSpacing(6)
-        lbl = QLabel("Trier par")
+        lbl = QLabel(tr("Trier par"))
         lbl.setObjectName("tbLabel")
         hl.addWidget(lbl)
         self.sort_combo = QComboBox()
         self.sort_combo.setObjectName("sortCombo")
-        self.sort_combo.setAccessibleName("Trier par")
+        self.sort_combo.setAccessibleName(tr("Trier par"))
         for key, label in SORTS:
-            self.sort_combo.addItem(label, key)
+            self.sort_combo.addItem(tr(label), key)
         self.sort_combo.setCurrentIndex([k for k, _ in SORTS].index(self._sort))
         self.sort_combo.currentIndexChanged.connect(self._on_sort_changed)
         hl.addWidget(self.sort_combo)
@@ -389,14 +390,14 @@ class ChromeMixin:
         self.status_group = QButtonGroup(self)
         self.status_group.setExclusive(True)
         for key, label in STATUS_FILTERS:
-            b = QPushButton(label)
+            b = QPushButton(tr(label))
             b.setObjectName("statusChip")
             b.setCheckable(True)
             b.setChecked(key == self._status_filter)
             b.setCursor(Qt.PointingHandCursor)
             b.setFocusPolicy(Qt.TabFocus)
             b.setProperty("status", key)
-            b.setAccessibleName(f"Filtrer : {label}")
+            b.setAccessibleName(tr("Filtrer : {status}", status=tr(label)))
             self.status_group.addButton(b)
             hl.addWidget(b)
         self.status_group.buttonClicked.connect(
@@ -470,20 +471,20 @@ class ChromeMixin:
         self.list_host.set_position(0)
 
     def _status_label(self):
-        return dict(STATUS_FILTERS).get(self._status_filter, "")
+        return tr(dict(STATUS_FILTERS).get(self._status_filter, ""))
 
     def _update_count(self):
         """Nombre de tomes affiches, compte par _apply_filter : un dossier de
         serie compte ses tomes - pendant une recherche, ceux qui y
         correspondent."""
         n = self._visible_count
-        text = f"{n} tome" + ("s" if n > 1 else "") if self._entries else ""
+        text = trn(n, "{n} tome", "{n} tomes") if self._entries else ""
         approx = bool(text) and n > 0 and self._search_approx
         if approx:
-            text += " · résultats approchants"
+            text += " · " + tr("résultats approchants")
         self.count_label.setText(text)
         self.count_label.setToolTip(
-            "Aucun résultat exact : les fautes de frappe sont tolérées." if approx else "")
+            tr("Aucun résultat exact : les fautes de frappe sont tolérées.") if approx else "")
 
     # ----- nouvelle version disponible -----
     def _build_update_banner(self):
@@ -498,13 +499,13 @@ class ChromeMixin:
         self.update_text.setObjectName("updateText")
         self.update_text.setTextFormat(Qt.PlainText)
         hl.addWidget(self.update_text)
-        link = QPushButton("Voir les nouveautés et télécharger")
+        link = QPushButton(tr("Voir les nouveautés et télécharger"))
         link.setObjectName("updateLink")
         link.setCursor(Qt.PointingHandCursor)
         link.clicked.connect(self._open_update_page)
         hl.addWidget(link)
         hl.addStretch(1)
-        later = QPushButton("Plus tard")
+        later = QPushButton(tr("Plus tard"))
         later.setObjectName("updateLater")
         later.setCursor(Qt.PointingHandCursor)
         later.clicked.connect(self._dismiss_update)
@@ -517,8 +518,8 @@ class ChromeMixin:
         """Bandeau « Beheread x.y.z est disponible » (release : voir
         infra/updates.latest_release)."""
         self._update = release
-        self.update_text.setText(f"Beheread {release['version']} est disponible "
-                                 f"(vous avez la {__version__}).")
+        self.update_text.setText(tr("Beheread {version} est disponible (vous avez la {current}).",
+                                    version=release["version"], current=__version__))
         self.update_banner.show()
 
     def _open_update_page(self):
@@ -538,17 +539,17 @@ class ChromeMixin:
         hl = QHBoxLayout(self.consent)
         hl.setContentsMargins(20, 8, 20, 8)
         hl.setSpacing(10)
-        text = QLabel("Beheread peut compléter l'auteur et l'année de vos mangas en "
+        text = QLabel(tr("Beheread peut compléter l'auteur et l'année de vos mangas en "
                       "interrogeant Google Books, AniList, MangaDex et la BnF à partir du nom "
-                      "des fichiers. Rien d'autre n'est envoyé.")
+                      "des fichiers. Rien d'autre n'est envoyé."))
         text.setObjectName("consentText")
         text.setWordWrap(True)
         hl.addWidget(text, 1)
-        yes = QPushButton("Activer")
+        yes = QPushButton(tr("Activer"))
         yes.setObjectName("consentYes")
         yes.setCursor(Qt.PointingHandCursor)
         yes.clicked.connect(lambda: self._set_online_metadata(True))
-        no = QPushButton("Non merci")
+        no = QPushButton(tr("Non merci"))
         no.setCursor(Qt.PointingHandCursor)
         no.clicked.connect(lambda: self._set_online_metadata(False))
         hl.addWidget(yes)
@@ -632,7 +633,7 @@ class ChromeMixin:
     def _add_folder_dialog(self):
         """Ajout direct d'un dossier source (etat vide du premier lancement),
         sans passer par le panneau de gestion."""
-        folder = QFileDialog.getExistingDirectory(self, "Choisir un dossier de mangas")
+        folder = QFileDialog.getExistingDirectory(self, tr("Choisir un dossier de mangas"))
         if folder and self.store.add_folder(folder):
             self.refresh()
 

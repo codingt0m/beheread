@@ -21,12 +21,13 @@ from PySide6.QtWidgets import (
 )
 
 from beheread.core import stats
+from beheread.i18n import fmt_int, tr, trn
 from beheread.ui import theme
 from beheread.ui.safe_text import plain
 
 SIZE = QSize(1080, 1350)
 MARGIN_X, MARGIN_Y = 84, 80
-MONTH_LETTERS = "JFMAMJJASOND"
+MONTH_LETTERS = "JFMAMJJASOND"   # memes initiales en anglais
 
 # couleurs fixes : l'image se partage hors de l'application, toujours sombre
 BG, TILE, BORDER = "#14161b", "#1b1e24", "#2b2f36"
@@ -72,20 +73,22 @@ def render_recap(recap: stats.YearRecap, accent: str) -> QImage:
     p.setPen(QColor(TEXT))
     title_h = 2 * p.fontMetrics().lineSpacing()
     p.drawText(QRect(x, y, width, title_h), Qt.AlignLeft | Qt.AlignTop,
-               f"Mon année {recap.year}\nde lecture")
+               tr("Mon année {year}\nde lecture", year=recap.year))
     y += title_h + 24
 
     # quatre chiffres : temps, tomes, jour prefere, record
     if recap.favorite_weekday is not None:
-        day = stats.WEEKDAYS_FR[recap.favorite_weekday].capitalize()
-        day_label = f"jour de lecture préféré\n{recap.favorite_pages:.0f} pages en moyenne"
+        day = tr(stats.WEEKDAYS_FR[recap.favorite_weekday]).capitalize()
+        day_label = (tr("jour de lecture préféré") + "\n"
+                     + tr("{n} pages en moyenne", n=f"{recap.favorite_pages:.0f}"))
     else:
-        day, day_label = "—", "jour de lecture préféré"
-    tiles = [(_hours(recap.seconds), "de lecture"),
-             (str(recap.finished), "tome terminé" if recap.finished == 1 else "tomes terminés"),
+        day, day_label = "—", tr("jour de lecture préféré")
+    tiles = [(_hours(recap.seconds), tr("de lecture")),
+             (fmt_int(recap.finished), tr("tome terminé") if recap.finished == 1
+              else tr("tomes terminés")),
              (day, day_label),
-             (f"{recap.best_streak} jour{'s' if recap.best_streak > 1 else ''}",
-              "de lecture d'affilée, mon record")]
+             (trn(recap.best_streak, "{n} jour", "{n} jours"),
+              tr("de lecture d'affilée, mon record"))]
     gap, tile_h = 22, 160
     tile_w = (width - gap) // 2
     for i, (value, label) in enumerate(tiles):
@@ -104,7 +107,7 @@ def render_recap(recap: stats.YearRecap, accent: str) -> QImage:
 
     p.setFont(_font(30, True))
     p.setPen(QColor(TEXT))
-    p.drawText(QRect(x, y, width, 40), Qt.AlignLeft | Qt.AlignVCenter, "Mes séries de l'année")
+    p.drawText(QRect(x, y, width, 40), Qt.AlignLeft | Qt.AlignVCenter, tr("Mes séries de l'année"))
     y += 56
     longest = max((s.seconds for s in recap.series), default=0) or 1
     for s in recap.series:
@@ -113,7 +116,7 @@ def render_recap(recap: stats.YearRecap, accent: str) -> QImage:
         name = p.fontMetrics().elidedText(s.name, Qt.ElideRight, width - 280)
         p.drawText(QRect(x, y, width, 32), Qt.AlignLeft | Qt.AlignVCenter, name)
         p.setPen(QColor(DIM))
-        detail = f"{_hours(s.seconds)} · {s.finished} tome{'s' if s.finished > 1 else ''}"
+        detail = f"{_hours(s.seconds)} · " + trn(s.finished, "{n} tome", "{n} tomes")
         p.drawText(QRect(x, y, width, 32), Qt.AlignRight | Qt.AlignVCenter, detail)
         p.setPen(Qt.NoPen)
         p.setBrush(QColor(accent))
@@ -122,13 +125,13 @@ def render_recap(recap: stats.YearRecap, accent: str) -> QImage:
     if not recap.series:
         p.setFont(_font(24))
         p.setPen(QColor(DIM))
-        p.drawText(QRect(x, y, width, 32), Qt.AlignLeft | Qt.AlignVCenter, "Aucune lecture cette année")
+        p.drawText(QRect(x, y, width, 32), Qt.AlignLeft | Qt.AlignVCenter, tr("Aucune lecture cette année"))
         y += 64
     y += 16 + 64 * (3 - max(1, len(recap.series)))   # meme place pour 1 a 3 series
 
     p.setFont(_font(30, True))
     p.setPen(QColor(TEXT))
-    p.drawText(QRect(x, y, width, 40), Qt.AlignLeft | Qt.AlignVCenter, "Mois par mois")
+    p.drawText(QRect(x, y, width, 40), Qt.AlignLeft | Qt.AlignVCenter, tr("Mois par mois"))
     y += 56
     chart_h, col_gap = 140, 12
     col_w = (width - 11 * col_gap) / 12
@@ -150,7 +153,7 @@ def render_recap(recap: stats.YearRecap, accent: str) -> QImage:
     p.setFont(_font(20))
     p.setPen(QColor(DIM))
     p.drawText(QRect(x, SIZE.height() - MARGIN_Y - 30, width, 30), Qt.AlignLeft | Qt.AlignVCenter,
-               "Lu avec Beheread, lecteur de mangas hors ligne")
+               tr("Lu avec Beheread, lecteur de mangas hors ligne"))
     p.end()
     return img
 
@@ -162,7 +165,7 @@ class RecapDialog(QDialog):
 
     def __init__(self, log, colors, today=None, resolve=None, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("Bilan de l'année")
+        self.setWindowTitle(tr("Bilan de l'année"))
         self.log, self.resolve = log, resolve
         self.today = today or dt.date.today()
         self.image = None
@@ -180,7 +183,7 @@ class RecapDialog(QDialog):
         root.setContentsMargins(22, 18, 22, 16)
         root.setSpacing(12)
         top = QHBoxLayout()
-        label = QLabel("Année")
+        label = QLabel(tr("Année"))
         top.addWidget(label)
         self.year = QComboBox()
         for year in stats.recap_years(log, self.today) or [self.today.year]:
@@ -192,15 +195,15 @@ class RecapDialog(QDialog):
         root.addLayout(top)
         self.preview = QLabel()
         self.preview.setFixedSize(self.PREVIEW)
-        self.preview.setAccessibleName("Aperçu du bilan")
+        self.preview.setAccessibleName(tr("Aperçu du bilan"))
         root.addWidget(self.preview, 0, Qt.AlignHCenter)
         row = QHBoxLayout()
-        save = QPushButton("Enregistrer l'image…")
+        save = QPushButton(tr("Enregistrer l'image…"))
         save.setObjectName("primary")
         save.clicked.connect(self._save)
-        copy = QPushButton("Copier")
+        copy = QPushButton(tr("Copier"))
         copy.clicked.connect(self._copy)
-        close = QPushButton("Fermer")
+        close = QPushButton(tr("Fermer"))
         close.clicked.connect(self.accept)
         row.addWidget(save)
         row.addWidget(copy)
@@ -220,11 +223,12 @@ class RecapDialog(QDialog):
 
     def _save(self):
         default = Path.home() / f"beheread-bilan-{self.year.currentData()}.png"
-        path, _ = QFileDialog.getSaveFileName(self, "Enregistrer le bilan", str(default),
-                                              "Image PNG (*.png)")
+        path, _ = QFileDialog.getSaveFileName(self, tr("Enregistrer le bilan"), str(default),
+                                              tr("Image PNG (*.png)"))
         if path and not self.image.save(path, "PNG"):
-            QMessageBox.warning(self, "Enregistrement impossible",
-                                plain(f"L'image n'a pas pu être enregistrée :\n{path}"))
+            QMessageBox.warning(self, tr("Enregistrement impossible"),
+                                plain(tr("L'image n'a pas pu être enregistrée :\n{path}",
+                                         path=path)))
 
     def _copy(self):
         QApplication.clipboard().setImage(self.image)

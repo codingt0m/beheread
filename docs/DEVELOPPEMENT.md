@@ -83,6 +83,8 @@ beheread/
   app.py                 Fenêtre principale, fenêtre du lecteur, démarrage (instance unique, thème)
   config.py              Configuration interne (Client ID AniList, facteur des vignettes, chemins)
   version.py             Numéro de version (SemVer)
+  i18n.py                Langue de l'interface : tr, trn (pluriels), N_, nombres
+  locale/en.py           Traductions anglaises (le texte français sert de clé)
   resources/             Icône
   core/                  Logique pure, sans Qt ni accès disque/réseau, testée isolément
     models.py            Modèles typés (LibraryEntry, VolumeInfo, SeriesInfo)
@@ -168,6 +170,19 @@ mypy
 ```
 
 La suite couvre la logique pure (séries, appairage, molette, statistiques, règles AniList…), la persistance (SQLite, import des anciens JSON, sauvegarde), les clients réseau (réseau simulé, aucun appel réel) et l'interface avec **pytest-qt** (`tests/ui/` : état vide, glisser-déposer, filtres et tris, « Continuer la lecture », gestion des séries, suppression, lecteur, molette, PDF, instance unique). Les tests d'interface tournent sans fenêtre (plateforme « offscreen »), sans réseau et sans enregistrer de raccourci global. Les tests propres à un système (DPAPI, Trousseau, Corbeille du Finder, RAR par `bsdtar`) sont ignorés ailleurs ; la CI exécute la suite sous Windows et sous macOS. `ruff check .` vérifie le code avec les règles retenues dans `pyproject.toml` : noms indéfinis, imports inutiles, erreurs de syntaxe, ordre des imports et pièges courants (bugbear). `mypy` vérifie les types de la logique pure (`beheread/core/`).
+
+## Traduction
+
+L'interface est écrite en français ; le texte français sert de clé de traduction. Tout texte affiché passe par `beheread.i18n` :
+
+* `tr("Il vous manque {n} tomes", n=3)` : texte traduit, complété par ses champs ;
+* `trn(n, "{n} tome", "{n} tomes")` : singulier ou pluriel selon `n` (en français 0 et 1 sont au singulier, en anglais seul 1) ;
+* `N_("Non lu")` : marque un texte d'une constante évaluée au chargement d'un module ; il est traduit plus tard, à l'affichage, par `tr` ;
+* `fmt_int`, `fmt_decimal` : nombres au format de la langue (12 345 et 2,5 en français ; 12,345 et 2.5 en anglais). Pour une date, passer le format lui-même par `tr` (`tr("%d/%m/%Y")`).
+
+Les traductions anglaises sont dans `beheread/locale/en.py`. `tests/test_i18n.py` vérifie que chaque texte littéral passé à `tr`, `trn` ou `N_` y a sa traduction, avec les mêmes champs `{nom}`. La langue est choisie une fois, au lancement (`app.apply_language`), avant la construction des fenêtres : les textes sont traduits à leur création. En français, `qtbase_fr.qm` traduit aussi les textes fournis par Qt ; c'est la seule traduction de Qt embarquée par `beheread.spec`.
+
+Pour voir l'interface en anglais sans changer ses préférences, appeler `i18n.set_language("en")` avant `tools/screenshots.py`.
 
 ## Performances
 

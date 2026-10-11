@@ -33,6 +33,12 @@ Les numéros de version suivent [SemVer](https://semver.org/lang/fr/). Chaque se
 * **Corrigé** : dans les statistiques, un ancien tome terminé venu d'une sauvegarde d'un autre système affichait son chemin complet au lieu de son titre.
 * Les guides d'installation sont désormais séparés : [Windows](https://github.com/codingt0m/beheread/blob/main/docs/INSTALLATION-WINDOWS.md) et [macOS](https://github.com/codingt0m/beheread/blob/main/docs/INSTALLATION-MACOS.md).
 
+### Interface en anglais (nouveau)
+
+* **Nouveau** : Beheread existe en anglais. Le choix se fait dans *Préférences > Général > Langue* : « Celle du système » (par défaut : français si Windows ou macOS est en français, anglais sinon), Français ou English. Il s'applique au prochain lancement.
+* Les dates, les nombres, les tailles de fichiers et le journal de lecture exporté en CSV suivent la langue choisie.
+* En français, les boutons et fenêtres fournis par le système d'affichage (Oui / Non, choix d'un fichier) sont désormais eux aussi en français.
+
 ### BD franco-belge et sens de lecture
 
 * **Nouveau** : les BD (Lou !, Seuls, Blacksad…) trouvent leur auteur et leur année dans le catalogue de la BnF, quand les bases manga ne les connaissent pas.

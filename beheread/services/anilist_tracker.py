@@ -23,6 +23,7 @@ import time
 from PySide6.QtCore import QObject, QRunnable, QThreadPool, QTimer, Signal
 
 from beheread.core import anilist_track
+from beheread.i18n import tr
 from beheread.infra import anilist
 from beheread.services.tracking import Tracker
 
@@ -73,7 +74,7 @@ class _TrackWorker(QRunnable):
                 res["url"] = media.get("url")
                 if anilist_track.oneshot_mismatch(job["desired"], media):
                     res["status"] = "skipped"
-                    res["summary"] = "œuvre en plusieurs tomes : rien publié"
+                    res["summary"] = tr("œuvre en plusieurs tomes : rien publié")
                     results.append(res)
                     continue
                 changes = anilist_track.plan_update(job["desired"], media)
@@ -140,13 +141,13 @@ class AniListTracker(Tracker):
         last = self.store.anilist_series("last").get(series_key) or {}
         pending = series_key in self.store.anilist_series("pending")
         if mapping.get("ignored"):
-            return "Non suivie", mapping
+            return tr("Non suivie"), mapping
         if mapping.get("unmatched") and not mapping.get("id"):
-            return "Œuvre non trouvée : à associer", mapping
+            return tr("Œuvre non trouvée : à associer"), mapping
         title = mapping.get("title") or last.get("title")
-        text = title or "Association automatique au prochain tome terminé"
+        text = title or tr("Association automatique au prochain tome terminé")
         if pending:
-            text += " · mise à jour en attente"
+            text += tr(" · mise à jour en attente")
         elif last.get("summary"):
             text += f" · {last['summary']}"
         return text, mapping
@@ -207,7 +208,7 @@ class AniListTracker(Tracker):
             return
         token = self.store.anilist_token()
         if not token:
-            self._set_status("Reconnectez votre compte AniList dans les préférences.")
+            self._set_status(tr("Reconnectez votre compte AniList dans les préférences."))
             return
         amap = self.store.anilist_series("map")
         jobs = []
@@ -229,7 +230,7 @@ class AniListTracker(Tracker):
         self._worker = _TrackWorker(token, jobs)
         self._worker.signals.done.connect(self._on_done)
         self._pool.start(self._worker)
-        self._set_status("Mise à jour d'AniList…")
+        self._set_status(tr("Mise à jour d'AniList…"))
 
     def _on_done(self, results):
         self._worker = None
@@ -260,8 +261,8 @@ class AniListTracker(Tracker):
                 amap[key] = {"unmatched": True}
             elif status == "auth":
                 self.store.set_anilist_login(None, None)
-                self._set_status("AniList a refusé le jeton : reconnectez votre compte "
-                                 "dans les préférences.")
+                self._set_status(tr("AniList a refusé le jeton : reconnectez votre compte "
+                                    "dans les préférences."))
                 self.store.touch_anilist()
                 return
             else:
@@ -271,8 +272,8 @@ class AniListTracker(Tracker):
         if requeued:
             self._debounce.start()
         if updated:
-            self._set_status("AniList mis à jour : " + " ; ".join(updated))
+            self._set_status(tr("AniList mis à jour : ") + " ; ".join(updated))
         elif errors:
-            self._set_status("AniList injoignable : nouvel essai dans quelques minutes.")
+            self._set_status(tr("AniList injoignable : nouvel essai dans quelques minutes."))
         else:
-            self._set_status("Liste AniList déjà à jour.")
+            self._set_status(tr("Liste AniList déjà à jour."))

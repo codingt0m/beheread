@@ -19,6 +19,7 @@ from PySide6.QtWidgets import (
 from beheread.core.anilist_track import ONESHOT
 from beheread.core.library_model import FINISHED
 from beheread.core.series import normalize_name, parse_path
+from beheread.i18n import tr, trn
 from beheread.infra import anilist, archive, metadata, updates
 from beheread.ui import theme
 
@@ -110,21 +111,22 @@ class ServicesMixin:
             return
         name = self._series_display_name.get(key, key)
         text, ok = QInputDialog.getText(
-            self, "Associer à AniList",
-            plain(f"Adresse de la page AniList de « {name} »\n"
-                  "(par exemple https://anilist.co/manga/30002/Berserk) ou son numéro :"))
+            self, tr("Associer à AniList"),
+            plain(tr("Adresse de la page AniList de « {name} »\n"
+                     "(par exemple https://anilist.co/manga/30002/Berserk) ou son numéro :",
+                     name=name)))
         if not ok or not text.strip():
             return
         media_id = anilist.parse_media_ref(text)
         if media_id is None:
-            QMessageBox.warning(self, "Associer à AniList",
-                                "Adresse non reconnue : copiez l'adresse d'une page "
-                                "« anilist.co/manga/… ».")
+            QMessageBox.warning(self, tr("Associer à AniList"),
+                                tr("Adresse non reconnue : copiez l'adresse d'une page "
+                                   "« anilist.co/manga/… »."))
             return
         token = self.store.anilist_token()
         if not token:
-            QMessageBox.warning(self, "Associer à AniList",
-                                "Reconnectez votre compte AniList dans les préférences.")
+            QMessageBox.warning(self, tr("Associer à AniList"),
+                                tr("Reconnectez votre compte AniList dans les préférences."))
             return
         # verification hors du thread UI : l'interface ne gele pas pendant la
         # requete (une seconde instance, lancee pendant ce temps, attend une
@@ -141,8 +143,8 @@ class ServicesMixin:
         QApplication.restoreOverrideCursor()
         if media is None:
             error = (str(err) if err is not None
-                     else "Aucune œuvre manga ne porte ce numéro sur AniList.")
-            QMessageBox.warning(self, "Associer à AniList", plain(error))
+                     else tr("Aucune œuvre manga ne porte ce numéro sur AniList."))
+            QMessageBox.warning(self, tr("Associer à AniList"), plain(error))
             return
         self.tracker.associate(key, media_id, media.get("title"))
         self.tracker.resync_series(key, path)
@@ -200,53 +202,54 @@ class ServicesMixin:
         self._update_call = None
         if err is not None:
             if report:
-                report(f"Vérification impossible : {err}")
+                report(tr("Vérification impossible : {error}", error=err))
             return
         self.store.set_ui_pref("update_checked", time.time())
         newer = updates.is_newer(release["version"])
         if newer and (force or self.store.ui_pref("update_dismissed") != release["version"]):
             self.show_update(release)
         if report:
-            report(f"Beheread {release['version']} est disponible." if newer
-                   else "Beheread est à jour.")
+            report(tr("Beheread {version} est disponible.", version=release["version"]) if newer
+                   else tr("Beheread est à jour."))
 
     # ----- sauvegarde -----
     def _export_backup(self) -> str:
         default = Path.home() / f"beheread-sauvegarde-{time.strftime('%Y-%m-%d')}.json"
-        path, _ = QFileDialog.getSaveFileName(self, "Exporter la progression", str(default),
-                                              "Sauvegarde Beheread (*.json)")
+        path, _ = QFileDialog.getSaveFileName(self, tr("Exporter la progression"), str(default),
+                                              tr("Sauvegarde Beheread (*.json)"))
         if not path:
             return ""
         try:
             self.store.export_backup(path)
         except OSError as e:
-            QMessageBox.warning(self, "Export impossible", plain(e))
+            QMessageBox.warning(self, tr("Export impossible"), plain(e))
             return ""
-        return f"Sauvegarde exportée : {path}"
+        return tr("Sauvegarde exportée : {path}", path=path)
 
     def _export_reading_csv(self) -> str:
         default = Path.home() / f"beheread-journal-{time.strftime('%Y-%m-%d')}.csv"
-        path, _ = QFileDialog.getSaveFileName(self, "Exporter le journal de lecture",
-                                              str(default), "Tableur CSV (*.csv)")
+        path, _ = QFileDialog.getSaveFileName(self, tr("Exporter le journal de lecture"),
+                                              str(default), tr("Tableur CSV (*.csv)"))
         if not path:
             return ""
         try:
             n = self.store.export_reading_csv(path)
         except OSError as e:
-            QMessageBox.warning(self, "Export impossible", plain(e))
+            QMessageBox.warning(self, tr("Export impossible"), plain(e))
             return ""
-        return f"Journal exporté ({n} ligne{'s' if n > 1 else ''}) : {path}"
+        return trn(n, "Journal exporté ({n} ligne) : {path}",
+                   "Journal exporté ({n} lignes) : {path}", path=path)
 
     def _import_backup(self) -> str:
-        path, _ = QFileDialog.getOpenFileName(self, "Importer une sauvegarde", str(Path.home()),
-                                              "Sauvegarde Beheread (*.json)")
+        path, _ = QFileDialog.getOpenFileName(self, tr("Importer une sauvegarde"), str(Path.home()),
+                                              tr("Sauvegarde Beheread (*.json)"))
         if not path:
             return ""
         try:
             result = self.store.import_backup(path)
         except (OSError, ValueError) as e:
-            QMessageBox.warning(self, "Import impossible", plain(e))
+            QMessageBox.warning(self, tr("Import impossible"), plain(e))
             return ""
         self.refresh()   # les regroupements importes peuvent changer les series
-        return (f"Import terminé : {result['progress']} progression(s) et "
-                f"{result['extras']} réglage(s) repris.")
+        return tr("Import terminé : {progress} progression(s) et {extras} réglage(s) repris.",
+                  progress=result["progress"], extras=result["extras"])

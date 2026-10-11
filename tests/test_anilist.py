@@ -144,7 +144,7 @@ def test_plan_respects_user_status(status):
 
 def test_describe():
     assert track.describe({"progressVolumes": 12, "status": "COMPLETED"}) == \
-        "12 tome(s) lu(s), série terminée"
+        "12 tomes lus, série terminée"
 
 
 # ---------------------------------------------------------------- uniquement ajouter

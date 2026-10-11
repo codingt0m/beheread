@@ -11,6 +11,7 @@ from functools import lru_cache
 from pathlib import Path
 
 from beheread.core.text import GENERIC_NAMES, strip_accents
+from beheread.i18n import tr
 
 
 def _remove_accents(text: str) -> str:
@@ -348,10 +349,13 @@ def clean_title(stem: str) -> str:
 
 def volume_label(number, kind) -> str:
     """« Tome 3 », « Chapitre 385.5 », « Cycle 2 »."""
-    unit = {"chapter": "Chapitre", "cycle": "Cycle"}.get(kind, "Tome")
     if isinstance(number, float) and number.is_integer():
         number = int(number)
-    return f"{unit} {number}"
+    if kind == "chapter":
+        return tr("Chapitre {n}", n=number)
+    if kind == "cycle":
+        return tr("Cycle {n}", n=number)
+    return tr("Tome {n}", n=number)
 
 
 def matches_author(hints, names) -> bool:

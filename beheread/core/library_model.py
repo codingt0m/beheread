@@ -12,16 +12,18 @@ import re
 from typing import Iterable, List, Optional, Tuple, Union
 
 from beheread.core.models import SeriesInfo, VolumeInfo
+from beheread.i18n import N_
 
 UNREAD, READING, FINISHED = "unread", "reading", "finished"
 ALL = "all"
 
-STATUS_FILTERS = [(ALL, "Tous"), (UNREAD, "Non lus"), (READING, "En cours"),
-                  (FINISHED, "Terminés")]
-STATUS_LABELS = {UNREAD: "Non lu", READING: "En cours", FINISHED: "Terminé"}
+# libelles traduits a l'affichage (tr)
+STATUS_FILTERS = [(ALL, N_("Tous")), (UNREAD, N_("Non lus")), (READING, N_("En cours")),
+                  (FINISHED, N_("Terminés"))]
+STATUS_LABELS = {UNREAD: N_("Non lu"), READING: N_("En cours"), FINISHED: N_("Terminé")}
 
-SORTS = [("title", "Titre"), ("added", "Ajout récent"), ("read", "Lu récemment"),
-         ("author", "Auteur"), ("year", "Année de sortie")]
+SORTS = [("title", N_("Titre")), ("added", N_("Ajout récent")), ("read", N_("Lu récemment")),
+         ("author", N_("Auteur")), ("year", N_("Année de sortie"))]
 SORT_KEYS = {k for k, _ in SORTS}
 
 CONTINUE_LIMIT = 12

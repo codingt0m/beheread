@@ -18,6 +18,8 @@ volontairement prudentes :
   « terminee » sur une oeuvre sans rapport.
 """
 
+from beheread.i18n import tr, trn
+
 AUTO_MATCH_MIN_SCORE = 0.6
 ONESHOT_MIN_SCORE = 0.9
 ONESHOT = "oneshot"   # nature d'un tome sans numero, seul de sa serie
@@ -148,9 +150,9 @@ def describe(changes) -> str:
     """Resume lisible d'une mise a jour, pour l'interface."""
     parts = []
     if "progressVolumes" in changes:
-        parts.append(f"{changes['progressVolumes']} tome(s) lu(s)")
+        parts.append(trn(changes["progressVolumes"], "{n} tome lu", "{n} tomes lus"))
     if "progress" in changes:
-        parts.append(f"{changes['progress']} chapitre(s) lu(s)")
+        parts.append(trn(changes["progress"], "{n} chapitre lu", "{n} chapitres lus"))
     if changes.get("status") == "COMPLETED":
-        parts.append("série terminée")
+        parts.append(tr("série terminée"))
     return ", ".join(parts)

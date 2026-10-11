@@ -7,6 +7,8 @@ import os
 import shutil
 from pathlib import Path
 
+from beheread.i18n import N_
+
 NAME = "generic"
 
 # ------------------------------------------------------------------ donnees
@@ -57,7 +59,7 @@ def hide_window(win):
 # ------------------------------------------------------------------ fichiers
 
 
-REVEAL_LABEL = "Ouvrir le dossier"
+REVEAL_LABEL = N_("Ouvrir le dossier")
 
 
 def reveal_in_file_manager(path: str):
@@ -76,7 +78,7 @@ def trash_function():
     return send2trash
 
 
-TRASH_NAME = "la corbeille"
+TRASH_NAME = N_("la corbeille")
 
 
 def rar_tools(app_dir: Path) -> dict:
@@ -88,7 +90,7 @@ def rar_tools(app_dir: Path) -> dict:
             "sevenzip": which("7z", "7zz"), "bsdtar": which("bsdtar")}
 
 
-RAR_HELP = "Installez unrar (ou 7-Zip) avec le gestionnaire de paquets du système."
+RAR_HELP = N_("Installez unrar (ou 7-Zip) avec le gestionnaire de paquets du système.")
 
 
 # ------------------------------------------------------------------ raccourci global

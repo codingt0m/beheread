@@ -6,6 +6,8 @@ import shutil
 import subprocess
 from pathlib import Path
 
+from beheread.i18n import N_, tr
+
 NAME = "macos"
 
 # ------------------------------------------------------------------ donnees
@@ -110,7 +112,7 @@ def _ns_app_hide():
 # ------------------------------------------------------------------ fichiers
 
 
-REVEAL_LABEL = "Afficher dans le Finder"
+REVEAL_LABEL = N_("Afficher dans le Finder")
 
 
 def reveal_in_file_manager(path: str):
@@ -128,14 +130,14 @@ def _move_to_trash(path: str):
     result = QFile.moveToTrash(path)
     ok = result[0] if isinstance(result, tuple) else result
     if not ok:
-        raise OSError(f"impossible de mettre « {path} » à la Corbeille")
+        raise OSError(tr("impossible de mettre « {path} » à la Corbeille", path=path))
 
 
 def trash_function():
     return _move_to_trash
 
 
-TRASH_NAME = "la Corbeille"
+TRASH_NAME = N_("la Corbeille")
 
 
 # Une application lancee depuis le Finder n'herite pas du PATH du terminal :
@@ -162,7 +164,7 @@ def rar_tools(app_dir: Path) -> dict:
             "bsdtar": [Path("/usr/bin/bsdtar")]}
 
 
-RAR_HELP = ("Installez 7-Zip ou RAR avec Homebrew : brew install sevenzip "
+RAR_HELP = N_("Installez 7-Zip ou RAR avec Homebrew : brew install sevenzip "
             "(ou brew install --cask rar).")
 
 

@@ -33,10 +33,13 @@ from typing import Optional
 
 from beheread.core.reading_session import MIN_DWELL
 from beheread.core.series import normalize_name
+from beheread.i18n import N_, tr
 
 JOURNAL_RULES = 2
 
-PERIODS = (("7d", "7 jours"), ("30d", "30 jours"), ("12m", "12 mois"), ("all", "Tout"))
+# libelles traduits a l'affichage (tr)
+PERIODS = (("7d", N_("7 jours")), ("30d", N_("30 jours")), ("12m", N_("12 mois")),
+           ("all", N_("Tout")))
 DEFAULT_PERIOD = "30d"
 # « Tout » : barres par jour tant que l'historique est court, par mois ensuite
 ALL_DAILY_MAX_DAYS = 62
@@ -84,20 +87,21 @@ def period(key: str, today: _dt.date, first_day: Optional[_dt.date] = None) -> P
     if key == "all":
         start = min(first_day or today, today)
         grain = "day" if (today - start).days < ALL_DAILY_MAX_DAYS else "month"
-        label = f"depuis le {start.strftime('%d/%m/%Y')}" if first_day else "tout l'historique"
+        label = (tr("depuis le {day}", day=start.strftime(tr("%d/%m/%Y"))) if first_day
+                 else tr("tout l'historique"))
         return Period("all", start, today, grain, None, label, "")
     if key == "12m":
         start = _add_months(today.replace(day=1), -11)
         # meme decoupage un an plus tot : le mois en cours, incomplet, est
         # compare au meme mois arrete au meme jour
         previous = (_add_months(start, -12), _year_before(today))
-        return Period("12m", start, today, "month", previous, "12 derniers mois",
-                      "12 mois précédents")
+        return Period("12m", start, today, "month", previous, tr("12 derniers mois"),
+                      tr("12 mois précédents"))
     n = 7 if key == "7d" else 30
     start = today - (n - 1) * _DAY
     return Period("7d" if n == 7 else "30d", start, today, "day",
-                  (start - n * _DAY, start - _DAY), f"{n} derniers jours",
-                  f"{n} jours précédents")
+                  (start - n * _DAY, start - _DAY), tr("{n} derniers jours", n=n),
+                  tr("{n} jours précédents", n=n))
 
 
 # ---------------------------------------------------------------- agregats
@@ -397,7 +401,7 @@ def fmt_duration(seconds: float, compact: bool = False) -> str:
     « 28 s » plutot que « moins d'une minute »."""
     minutes = int(round(seconds / 60.0))
     if seconds > 0 and minutes == 0:
-        return f"{max(1, round(seconds))} s" if compact else "moins d'une minute"
+        return f"{max(1, round(seconds))} s" if compact else tr("moins d'une minute")
     if minutes < 60:
         return f"{minutes} min"
     if compact and minutes % 60 == 0:
@@ -438,7 +442,8 @@ def time_ticks(max_seconds: float, count: int = 4):
 
 # ---------------------------------------------------------------- bilan annuel
 
-WEEKDAYS_FR = ("lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi", "dimanche")
+WEEKDAYS_FR = (N_("lundi"), N_("mardi"), N_("mercredi"), N_("jeudi"), N_("vendredi"),
+               N_("samedi"), N_("dimanche"))
 
 
 @dataclass(frozen=True)

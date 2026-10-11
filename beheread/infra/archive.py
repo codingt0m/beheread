@@ -33,6 +33,7 @@ import zipfile
 from pathlib import Path
 
 from beheread import platforms
+from beheread.i18n import tr
 from beheread.infra import safe_xml
 
 IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp"}
@@ -74,6 +75,13 @@ _RAR_TOOL_ATTRS = (("unrar", "UNRAR_TOOL"), ("sevenzip", "SEVENZIP_TOOL"),
                    ("bsdtar", "BSDTAR_TOOL"))
 
 
+def _no_rar_tool(error) -> str:
+    return (tr("Aucun outil de décompression RAR n'a été trouvé.") + "\n\n"
+            + tr(platforms.RAR_HELP) + "\n"
+            + tr("Voir le README, section « Lire les fichiers CBR ».") + "\n\n"
+            + tr("Détail : {error}", error=error))
+
+
 def _init_rarfile():
     """Importe rarfile et localise un outil UnRAR si possible."""
     global _rarfile, _rar_error
@@ -82,10 +90,8 @@ def _init_rarfile():
     try:
         import rarfile
     except ImportError:
-        _rar_error = (
-            "Le module Python « rarfile » n'est pas installé.\n"
-            "Installez-le avec :  pip install rarfile"
-        )
+        _rar_error = tr("Le module Python « rarfile » n'est pas installé.\n"
+                        "Installez-le avec :  pip install rarfile")
         return
 
     from beheread.config import app_root
@@ -115,11 +121,7 @@ def _init_rarfile():
                            sevenzip="sevenzip" in found, sevenzip2=False,
                            bsdtar="bsdtar" in found, force=True)
     except rarfile.RarCannotExec as e:
-        _rar_error = (
-            "Aucun outil de décompression RAR n'a été trouvé.\n\n"
-            f"{platforms.RAR_HELP}\n"
-            "Voir le README, section « Lire les fichiers CBR ».\n\n"
-            f"Détail : {e}")
+        _rar_error = _no_rar_tool(e)
         return
     _rarfile = rarfile
 
@@ -275,7 +277,7 @@ class Archive:
             try:
                 self._ar = zipfile.ZipFile(path)
             except zipfile.BadZipFile as e:
-                raise ArchiveError(f"Archive ZIP invalide :\n{path}\n{e}") from e
+                raise ArchiveError(tr("Archive ZIP invalide :") + f"\n{path}\n{e}") from e
         elif fmt == "rar" or (fmt == "unknown" and ext in (".cbr", ".rar")):
             _init_rarfile()
             if _rar_error:
@@ -283,15 +285,11 @@ class Archive:
             try:
                 self._ar = _rarfile.RarFile(path)
             except _rarfile.RarCannotExec as e:
-                raise ArchiveError(
-                    "Aucun outil de décompression RAR n'a été trouvé.\n\n"
-                    f"{platforms.RAR_HELP}\n"
-                    "Voir le README, section « Lire les fichiers CBR ».\n\n"
-                    f"Détail : {e}") from e
+                raise ArchiveError(_no_rar_tool(e)) from e
             except Exception as e:
-                raise ArchiveError(f"Impossible d'ouvrir l'archive RAR :\n{path}\n{e}") from e
+                raise ArchiveError(tr("Impossible d'ouvrir l'archive RAR :") + f"\n{path}\n{e}") from e
         else:
-            raise ArchiveError(f"Format d'archive non reconnu :\n{path}")
+            raise ArchiveError(tr("Format d'archive non reconnu :") + f"\n{path}")
 
         names = []
         for n in self._ar.namelist():
@@ -305,7 +303,7 @@ class Archive:
         names = _without_extras(names)
         if not names:
             self.close()
-            raise ArchiveError(f"Aucune image trouvée dans l'archive :\n{path}")
+            raise ArchiveError(tr("Aucune image trouvée dans l'archive :") + f"\n{path}")
         if fmt == "zip" or ext == ".epub":
             names = self._epub_order(names)
         self.pages = names
@@ -342,8 +340,8 @@ class Archive:
             size = 0   # en-tete illisible : on laisse la lecture tenter sa chance
         if size > limit:
             raise ArchiveError(
-                f"Entrée anormalement volumineuse ignorée ({size} octets) :\n"
-                f"{name}\ndans {self.path}")
+                tr("Entrée anormalement volumineuse ignorée ({size} octets) :\n{name}\n"
+                   "dans {path}", size=size, name=name, path=self.path))
 
     def read_page(self, index: int) -> bytes:
         name = self.pages[index]
@@ -585,20 +583,20 @@ class PdfArchive(Archive):
         try:
             from PySide6.QtPdf import QPdfDocument
         except ImportError as e:
-            raise ArchiveError("La lecture des PDF nécessite le module QtPdf "
-                               "(PySide6-Addons), introuvable.") from e
+            raise ArchiveError(tr("La lecture des PDF nécessite le module QtPdf "
+                                  "(PySide6-Addons), introuvable.")) from e
         self._doc = QPdfDocument()
         err = self._doc.load(path)
         if err != QPdfDocument.Error.None_:
             name = getattr(err, "name", str(err))
             self._doc.close()
             if name == "IncorrectPassword":
-                raise ArchiveError(f"PDF protégé par un mot de passe :\n{path}")
-            raise ArchiveError(f"PDF illisible ({name}) :\n{path}")
+                raise ArchiveError(tr("PDF protégé par un mot de passe :") + f"\n{path}")
+            raise ArchiveError(tr("PDF illisible ({name}) :", name=name) + f"\n{path}")
         count = self._doc.pageCount()
         if count <= 0:
             self._doc.close()
-            raise ArchiveError(f"Aucune page dans le PDF :\n{path}")
+            raise ArchiveError(tr("Aucune page dans le PDF :") + f"\n{path}")
         self.pages = [f"page {i + 1}" for i in range(count)]
 
     def _render_size(self, index: int, max_height: int):

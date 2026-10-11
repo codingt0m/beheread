@@ -14,6 +14,7 @@ from PySide6.QtWidgets import QDialog, QInputDialog, QLineEdit, QMessageBox
 from beheread import platforms
 from beheread.core.library_model import FINISHED, aggregate_series_info
 from beheread.core.series import normalize_name
+from beheread.i18n import tr
 from beheread.infra import metadata
 from beheread.infra.archive import Archive
 from beheread.ui import theme
@@ -61,7 +62,7 @@ class ActionsMixin:
     def _ask_series(self, title, label, exclude_key=None, editable=True):
         choices = self._series_choices(exclude_key)
         if not choices and not editable:
-            QMessageBox.information(self, title, "Aucune autre série dans la bibliothèque.")
+            QMessageBox.information(self, title, tr("Aucune autre série dans la bibliothèque."))
             return None
         name, ok = QInputDialog.getItem(self, title, label, list(choices), 0, editable)
         name = (name or "").strip()
@@ -70,8 +71,8 @@ class ActionsMixin:
         return choices.get(name, name)
 
     def _move_to_series(self, paths):
-        raw = self._ask_series("Déplacer vers une série",
-                               "Série (choisir ou saisir un nouveau nom) :")
+        raw = self._ask_series(tr("Déplacer vers une série"),
+                               tr("Série (choisir ou saisir un nouveau nom) :"))
         if raw is None:
             return
         for p in paths:
@@ -80,8 +81,8 @@ class ActionsMixin:
 
     def _merge_series(self, key):
         name = self._series_display_name.get(key, key)
-        raw = self._ask_series("Fusionner des séries",
-                               plain(f"Rattacher tous les tomes de « {name} » à :"),
+        raw = self._ask_series(tr("Fusionner des séries"),
+                               plain(tr("Rattacher tous les tomes de « {name} » à :", name=name)),
                                exclude_key=key, editable=False)
         if raw is None:
             return
@@ -92,8 +93,8 @@ class ActionsMixin:
     def _rename_series(self, key):
         current = self._series_display_name.get(key, key)
         name, ok = QInputDialog.getText(
-            self, "Renommer la série",
-            "Nom affiché (laisser vide pour revenir au nom détecté) :",
+            self, tr("Renommer la série"),
+            tr("Nom affiché (laisser vide pour revenir au nom détecté) :"),
             QLineEdit.Normal, current)
         if not ok:
             return
@@ -134,7 +135,7 @@ class ActionsMixin:
         infos = [self._info.get(e.path) or self._entry_info(e) for e in grp]
         agg = aggregate_series_info(name, infos)
         c = theme.colors(self.store.ui_pref("theme", "dark"))
-        dlg = EditInfoDialog(f"Série « {name} »", agg.author, agg.year, c, self)
+        dlg = EditInfoDialog(tr("Série « {name} »", name=name), agg.author, agg.year, c, self)
         if dlg.exec() != QDialog.Accepted:
             return
         authors, year = dlg.values()
@@ -178,8 +179,8 @@ class ActionsMixin:
         p = Path(path)
         old_stem = p.stem
         new_stem, ok = QInputDialog.getText(
-            self, "Renommer le fichier",
-            "Nouveau nom (sans l'extension) :", QLineEdit.Normal, old_stem)
+            self, tr("Renommer le fichier"),
+            tr("Nouveau nom (sans l'extension) :"), QLineEdit.Normal, old_stem)
         if not ok:
             return
         new_stem = new_stem.strip().rstrip(" .")   # Windows interdit un nom finissant par espace/point
@@ -187,32 +188,33 @@ class ActionsMixin:
             return
         if (self._INVALID_NAME_CHARS & set(new_stem)) or any(ord(c) < 32 for c in new_stem):
             QMessageBox.warning(
-                self, "Nom invalide",
-                'Un nom de fichier ne peut pas contenir les caractères :\n'
-                '< > : " / \\ | ? *')
+                self, tr("Nom invalide"),
+                tr("Un nom de fichier ne peut pas contenir les caractères :")
+                + '\n< > : " / \\ | ? *')
             return
         # "CON", "NUL", "COM1"... sont reserves par Windows, meme avec extension
         if new_stem.split(".")[0].lower() in self._RESERVED_NAMES:
             QMessageBox.warning(
-                self, "Nom invalide",
-                f'« {new_stem} » est un nom réservé par Windows et ne peut pas '
-                "être utilisé comme nom de fichier.")
+                self, tr("Nom invalide"),
+                tr("« {name} » est un nom réservé par Windows et ne peut pas "
+                   "être utilisé comme nom de fichier.", name=new_stem))
             return
 
         target = p.with_name(new_stem + p.suffix)
         if target.exists():
             QMessageBox.warning(
-                self, "Renommage impossible",
-                f'Un fichier nommé « {target.name} » existe déjà dans ce dossier.')
+                self, tr("Renommage impossible"),
+                tr("Un fichier nommé « {name} » existe déjà dans ce dossier.", name=target.name))
             return
 
         try:
             p.rename(target)
         except OSError as e:
             QMessageBox.warning(
-                self, "Renommage impossible",
-                plain(f"Impossible de renommer le fichier :\n\n{e}\n\n"
-                      "Il est peut-être ouvert dans le lecteur ou une autre application."))
+                self, tr("Renommage impossible"),
+                plain(tr("Impossible de renommer le fichier :\n\n{error}\n\n"
+                         "Il est peut-être ouvert dans le lecteur ou une autre application.",
+                         error=e)))
             return
 
         self.store.note_renamed(str(p), str(target))
@@ -244,7 +246,7 @@ class ActionsMixin:
             else:
                 self.store.set_custom_cover(path, page=value)
         except OSError as err:
-            QMessageBox.warning(self, "Couverture non enregistrée", plain(err))
+            QMessageBox.warning(self, tr("Couverture non enregistrée"), plain(err))
             return
         self.covers.forget([path])
         self.covers.request(path)
@@ -276,8 +278,9 @@ class ActionsMixin:
                 total = len(ar)
                 ar.close()
             except Exception as e:
-                QMessageBox.warning(self, "Erreur",
-                                    plain(f"Impossible de lire l'archive :\n{path}\n\n{e}"))
+                QMessageBox.warning(self, tr("Erreur"),
+                                    plain(tr("Impossible de lire l'archive :\n{path}\n\n{error}",
+                                             path=path, error=e)))
                 return
         was_finished = bool(prog and prog[2])
         self.store.set_progress(path, max(0, total - 1), total, True)
@@ -314,26 +317,30 @@ class ActionsMixin:
         send2trash = platforms.trash_function()
         to_trash = send2trash is not None
 
-        verb = "Mettre à la corbeille" if to_trash else "Supprimer définitivement"
+        names = "\n".join(f"- {Path(p).stem}" for p in paths[:10])
+        if len(paths) > 10:
+            names += "\n" + tr("… et {n} de plus", n=len(paths) - 10)
         if series_label:
-            title = "Mettre à la corbeille" if to_trash else "Supprimer la série"
-            names = "\n".join(f"- {Path(p).stem}" for p in paths[:10])
-            if len(paths) > 10:
-                names += f"\n… et {len(paths) - 10} de plus"
-            message = (f"{verb} les {len(paths)} tomes de « {series_label} » ?\n\n{names}")
+            title = tr("Mettre à la corbeille") if to_trash else tr("Supprimer la série")
+            question = (tr("Mettre à la corbeille les {n} tomes de « {series} » ?") if to_trash
+                        else tr("Supprimer définitivement les {n} tomes de « {series} » ?"))
+            message = question.format(n=len(paths), series=series_label) + "\n\n" + names
         elif len(paths) == 1:
-            title = "Mettre à la corbeille" if to_trash else "Supprimer le manga"
-            message = f"{verb} « {Path(paths[0]).stem} » ?\n\n{paths[0]}"
+            title = tr("Mettre à la corbeille") if to_trash else tr("Supprimer le manga")
+            question = (tr("Mettre « {name} » à la corbeille ?") if to_trash
+                        else tr("Supprimer définitivement « {name} » ?"))
+            message = question.format(name=Path(paths[0]).stem) + f"\n\n{paths[0]}"
         else:
-            title = "Mettre à la corbeille" if to_trash else "Supprimer des mangas"
-            names = "\n".join(f"- {Path(p).stem}" for p in paths[:10])
-            if len(paths) > 10:
-                names += f"\n… et {len(paths) - 10} de plus"
-            message = f"{verb} {len(paths)} mangas ?\n\n{names}"
+            title = tr("Mettre à la corbeille") if to_trash else tr("Supprimer des mangas")
+            question = (tr("Mettre {n} mangas à la corbeille ?") if to_trash
+                        else tr("Supprimer définitivement {n} mangas ?"))
+            message = question.format(n=len(paths)) + "\n\n" + names
         if to_trash:
-            message += f"\n\nLes fichiers seront envoyés dans {platforms.TRASH_NAME}."
+            message += "\n\n" + tr("Les fichiers seront envoyés dans {trash}.",
+                                    trash=tr(platforms.TRASH_NAME))
         else:
-            message += "\n\nLes fichiers seront supprimés du disque. Cette action est irréversible."
+            message += "\n\n" + tr("Les fichiers seront supprimés du disque. "
+                                    "Cette action est irréversible.")
 
         confirm = QMessageBox.question(self, title, plain(message),
                                        QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
@@ -373,8 +380,8 @@ class ActionsMixin:
             self.covers.forget(deleted_set)
             self._rebuild_list()
         if errors:
-            QMessageBox.warning(self, "Erreur",
-                                plain("Certains fichiers n'ont pas pu être supprimés :\n\n"
+            QMessageBox.warning(self, tr("Erreur"),
+                                plain(tr("Certains fichiers n'ont pas pu être supprimés :") + "\n\n"
                                       + "\n".join(errors)))
 
     def _delete_selected(self):
