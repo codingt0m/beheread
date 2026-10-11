@@ -70,7 +70,7 @@ Chaque couche n'est interrogée que si la précédente n'a rien donné d'exploit
 Limites à connaître :
 * Google Books, AniList et MangaDex ne documentent pas forcément un tome précis dans une édition française : la date obtenue via un repli série (AniList/MangaDex) est celle de la première publication de la série entière, pas du tome lu.
 * La recherche se base sur le nom de fichier ; un titre traduit qui ne correspond à rien d'indexé peut ne rien trouver, ou (rarement) trouver la mauvaise œuvre.
-* Nécessite une connexion internet pour les couches 2 à 5. Sans connexion (ou en cas d'erreur), l'application continue de fonctionner normalement : l'auteur reste simplement vide pour les mangas concernés, et la recherche sera retentée à la prochaine session (les échecs réseau ne sont pas mis en cache, contrairement aux recherches sans résultat).
+* Nécessite une connexion internet pour les couches 2 à 5. Sans connexion (ou en cas d'erreur), l'application continue de fonctionner normalement : l'auteur reste simplement vide pour les mangas concernés, et la recherche est retentée dans la session, après 5, 15 puis 60 minutes, ou tout de suite avec « Réessayer maintenant » dans le panneau d'informations (les échecs réseau ne sont pas mis en cache, contrairement aux recherches sans résultat).
 * L'API Google Books sans clé a un quota anonyme assez bas et partagé par adresse IP (des erreurs "trop de requêtes" sont possibles sur certains réseaux) ; l'application se rabat alors automatiquement sur AniList, MangaDex puis la BnF.
 * Les requêtes sont volontairement espacées pour rester polies envers ces API publiques ; l'auteur affiché se remplit progressivement au fur et à mesure que les réponses arrivent.
 

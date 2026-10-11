@@ -3,6 +3,7 @@
 tome ou d'une serie."""
 
 import html
+import time
 from pathlib import Path
 
 from PySide6.QtCore import QSize, Qt, QThreadPool, QTimer, QUrl
@@ -493,8 +494,44 @@ class PreferencesDialog(QDialog):
         btn.clicked.connect(self._clear_meta)
         gv.addWidget(btn, alignment=Qt.AlignLeft)
         v.addWidget(g)
+
+        g = QGroupBox("Mises à jour")
+        gv = QVBoxLayout(g)
+        self.check_updates = QCheckBox(
+            "Vérifier une fois par jour si une nouvelle version est disponible")
+        self.check_updates.setChecked(bool(s.ui_pref("check_updates", False)))
+        gv.addWidget(self.check_updates)
+        gv.addWidget(self._hint(
+            "Beheread consulte la liste des versions publiées sur GitHub. Rien d'autre n'est "
+            "envoyé, et rien n'est installé sans vous : un bandeau propose simplement de "
+            "télécharger la nouvelle version."))
+        row = QHBoxLayout()
+        now = QPushButton("Vérifier maintenant")
+        now.clicked.connect(self._check_updates_now)
+        row.addWidget(now)
+        self.update_status = self._hint(self._last_update_check())
+        self.update_status.setWordWrap(False)
+        row.addWidget(self.update_status)
+        row.addStretch(1)
+        gv.addLayout(row)
+        v.addWidget(g)
         v.addStretch(1)
         return w
+
+    def _last_update_check(self):
+        ts = float(self.store.ui_pref("update_checked", 0) or 0)
+        if not ts:
+            return "Jamais vérifié"
+        when = time.localtime(ts)
+        day = ("aujourd'hui" if time.strftime("%Y%m%d", when) == time.strftime("%Y%m%d")
+               else time.strftime("le %d/%m/%Y", when))
+        return f"Dernière vérification : {day} à {time.strftime('%H:%M', when)}"
+
+    def _check_updates_now(self):
+        if "check_updates" not in self.actions:
+            return
+        self.update_status.setText("Vérification…")
+        self.actions["check_updates"](self.update_status.setText)
 
     # ----- couleur d'accentuation -----
     def _accent_row(self):
@@ -866,6 +903,7 @@ class PreferencesDialog(QDialog):
         s.set_reader_pref("boss_key", self.boss_key.isChecked())
         s.set_reader_pref("babelio_button", self.babelio.isChecked())
         s.set_ui_pref("global_hotkey", self.global_hotkey.isChecked())
+        s.set_ui_pref("check_updates", self.check_updates.isChecked())
         # mots d'origine : rien d'enregistre (ils suivront une evolution de la liste)
         s.set_library_pref("extra_page_words",
                            None if tuple(self._extra_words) == archive.DEFAULT_EXTRA_PAGE_WORDS

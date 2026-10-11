@@ -6,8 +6,8 @@ responsabilite pour garder chaque fichier lisible."""
 
 from pathlib import Path
 
-from PySide6.QtCore import QSize, Qt
-from PySide6.QtGui import QKeySequence, QShortcut
+from PySide6.QtCore import QSize, Qt, QUrl
+from PySide6.QtGui import QDesktopServices, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QButtonGroup,
     QComboBox,
@@ -427,6 +427,20 @@ class ChromeMixin:
             }}
             QPushButton#statusChip:focus {{ border: 2px solid {theme.ACCENT}; }}
         """)
+        self.update_icon.setPixmap(icons.download(c["text"]).pixmap(16, 16))
+        self.update_banner.setStyleSheet(f"""
+            #updateBanner {{ background: {c['panel']}; border-bottom: 1px solid {c['border']}; }}
+            #updateText {{ color: {c['text']}; font-size: 13px; }}
+            QPushButton#updateLink {{
+                color: {theme.ACCENT}; background: transparent; border: none; padding: 0;
+                font-size: 13px; text-decoration: underline;
+            }}
+            QPushButton#updateLater {{
+                color: {c['text_dim']}; background: transparent; border: 1px solid {c['border']};
+                border-radius: 6px; padding: 4px 12px;
+            }}
+            QPushButton#updateLater:hover {{ background: {c['button_hover']}; }}
+        """)
         self.consent.setStyleSheet(f"""
             #consent {{ background: {c['panel']}; border-bottom: 1px solid {c['border']}; }}
             #consentText {{ color: {c['text']}; font-size: 13px; }}
@@ -470,6 +484,52 @@ class ChromeMixin:
         self.count_label.setText(text)
         self.count_label.setToolTip(
             "Aucun résultat exact : les fautes de frappe sont tolérées." if approx else "")
+
+    # ----- nouvelle version disponible -----
+    def _build_update_banner(self):
+        self.update_banner = QFrame()
+        self.update_banner.setObjectName("updateBanner")
+        hl = QHBoxLayout(self.update_banner)
+        hl.setContentsMargins(20, 7, 20, 7)
+        hl.setSpacing(12)
+        self.update_icon = QLabel()
+        hl.addWidget(self.update_icon)
+        self.update_text = QLabel()
+        self.update_text.setObjectName("updateText")
+        self.update_text.setTextFormat(Qt.PlainText)
+        hl.addWidget(self.update_text)
+        link = QPushButton("Voir les nouveautés et télécharger")
+        link.setObjectName("updateLink")
+        link.setCursor(Qt.PointingHandCursor)
+        link.clicked.connect(self._open_update_page)
+        hl.addWidget(link)
+        hl.addStretch(1)
+        later = QPushButton("Plus tard")
+        later.setObjectName("updateLater")
+        later.setCursor(Qt.PointingHandCursor)
+        later.clicked.connect(self._dismiss_update)
+        hl.addWidget(later)
+        self._update = None
+        self.update_banner.hide()
+        return self.update_banner
+
+    def show_update(self, release):
+        """Bandeau « Beheread x.y.z est disponible » (release : voir
+        infra/updates.latest_release)."""
+        self._update = release
+        self.update_text.setText(f"Beheread {release['version']} est disponible "
+                                 f"(vous avez la {__version__}).")
+        self.update_banner.show()
+
+    def _open_update_page(self):
+        if self._update:
+            QDesktopServices.openUrl(QUrl(self._update["url"]))
+
+    def _dismiss_update(self):
+        """« Plus tard » : cette version n'est plus annoncee (une suivante le sera)."""
+        if self._update:
+            self.store.set_ui_pref("update_dismissed", self._update["version"])
+        self.update_banner.hide()
 
     # ----- consentement aux metadonnees en ligne -----
     def _build_consent_banner(self):

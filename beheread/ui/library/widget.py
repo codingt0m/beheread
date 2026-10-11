@@ -158,6 +158,7 @@ class LibraryWidget(ChromeMixin, DetailPanelMixin, ActionsMixin, MenusMixin,
         layout.setSpacing(0)
 
         layout.addWidget(self._build_header())
+        layout.addWidget(self._build_update_banner())
         for seq in keys.refresh_sequences():
             QShortcut(seq, self, self.refresh)
         QShortcut(QKeySequence.Find, self, self.search_edit.setFocus)   # Ctrl+F

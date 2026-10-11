@@ -122,6 +122,7 @@ class MainWindow(QMainWindow):
         self.library.set_services(tracker=self.tracker)
         self.library.volumesFinished.connect(self.trackers.on_volumes_finished)
         QTimer.singleShot(3000, self.trackers.flush_pending)   # envois restes en attente
+        QTimer.singleShot(5000, self.library.check_updates)    # si l'option est activee
         self.setCentralWidget(self.library)
         if perso is not None:
             perso.install(self)

@@ -67,6 +67,7 @@ Les numéros de version suivent [SemVer](https://semver.org/lang/fr/). Chaque se
 
 ### Bibliothèque
 
+* **Nouveau** : Beheread peut vérifier une fois par jour si une nouvelle version est publiée (Préférences > Général, désactivé par défaut) et l'annoncer par un bandeau. Rien n'est installé sans vous.
 * **Nouveau** : « Choisir la couverture… » (clic droit sur un tome) remplace la couverture par une autre page du tome ou par une image de votre ordinateur, sans modifier le fichier.
 * **Nouveau** : le panneau d'informations montre les genres et le résumé de l'œuvre (en français quand MangaDex en a un), ainsi que le nombre de tomes parus et possédés.
 * **Nouveau** : une série ouverte indique les tomes que vous n'avez pas (« Il vous manque 3 tomes : 6, 12, 29 à 36 ») et peut les montrer à leur place dans la grille.

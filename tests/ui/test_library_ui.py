@@ -579,3 +579,34 @@ def test_volume_cover_can_be_another_page_or_an_image(window, qtbot, mangas, sto
 def _colors():
     from beheread.ui import theme
     return theme.colors("dark")
+
+
+def test_new_version_banner(window, qtbot, store, monkeypatch):
+    """Option desactivee par defaut ; une fois activee, une version plus
+    recente est annoncee une fois, jusqu'a « Plus tard »."""
+    from beheread.infra import updates
+
+    calls = []
+
+    def latest():
+        calls.append(1)
+        return {"version": "99.0.0", "url": updates.RELEASES_PREFIX + "tag/v99.0.0"}
+    monkeypatch.setattr(updates, "latest_release", latest)
+    lib = window.library
+    lib.check_updates()
+    qtbot.wait(100)
+    assert calls == [] and not lib.update_banner.isVisible()   # option desactivee
+
+    store.set_ui_pref("check_updates", True)
+    lib.check_updates()
+    qtbot.waitUntil(lambda: lib.update_banner.isVisible(), timeout=5000)
+    assert "Beheread 99.0.0 est disponible" in lib.update_text.text()
+    lib._dismiss_update()
+    assert store.ui_pref("update_dismissed") == "99.0.0"
+    lib.check_updates()                                         # deja verifie aujourd'hui
+    qtbot.wait(100)
+    assert calls == [1]
+    reports = []
+    lib.check_updates(force=True, report=reports.append)        # « Verifier maintenant »
+    qtbot.waitUntil(lambda: bool(reports), timeout=5000)
+    assert reports == ["Beheread 99.0.0 est disponible."]

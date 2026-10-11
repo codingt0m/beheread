@@ -19,7 +19,7 @@ from PySide6.QtWidgets import (
 from beheread.core.anilist_track import ONESHOT
 from beheread.core.library_model import FINISHED
 from beheread.core.series import normalize_name, parse_path
-from beheread.infra import anilist, archive, metadata
+from beheread.infra import anilist, archive, metadata, updates
 from beheread.ui import theme
 
 # modules extraits (voir chacun) : constantes de rendu, delegates, dialogues et
@@ -37,7 +37,8 @@ class ServicesMixin:
         actions = {"clear_thumbs": self._clear_thumbnails,
                    "clear_meta": self._clear_downloaded_meta,
                    "export": self._export_backup, "import": self._import_backup,
-                   "export_csv": self._export_reading_csv}
+                   "export_csv": self._export_reading_csv,
+                   "check_updates": lambda report: self.check_updates(True, report)}
         dlg = PreferencesDialog(self.store, c, actions, self.tracker, self)
         if dlg.exec() != QDialog.Accepted:
             return
@@ -175,6 +176,39 @@ class ServicesMixin:
         dlg = StatsDialog(self.store, library, self.store.ui_pref("theme", "dark"), self,
                           resolve=series.get, titles=titles)
         dlg.exec()
+
+    # ----- mises a jour (facultatif) -----
+    def check_updates(self, force=False, report=None):
+        """Verifie si une version plus recente est publiee : une fois par jour
+        au plus si l'option est activee, ou tout de suite (`force`,
+        « Verifier maintenant »). `report(texte)` recoit le resultat en clair."""
+        if not force:
+            if not self.store.ui_pref("check_updates", False):
+                return
+            last = float(self.store.ui_pref("update_checked", 0) or 0)
+            if time.time() - last < updates.CHECK_INTERVAL:
+                return
+        if getattr(self, "_update_call", None) is not None:
+            return
+        call = CallWorker(updates.latest_release)
+        call.signals.done.connect(lambda result, err: self._on_update_checked(
+            result, err, force, report))
+        self._update_call = call
+        QThreadPool.globalInstance().start(call)
+
+    def _on_update_checked(self, release, err, force, report):
+        self._update_call = None
+        if err is not None:
+            if report:
+                report(f"Vérification impossible : {err}")
+            return
+        self.store.set_ui_pref("update_checked", time.time())
+        newer = updates.is_newer(release["version"])
+        if newer and (force or self.store.ui_pref("update_dismissed") != release["version"]):
+            self.show_update(release)
+        if report:
+            report(f"Beheread {release['version']} est disponible." if newer
+                   else "Beheread est à jour.")
 
     # ----- sauvegarde -----
     def _export_backup(self) -> str:

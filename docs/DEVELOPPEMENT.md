@@ -109,6 +109,7 @@ beheread/
     metadata.py          Cascade ComicInfo.xml -> Google Books -> AniList -> MangaDex -> BnF
     googlebooks.py, anilist.py, mangadex.py, bnf.py   Clients d'API
     net.py               Accès réseau commun : espacement des requêtes, pause après un 429, User-Agent
+    updates.py           Vérification des mises à jour (dernière release GitHub), facultative
     anilist_auth.py      Connexion AniList (récepteur local du jeton)
     secret_store.py      Protection du jeton AniList (DPAPI, Trousseau : voir platforms)
     single_instance.py   Instance unique (verrou + canal local)

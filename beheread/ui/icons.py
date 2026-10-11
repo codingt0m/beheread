@@ -190,3 +190,13 @@ def warning(color) -> QIcon:
         p.drawLine(QPointF(32, 25), QPointF(32, 38))
         p.drawPoint(QPointF(32, 46))
     return _make(draw, color)
+
+
+def download(color) -> QIcon:
+    """Fleche vers une barre (nouvelle version a telecharger)."""
+    def draw(p):
+        p.drawLine(QPointF(32, 10), QPointF(32, 40))
+        p.drawLine(QPointF(20, 29), QPointF(32, 41))
+        p.drawLine(QPointF(44, 29), QPointF(32, 41))
+        p.drawLine(QPointF(14, 53), QPointF(50, 53))
+    return _make(draw, color)
