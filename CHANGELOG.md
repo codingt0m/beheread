@@ -4,6 +4,13 @@ Les numéros de version suivent [SemVer](https://semver.org/lang/fr/). Chaque se
 
 ## [Non publié]
 
+### Sécurité
+
+* **Corrigé** (Windows) : ouvrir un CBR téléchargé pouvait lancer un faux `unrar.exe` placé dans le même dossier. Beheread ne lance plus que les outils de décompression trouvés à leur emplacement connu, et jamais un programme du dossier du fichier ouvert.
+* **Corrigé** : un titre ou un auteur piégé (ComicInfo.xml d'une archive, base de données en ligne) pouvait être interprété comme du HTML et faire charger une image distante, ce qui pouvait exposer des informations de connexion Windows. Ces textes sont désormais toujours affichés tels quels.
+* **Corrigé** : à la connexion AniList, Beheread affiche le nom du compte et demande confirmation avant de l'enregistrer : un autre site ouvert dans le navigateur ne peut plus y substituer son propre compte.
+* Les métadonnées XML (ComicInfo.xml, BnF) sont contrôlées quel que soit leur encodage, et la publication des versions est mieux cloisonnée.
+
 ### Version macOS (nouveau)
 
 * **Nouveau** : Beheread existe pour Mac (puce Apple, macOS 13 ou plus récent), avec les mêmes fonctions et la même interface que sous Windows. Téléchargez `Beheread-x.y.z-macos.dmg` et suivez le [guide d'installation macOS](https://github.com/codingt0m/beheread/blob/main/docs/INSTALLATION-MACOS.md) : l'application n'étant pas signée par Apple, macOS demande une autorisation au premier lancement.

@@ -22,6 +22,7 @@ import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ET
 
+from beheread.infra import safe_xml
 from beheread.infra.mangadex import title_score
 
 URL = "https://catalogue.bnf.fr/api/SRU"
@@ -49,7 +50,6 @@ _MANGA_PUBLISHERS = ("kana", "ki-oon", "pika", "kurokawa", "akata", "tonkam", "k
 
 _NS = {"srw": "http://www.loc.gov/zing/srw/",
        "dc": "http://purl.org/dc/elements/1.1/"}
-_DOCTYPE = re.compile(rb"<!DOCTYPE", re.IGNORECASE)
 _ROLE = re.compile(r"\.\s+(?:Auteur|Illustrateur|Dessinateur|Sc[ée]nariste|Coloriste|"
                    r"Traducteur|Adaptateur|Interpr[èe]te|[ÉE]diteur)\b.*$")
 _HEIGHT = re.compile(r"(\d+)\s*(?:x\s*\d+\s*)?cm\b")
@@ -120,10 +120,10 @@ def _query(name: str) -> str:
 
 def _records(xml: bytes):
     """Notices Dublin Core d'une reponse SRU : liste de {champ: [valeurs]}."""
-    if _DOCTYPE.search(xml):
-        raise BnfError("reponse refusee (DOCTYPE)")
     try:
-        root = ET.fromstring(xml)
+        root = safe_xml.fromstring(xml)
+    except safe_xml.UnsafeXmlError as e:
+        raise BnfError("reponse refusee (DOCTYPE)") from e
     except ET.ParseError as e:
         raise BnfError(f"reponse illisible : {e}") from e
     out = []

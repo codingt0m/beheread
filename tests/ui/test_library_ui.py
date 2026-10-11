@@ -178,6 +178,9 @@ def test_detail_panel_keeps_its_width_with_long_names(window, qtbot, mangas, sto
     lib.list.setCurrentRow(0)
     qtbot.wait(50)
     panel = lib.detail
+    # le panneau est reconstruit quand la vignette arrive en arriere-plan : ses
+    # nouveaux boutons ne s'affichent qu'au tour suivant de la boucle d'evenements
+    qtbot.waitUntil(lambda: any(b.isVisible() for b in panel.findChildren(ElidedButton)))
     host = panel.findChild(QWidget, "detailHost")
     viewport_w = host.parentWidget().width()
     assert host.width() <= viewport_w, (host.width(), viewport_w)

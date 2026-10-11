@@ -44,6 +44,7 @@ from beheread.ui.help_overlay import (
 )
 from beheread.ui.library.workers import _FolderCountWorker
 from beheread.ui.reader.constants import FIT_NAMES, normalize_fit
+from beheread.ui.safe_text import plain
 
 
 class _ElidedPathLabel(QLabel):
@@ -54,7 +55,8 @@ class _ElidedPathLabel(QLabel):
     def __init__(self, path):
         super().__init__(path)
         self._full = path
-        self.setToolTip(path)
+        self.setTextFormat(Qt.PlainText)   # chemin quelconque (voir ui/safe_text.py)
+        self.setToolTip(plain(path))
         self.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
 
     def minimumSizeHint(self):
@@ -839,8 +841,23 @@ class AniListLoginDialog(QDialog):
             self._fail_hard(f"AniList n'a pas validé la connexion :\n{e}")
             return
         QApplication.restoreOverrideCursor()
-        self.store.set_anilist_login(token, user.get("name"))
+        # confirmation explicite du compte : pendant l'attente, n'importe quel
+        # site ouvert dans le navigateur peut ouvrir la page locale avec SON
+        # jeton (la page le transmet alors elle-meme, avec la bonne origine) ;
+        # sans ce garde-fou, la progression de lecture partirait sur son compte
+        name = user.get("name") or "?"
+        if not self._confirm_account(name):
+            self._fail_hard("Connexion annulée : ce n'est pas votre compte AniList.")
+            return
+        self.store.set_anilist_login(token, name)
         self.accept()
+
+    def _confirm_account(self, name) -> bool:
+        return QMessageBox.question(
+            self, "Connexion à AniList",
+            plain(f"Connecter Beheread au compte AniList « {name} » ?\n\n"
+                  "Si ce n'est pas votre compte, répondez Non."),
+            QMessageBox.Yes | QMessageBox.No, QMessageBox.No) == QMessageBox.Yes
 
     def _on_failed(self, reason):
         self._fail_hard(f"Connexion non aboutie ({reason}).")
@@ -871,6 +888,7 @@ class EditInfoDialog(QDialog):
         root = QVBoxLayout(self)
         root.setContentsMargins(22, 18, 22, 16)
         title = QLabel(heading)
+        title.setTextFormat(Qt.PlainText)   # nom de tome ou de serie
         title.setWordWrap(True)
         title.setStyleSheet("font-size: 15px; font-weight: 700;")
         root.addWidget(title)

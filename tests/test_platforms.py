@@ -4,6 +4,9 @@ de toutes les plateformes."""
 
 import importlib
 import os
+import shutil
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -29,6 +32,28 @@ def test_rar_tools_lists_paths_by_kind(name, tmp_path):
     tools = module.rar_tools(tmp_path)
     assert set(tools) == {"unrar", "sevenzip", "bsdtar"}
     assert all(isinstance(p, Path) for paths in tools.values() for p in paths)
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="recherche des programmes de Windows")
+def test_windows_never_runs_a_program_from_the_current_directory(tmp_path, monkeypatch):
+    """Apres before_app_start, un programme lance par son simple nom n'est
+    plus cherche dans le dossier courant (celui du fichier double-clique)."""
+    from beheread.platforms import windows
+    planted = tmp_path / "beheread-planted.exe"
+    shutil.copy(Path(os.environ["SystemRoot"]) / "System32" / "hostname.exe", planted)
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("NoDefaultCurrentDirectoryInExePath", raising=False)
+
+    windows.before_app_start()
+
+    with pytest.raises(FileNotFoundError):
+        subprocess.run(["beheread-planted"], capture_output=True)
+
+
+def test_windows_explorer_is_run_by_its_full_path():
+    from beheread.platforms import windows
+    exe = windows._explorer_exe()
+    assert os.path.isabs(exe) and exe.lower().endswith("explorer.exe")
 
 
 def test_facade_matches_the_current_system():

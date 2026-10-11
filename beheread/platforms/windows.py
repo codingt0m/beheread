@@ -88,7 +88,13 @@ def before_app_start():
     """Sans ceci, Windows regroupe la fenetre sous l'icone de python.exe/
     pythonw.exe dans la barre des taches (il identifie l'appli par le nom de
     l'executable, pas par setWindowIcon). Lui donner un identifiant propre
-    force Windows a utiliser l'icone de la fenetre a la place."""
+    force Windows a utiliser l'icone de la fenetre a la place.
+
+    Securite : un programme lance par son seul nom est cherche par Windows
+    dans le dossier courant, qui est celui du fichier double-clique (un
+    dossier de telechargements, par exemple). Cette variable, lue par
+    CreateProcess, l'en empeche pour tout ce que Beheread lance."""
+    os.environ["NoDefaultCurrentDirectoryInExePath"] = "1"
     try:
         import ctypes
         ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(
@@ -121,8 +127,14 @@ REVEAL_LABEL = "Afficher dans l'explorateur"
 
 
 def reveal_in_file_manager(path: str):
-    """"explorer /select," met le fichier en surbrillance dans son dossier."""
-    subprocess.Popen(["explorer", "/select,", os.path.normpath(path)])
+    """"explorer /select," met le fichier en surbrillance dans son dossier.
+    Chemin complet : un explorer.exe du dossier courant ne doit jamais
+    pouvoir passer avant celui de Windows."""
+    subprocess.Popen([_explorer_exe(), "/select,", os.path.normpath(path)])
+
+
+def _explorer_exe() -> str:
+    return os.path.join(os.environ.get("SystemRoot") or r"C:\Windows", "explorer.exe")
 
 
 def trash_function():

@@ -80,13 +80,12 @@ TRASH_NAME = "la corbeille"
 
 
 def rar_tools(app_dir: Path) -> dict:
-    """UnRAR depose a cote de l'application, sinon les outils du PATH que
-    rarfile cherche de lui-meme (unrar, unar, 7z, bsdtar)."""
-    unrar = [app_dir / "unrar"]
-    found = shutil.which("unrar")
-    if found:
-        unrar.append(Path(found))
-    return {"unrar": unrar, "sevenzip": [], "bsdtar": []}
+    """UnRAR depose a cote de l'application, sinon les outils trouves dans le
+    PATH (rarfile ne lance que des chemins absolus, voir archive._init_rarfile)."""
+    def which(*names):
+        return [Path(p) for p in map(shutil.which, names) if p]
+    return {"unrar": [app_dir / "unrar", *which("unrar")],
+            "sevenzip": which("7z", "7zz"), "bsdtar": which("bsdtar")}
 
 
 RAR_HELP = "Installez unrar (ou 7-Zip) avec le gestionnaire de paquets du système."

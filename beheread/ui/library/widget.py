@@ -68,6 +68,7 @@ from beheread.ui.library.menus import MenusMixin
 from beheread.ui.library.services import ServicesMixin
 from beheread.ui.library.shelf import ContinueShelf
 from beheread.ui.library.views import ScrollingHeaderHost, SmoothListWidget
+from beheread.ui.safe_text import plain
 
 # ---------------------------------------------------------------- widget
 
@@ -460,7 +461,7 @@ class LibraryWidget(ChromeMixin, DetailPanelMixin, ActionsMixin, MenusMixin,
         item = self._path_to_item.get(path)
         if item is not None:
             item.setData(ROLE_AUTHOR_TEXT, author_text)
-            item.setToolTip(tooltip)
+            item.setToolTip(plain(tooltip))
         if author_text:
             # dossiers de serie abonnes a ce tome : leur auteur vient d'arriver
             for sitem in self._meta_subscribers.get(path, ()):
@@ -764,7 +765,7 @@ class LibraryWidget(ChromeMixin, DetailPanelMixin, ActionsMixin, MenusMixin,
         meta = self._get_or_fetch_meta(e)
         tooltip, author_text = self._meta_tooltip_and_author(e.path, meta)
         item.setData(ROLE_AUTHOR_TEXT, author_text)
-        item.setToolTip(tooltip)
+        item.setToolTip(plain(tooltip))
         self._apply_progress(item, e.path)
         self.list.addItem(item)
         self._row_paths.append((e.path,))
@@ -838,7 +839,7 @@ class LibraryWidget(ChromeMixin, DetailPanelMixin, ActionsMixin, MenusMixin,
         tooltip = f"{display}  ·  {count} tomes"
         if author:
             tooltip += f"\nAuteur : {author}"
-        item.setToolTip(tooltip)
+        item.setToolTip(plain(tooltip))
 
         self.list.addItem(item)
         self._row_paths.append(tuple(e.path for e in group))
@@ -902,7 +903,7 @@ class LibraryWidget(ChromeMixin, DetailPanelMixin, ActionsMixin, MenusMixin,
             # cotes de l'en-tete (la recherche reste centree, voir _balance_header)
             self.btn_back.setText(self.btn_back.fontMetrics().elidedText(
                 name, Qt.ElideRight, 220))
-            self.btn_back.setToolTip(f"{name}\nRetour à la bibliothèque   Échap")
+            self.btn_back.setToolTip(plain(f"{name}\nRetour à la bibliothèque   Échap"))
             self.btn_back.show()
         else:
             self.btn_back.hide()
@@ -1000,9 +1001,9 @@ class LibraryWidget(ChromeMixin, DetailPanelMixin, ActionsMixin, MenusMixin,
             self._apply_progress(item, info.path)
             if kind == "next":
                 item.setData(ROLE_PROG_TEXT, "À suivre")
-                item.setToolTip(f"{info.title}\nProchain tome à lire")
+                item.setToolTip(plain(f"{info.title}\nProchain tome à lire"))
             else:
-                item.setToolTip(f"{info.title}\nReprendre la lecture")
+                item.setToolTip(plain(f"{info.title}\nReprendre la lecture"))
             lst.addItem(item)
             self._bind_cover(item, info.path, ROLE_PIXMAP)
         self._shelf_has_picks = bool(picks)

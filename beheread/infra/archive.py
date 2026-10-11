@@ -23,11 +23,11 @@ fourni avec le systeme. Voir README.md pour l'installation.
 import logging
 import re
 import threading
-import xml.etree.ElementTree as ET
 import zipfile
 from pathlib import Path
 
 from beheread import platforms
+from beheread.infra import safe_xml
 
 IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp"}
 SUPPORTED_EXTS = {".cbz", ".cbr", ".zip", ".rar", ".epub", ".pdf"}
@@ -49,15 +49,12 @@ MAX_PAGE_BYTES = 200 * 1024 * 1024
 # quelques Ko. Au-dela, on ignore (evite de charger un XML piege en memoire).
 MAX_COMICINFO_BYTES = 4 * 1024 * 1024
 
-# Une declaration DOCTYPE est le prerequis des attaques XML classiques
-# (expansion d'entites facon "billion laughs", XXE). ComicInfo.xml n'en a
-# jamais besoin ; dans un XML bien forme, la sequence "<!DOCTYPE" ne peut
-# apparaitre que comme un vrai DOCTYPE dans le prologue. On rejette donc tout
-# document qui en contient (defense en profondeur, sans dependance externe).
-_DOCTYPE_RE = re.compile(rb"<!DOCTYPE", re.IGNORECASE)
-
 _rarfile = None
 _rar_error = None
+
+# sorte d'outil (beheread.platforms.rar_tools) -> reglage de rarfile
+_RAR_TOOL_ATTRS = (("unrar", "UNRAR_TOOL"), ("sevenzip", "SEVENZIP_TOOL"),
+                   ("bsdtar", "BSDTAR_TOOL"))
 
 
 def _init_rarfile():
@@ -77,17 +74,35 @@ def _init_rarfile():
     from beheread.config import app_root
     # outils propres au systeme (voir beheread.platforms.rar_tools) : le
     # premier present de chaque sorte est retenu, rarfile essaie ensuite
-    # unrar, puis unar, 7-Zip et bsdtar.
+    # unrar, puis 7-Zip et bsdtar.
     tools = platforms.rar_tools(app_root())
-    for kind, attr in (("unrar", "UNRAR_TOOL"), ("sevenzip", "SEVENZIP_TOOL"),
-                       ("bsdtar", "BSDTAR_TOOL")):
+    found = set()
+    for kind, attr in _RAR_TOOL_ATTRS:
         for cand in tools.get(kind, ()):
             try:
-                if cand.exists():
+                if cand.is_absolute() and cand.exists():
                     setattr(rarfile, attr, str(cand))
+                    found.add(kind)
                     break
             except OSError:
                 pass
+    # Securite : rarfile ne lance QUE les outils trouves ci-dessus, par leur
+    # chemin absolu. Ses valeurs par defaut ("unrar", "unar", "7zz"...) sont
+    # des noms nus : sous Windows, ils sont cherches d'abord dans le dossier
+    # courant, celui du fichier double-clique, ou un unrar.exe piege peut
+    # avoir ete telecharge avec le CBR. La configuration retenue est memorisee
+    # par rarfile pour toutes les ouvertures suivantes.
+    try:
+        rarfile.tool_setup(unrar="unrar" in found, unar=False,
+                           sevenzip="sevenzip" in found, sevenzip2=False,
+                           bsdtar="bsdtar" in found, force=True)
+    except rarfile.RarCannotExec as e:
+        _rar_error = (
+            "Aucun outil de décompression RAR n'a été trouvé.\n\n"
+            f"{platforms.RAR_HELP}\n"
+            "Voir le README, section « Lire les fichiers CBR ».\n\n"
+            f"Détail : {e}")
+        return
     _rarfile = rarfile
 
 
@@ -231,13 +246,13 @@ class Archive:
             self._guard_size(target, MAX_COMICINFO_BYTES)
             with self._lock:
                 raw = self._ar.read(target)
-            if _DOCTYPE_RE.search(raw):
-                # DOCTYPE present : refus par principe (anti expansion d'entites
-                # / XXE). Un ComicInfo.xml legitime n'en contient jamais.
-                logging.warning("ComicInfo.xml avec DOCTYPE ignore (securite) dans %s",
-                                self.path)
-                return None
-            root = ET.fromstring(raw)
+            root = safe_xml.fromstring(raw)
+        except safe_xml.UnsafeXmlError:
+            # DOCTYPE present : refus par principe (anti expansion d'entites
+            # / XXE). Un ComicInfo.xml legitime n'en contient jamais.
+            logging.warning("ComicInfo.xml avec DOCTYPE ignore (securite) dans %s",
+                            self.path)
+            return None
         except Exception:
             # ComicInfo.xml present mais illisible/mal forme : la cascade de
             # metadonnees se rabat sur les sources reseau (voir metadata.py),

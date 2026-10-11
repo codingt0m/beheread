@@ -25,6 +25,7 @@ from beheread.services.anilist_tracker import AniListTracker
 from beheread.ui import appicon, keys, theme
 from beheread.ui.library.widget import LibraryWidget
 from beheread.ui.reader.widget import ReaderWidget
+from beheread.ui.safe_text import plain
 from beheread.version import __version__
 
 APP_NAME = "Beheread"
@@ -166,12 +167,12 @@ class MainWindow(QMainWindow):
             reader = ReaderWidget(path, self.store, direct_mode=self.direct_mode)
         except ArchiveError as e:
             logging.warning("Ouverture impossible (%s): %s", path, e)
-            QMessageBox.warning(self, "Impossible d'ouvrir le manga", str(e))
+            QMessageBox.warning(self, "Impossible d'ouvrir le manga", plain(e))
             self._on_open_failed()
             return
         except Exception as e:
             logging.exception("Erreur inattendue a l'ouverture de %s", path)
-            QMessageBox.warning(self, "Erreur", f"{path}\n\n{e}")
+            QMessageBox.warning(self, "Erreur", plain(f"{path}\n\n{e}"))
             self._on_open_failed()
             return
 

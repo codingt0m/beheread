@@ -20,6 +20,7 @@ from PySide6.QtWidgets import (
 )
 
 from beheread.ui import theme
+from beheread.ui.safe_text import plain
 
 PANEL_W = 300
 COVER_W = 190
@@ -62,7 +63,7 @@ class ElidedButton(QPushButton):
     def __init__(self, text, parent=None):
         super().__init__(text, parent)
         self._full = text
-        self.setToolTip(text)
+        self.setToolTip(plain(text))
         self.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Fixed)
 
     def full_text(self):
@@ -108,14 +109,18 @@ class DetailPanel(QFrame):
         self.cover.setAlignment(Qt.AlignCenter)
         self._v.addWidget(self.cover)
 
+        # titres, auteurs... viennent de sources non fiables : jamais lus
+        # comme du HTML (voir beheread/ui/safe_text.py)
         self.title = QLabel()
         self.title.setObjectName("detailTitle")
+        self.title.setTextFormat(Qt.PlainText)
         self.title.setWordWrap(True)
         self.title.setTextInteractionFlags(Qt.TextSelectableByMouse)
         self._v.addWidget(self.title)
 
         self.subtitle = QLabel()
         self.subtitle.setObjectName("detailSub")
+        self.subtitle.setTextFormat(Qt.PlainText)
         self.subtitle.setWordWrap(True)
         self._v.addWidget(self.subtitle)
 
@@ -168,7 +173,7 @@ class DetailPanel(QFrame):
         self._set_visible_content(True)
         self.set_cover(cover)
         self.title.setText(breakable(shorten(title)))
-        self.title.setToolTip(title if len(title) > TITLE_MAX_CHARS else "")
+        self.title.setToolTip(plain(title) if len(title) > TITLE_MAX_CHARS else "")
         self.subtitle.setText(breakable(subtitle))
         self.subtitle.setVisible(bool(subtitle))
         for label, value in rows:
@@ -178,6 +183,7 @@ class DetailPanel(QFrame):
             k.setObjectName("detailKey")
             val = QLabel(value)
             val.setObjectName("detailVal")
+            val.setTextFormat(Qt.PlainText)
             val.setWordWrap(True)
             val.setTextInteractionFlags(Qt.TextSelectableByMouse)
             val.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)

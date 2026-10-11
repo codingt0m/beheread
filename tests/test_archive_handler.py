@@ -49,6 +49,49 @@ def test_comicinfo_with_doctype_is_ignored(tmp_path):
         ar.close()
 
 
+def test_comicinfo_with_doctype_in_utf16_is_ignored(tmp_path):
+    """Meme refus pour un ComicInfo.xml encode en UTF-16 (la sequence
+    « <!DOCTYPE » n'y apparait pas telle quelle dans les octets)."""
+    bomb = ('<?xml version="1.0" encoding="UTF-16"?>\n<!DOCTYPE r [ <!ENTITY a "x"> ]>\n'
+            '<ComicInfo><Series>&a;</Series></ComicInfo>').encode("utf-16")
+    ar = Archive(_make_cbz(tmp_path / "d16.cbz", comicinfo=bomb))
+    try:
+        assert ar.read_comicinfo() is None
+    finally:
+        ar.close()
+
+
+def test_rarfile_only_runs_tools_found_by_absolute_path(tmp_path, monkeypatch):
+    """rarfile ne doit jamais lancer un outil par son simple nom ("unrar",
+    "7z"...) : sous Windows, il serait cherche dans le dossier courant, ou un
+    unrar.exe piege peut accompagner un CBR telecharge."""
+    import errno
+
+    import rarfile
+
+    launched = []
+
+    def fake_popen(cmd, *args, **kwargs):
+        launched.append(cmd[0])
+        raise FileNotFoundError(errno.ENOENT, "absent", cmd[0])
+
+    tool = tmp_path / "UnRAR.exe"
+    tool.write_bytes(b"")
+    for attr in ("UNRAR_TOOL", "UNAR_TOOL", "SEVENZIP_TOOL", "SEVENZIP2_TOOL",
+                 "BSDTAR_TOOL", "CURRENT_SETUP"):
+        monkeypatch.setattr(rarfile, attr, getattr(rarfile, attr))
+    monkeypatch.setattr(rarfile, "Popen", fake_popen)
+    monkeypatch.setattr(archive, "_rarfile", None)
+    monkeypatch.setattr(archive, "_rar_error", None)
+    monkeypatch.setattr(archive.platforms, "rar_tools", lambda app_dir: {
+        "unrar": [Path("unrar"), tool], "sevenzip": [Path("7z")], "bsdtar": []})
+
+    archive._init_rarfile()
+
+    assert launched == [str(tool)]
+    assert archive._rarfile is None and "Aucun outil" in archive._rar_error
+
+
 def test_comicinfo_plain_is_parsed(tmp_path):
     """Sans DOCTYPE, un ComicInfo.xml normal reste lu normalement."""
     xml = (b'<?xml version="1.0"?><ComicInfo>'
@@ -138,4 +181,11 @@ def test_rar5_opens_with_the_bsdtar_shipped_with_macos():
         finally:
             ar.close()
     finally:
-        rarfile.tool_setup(force=True)
+        _reset_rarfile()
+
+
+def _reset_rarfile():
+    """Refait la detection des outils RAR de Beheread (outils par chemin
+    absolu seulement)."""
+    archive._rarfile = archive._rar_error = None
+    archive._init_rarfile()

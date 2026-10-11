@@ -25,6 +25,7 @@ from beheread.ui import theme
 # modules extraits (voir chacun) : constantes de rendu, delegates, dialogues et
 # taches d'arriere-plan. LibraryWidget (ci-dessous) orchestre le tout.
 from beheread.ui.library.dialogs import PreferencesDialog
+from beheread.ui.safe_text import plain
 from beheread.ui.stats_view import StatsDialog
 
 
@@ -105,8 +106,8 @@ class ServicesMixin:
         name = self._series_display_name.get(key, key)
         text, ok = QInputDialog.getText(
             self, "Associer à AniList",
-            f"Adresse de la page AniList de « {name} »\n"
-            "(par exemple https://anilist.co/manga/30002/Berserk) ou son numéro :")
+            plain(f"Adresse de la page AniList de « {name} »\n"
+                  "(par exemple https://anilist.co/manga/30002/Berserk) ou son numéro :"))
         if not ok or not text.strip():
             return
         media_id = anilist.parse_media_ref(text)
@@ -130,7 +131,7 @@ class ServicesMixin:
         finally:
             QApplication.restoreOverrideCursor()
         if media is None:
-            QMessageBox.warning(self, "Associer à AniList", error)
+            QMessageBox.warning(self, "Associer à AniList", plain(error))
             return
         self.tracker.associate(key, media_id, media.get("title"))
         self.tracker.resync_series(key, path)
@@ -175,7 +176,7 @@ class ServicesMixin:
         try:
             self.store.export_backup(path)
         except OSError as e:
-            QMessageBox.warning(self, "Export impossible", str(e))
+            QMessageBox.warning(self, "Export impossible", plain(e))
             return ""
         return f"Sauvegarde exportée : {path}"
 
@@ -187,7 +188,7 @@ class ServicesMixin:
         try:
             result = self.store.import_backup(path)
         except (OSError, ValueError) as e:
-            QMessageBox.warning(self, "Import impossible", str(e))
+            QMessageBox.warning(self, "Import impossible", plain(e))
             return ""
         self.refresh()   # les regroupements importes peuvent changer les series
         return (f"Import terminé : {result['progress']} progression(s) et "

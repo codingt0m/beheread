@@ -19,6 +19,7 @@ from beheread.ui import theme
 # taches d'arriere-plan. LibraryWidget (ci-dessous) orchestre le tout.
 from beheread.ui.library.constants import ROLE_IS_SERIES, ROLE_PATH, ROLE_SERIES_KEY
 from beheread.ui.library.dialogs import EditInfoDialog
+from beheread.ui.safe_text import plain
 
 
 class ActionsMixin:
@@ -59,7 +60,7 @@ class ActionsMixin:
     def _merge_series(self, key):
         name = self._series_display_name.get(key, key)
         raw = self._ask_series("Fusionner des séries",
-                               f"Rattacher tous les tomes de « {name} » à :",
+                               plain(f"Rattacher tous les tomes de « {name} » à :"),
                                exclude_key=key, editable=False)
         if raw is None:
             return
@@ -189,8 +190,8 @@ class ActionsMixin:
         except OSError as e:
             QMessageBox.warning(
                 self, "Renommage impossible",
-                f"Impossible de renommer le fichier :\n\n{e}\n\n"
-                "Il est peut-être ouvert dans le lecteur ou une autre application.")
+                plain(f"Impossible de renommer le fichier :\n\n{e}\n\n"
+                      "Il est peut-être ouvert dans le lecteur ou une autre application."))
             return
 
         self.store.note_renamed(str(p), str(target))
@@ -216,7 +217,7 @@ class ActionsMixin:
                 ar.close()
             except Exception as e:
                 QMessageBox.warning(self, "Erreur",
-                                    f"Impossible de lire l'archive :\n{path}\n\n{e}")
+                                    plain(f"Impossible de lire l'archive :\n{path}\n\n{e}"))
                 return
         was_finished = bool(prog and prog[2])
         self.store.set_progress(path, max(0, total - 1), total, True)
@@ -273,7 +274,7 @@ class ActionsMixin:
         else:
             message += "\n\nLes fichiers seront supprimés du disque. Cette action est irréversible."
 
-        confirm = QMessageBox.question(self, title, message,
+        confirm = QMessageBox.question(self, title, plain(message),
                                        QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
         if confirm != QMessageBox.Yes:
             return
@@ -312,8 +313,8 @@ class ActionsMixin:
             self._rebuild_list()
         if errors:
             QMessageBox.warning(self, "Erreur",
-                                "Certains fichiers n'ont pas pu être supprimés :\n\n" +
-                                "\n".join(errors))
+                                plain("Certains fichiers n'ont pas pu être supprimés :\n\n"
+                                      + "\n".join(errors)))
 
     def _delete_selected(self):
         """Touche Suppr : supprime les tomes selectionnes (confirmation

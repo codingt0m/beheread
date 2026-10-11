@@ -39,6 +39,7 @@ class EndCardMixin:
 
         self.end_title = QLabel(self.end_card)
         self.end_title.setObjectName("endTitle")
+        self.end_title.setTextFormat(Qt.PlainText)   # nom de fichier (voir ui/safe_text.py)
         self.end_title.setAlignment(Qt.AlignCenter)
         self.end_title.setWordWrap(True)
         v.addWidget(self.end_title)

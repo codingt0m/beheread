@@ -154,6 +154,7 @@ class HudMixin:
         self.hud_pos.setObjectName("hudPos")
         self.hud_sub = QLabel(self.hud_info)
         self.hud_sub.setObjectName("hudSub")
+        self.hud_sub.setTextFormat(Qt.PlainText)
         info_col.addWidget(self.hud_pos)
         info_col.addWidget(self.hud_sub)
 
