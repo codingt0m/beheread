@@ -7,6 +7,7 @@ sans numero de tome detectable est traite comme une serie a un seul tome.
 """
 
 import re
+from functools import lru_cache
 from pathlib import Path
 
 from beheread.core.text import GENERIC_NAMES, strip_accents
@@ -375,11 +376,13 @@ def author_hint(stem: str) -> list:
     return [g.strip() for g in groups if g.strip() and not re.fullmatch(r"[\d\s.-]+", g)]
 
 
+@lru_cache(maxsize=65536)
 def normalize_name(name: str) -> str:
     """Normalise un nom de serie pour la comparaison : insensible a la
     casse, aux accents ("Pokémon" vs "Pokemon"), aux tirets/underscores
     utilises comme espaces (frequents dans les noms de fichiers type
-    "gloutons-dragons") et a la ponctuation (ex. "&")."""
+    "gloutons-dragons") et a la ponctuation (ex. "&"). Memorise : la
+    bibliotheque l'appelle pour chaque tome a chaque reconstruction."""
     s = _remove_accents(name).casefold()
     s = re.sub(r"[\-_]+", " ", s)
     s = re.sub(r"[^\w\s]", " ", s, flags=re.UNICODE)

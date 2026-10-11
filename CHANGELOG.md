@@ -72,6 +72,7 @@ Les numéros de version suivent [SemVer](https://semver.org/lang/fr/). Chaque se
 * Le lecteur affiche ses pages sans attendre la fin de la génération des couvertures de la bibliothèque, et les tours de page restent fluides avec le recadrage des marges ou l'Ambilight.
 * Le zoom (molette, `+` / `-`) suit le geste sans à-coups ; la page redevient nette dès la fin du geste.
 * Les couvertures, l'aperçu de la barre de défilement et la préparation du tome suivant sont plus rapides à produire.
+* Le retour du lecteur à la bibliothèque est instantané : seuls les tomes lus sont mis à jour, au lieu de toute la grille.
 * Dans une grande bibliothèque, seules les couvertures à l'écran sont préparées, et la mémoire qu'elles occupent est plafonnée ; les auteurs des tomes affichés sont cherchés en premier.
 * Les auteurs arrivent bien plus vite au premier remplissage d'une grande bibliothèque : chaque série n'est plus cherchée qu'une fois en ligne, au lieu d'une fois par tome.
 * Une recherche d'auteur qui a échoué (réseau, service saturé) est retentée dans la session, après 5, 15 puis 60 minutes, au lieu d'attendre le prochain lancement. Beheread respecte les pauses demandées par les services en ligne.

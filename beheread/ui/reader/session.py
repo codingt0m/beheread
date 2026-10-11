@@ -105,6 +105,9 @@ class SessionMixin:
 
     def _series_label(self):
         """Nom de serie pour les statistiques (regroupement manuel prioritaire)."""
+        e = self.entry
+        if e is not None:   # meme deduction, deja faite par la bibliotheque
+            return e.series if e.manual or e.volume is not None else Path(self.path).stem
         override = self.store.series_override(self.path)
         if override and override != Store.SERIES_DETACHED:
             return override

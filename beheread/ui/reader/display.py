@@ -229,6 +229,11 @@ class DisplayMixin:
         bibliotheque : override manuel prioritaire, sinon numero de tome
         detecte dans le nom de fichier). None si le tome est seul (pas de
         serie), auquel cas le sens de lecture est memorise par tome."""
+        e = self.entry
+        if e is not None:   # meme deduction, deja faite par la bibliotheque
+            if e.detached or (not e.manual and e.volume is None):
+                return None
+            return normalize_name(e.series)
         override = self.store.series_override(self.path)
         if override == Store.SERIES_DETACHED:
             return None

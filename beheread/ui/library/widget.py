@@ -97,6 +97,7 @@ class LibraryWidget(ChromeMixin, DetailPanelMixin, ActionsMixin, MenusMixin,
         self._current_series = None
         self._series_display_name = {}   # cle normalisee -> nom affiche (vote)
         self._entry_by_path = {}         # path -> entree (acces O(1))
+        self._paths_by_series = {}       # cle de serie -> chemins (voir _set_entries)
 
         # recherche : index inverse construit a la demande (voir core/search.py
         # et _run_search). _search_hits : chemins des tomes correspondants, ou
@@ -294,9 +295,8 @@ class LibraryWidget(ChromeMixin, DetailPanelMixin, ActionsMixin, MenusMixin,
     def _on_series_meta_updated(self, series_key):
         """Auteur de serie arrive : met a jour ses tomes et son dossier, sans
         reconstruire la liste."""
-        for path in list(self._path_to_item):
-            e = self._entry_by_path.get(path)
-            if e is not None and normalize_name(e.series) == series_key:
+        for path in self._paths_by_series.get(series_key, ()):
+            if path in self._path_to_item:
                 self._update_item_meta(path, refilter=False)
         self.list.viewport().update()
         self._search_meta_changed()
@@ -393,9 +393,18 @@ class LibraryWidget(ChromeMixin, DetailPanelMixin, ActionsMixin, MenusMixin,
             # grille pendant qu'un tome telecharge apparait)
             self._rebuild_list()
 
+    def entry(self, path):
+        """Entree de la bibliotheque pour ce fichier (LibraryEntry), ou None
+        (fichier ouvert hors bibliotheque)."""
+        return self._entry_by_path.get(path)
+
     def _set_entries(self, entries):
         self._entries = entries
         self._entry_by_path = {e.path: e for e in entries}
+        # cle de serie -> tomes (arrivee des metadonnees d'une serie)
+        self._paths_by_series = {}
+        for e in entries:
+            self._paths_by_series.setdefault(normalize_name(e.series), []).append(e.path)
 
     def _load_persisted_index(self):
         """Affiche immediatement le dernier instantane connu de la bibliotheque
@@ -415,9 +424,26 @@ class LibraryWidget(ChromeMixin, DetailPanelMixin, ActionsMixin, MenusMixin,
             self._set_entries(entries)
             self._rebuild_list()
 
-    def update_progress_display(self):
-        """Rafraichit l'affichage (progression, tri) au retour du lecteur."""
-        self._rebuild_list()
+    def update_progress_display(self, paths=None):
+        """Rafraichit l'affichage au retour du lecteur. `paths` : tomes lus
+        pendant la seance ; seuls ceux-ci sont mis a jour (progression,
+        statut, bande « Continuer la lecture »), sans reconstruire la grille
+        - sauf si leur lecture peut changer l'ordre ou la composition de la
+        vue (tri par lecture recente, filtre de statut, dossiers de serie)."""
+        if (paths is None or self._group_series or self._sort == "read"
+                or self._status_filter != ALL):
+            self._rebuild_list()
+            return
+        for path in paths:
+            e, item = self._entry_by_path.get(path), self._path_to_item.get(path)
+            if e is None or item is None:
+                continue
+            self._info[path] = self._entry_info(e)
+            self._apply_progress(item, path)
+        self._rebuild_shelf()
+        self._apply_filter()   # la bande « Continuer » peut apparaitre ou disparaitre
+        self.list.viewport().update()
+        self._update_detail()
 
 
     def _authors_text(self, e):

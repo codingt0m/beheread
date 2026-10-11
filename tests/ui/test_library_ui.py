@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (
 )
 
 from beheread.core.library_model import SORTS
+from beheread.ui.library.constants import ROLE_PROG_TEXT
 from tests.ui.conftest import make_cbz, scanned, visible_titles
 
 
@@ -350,3 +351,51 @@ def test_deletion_waits_for_a_background_read_to_finish(window, qtbot, mangas, s
     monkeypatch.setattr(platforms, "trash_function", lambda: busy_then_free)
     lib._delete_many([path])
     assert len(attempts) >= 3 and not Path(path).exists() and lib._entries == []
+
+
+def test_returning_from_the_reader_updates_only_the_volumes_read(window, qtbot, mangas, store):
+    """Retour du lecteur, tri par titre sans filtre : la grille n'est pas
+    reconstruite, seuls les tomes lus sont mis a jour (et la bande
+    « Continuer la lecture »)."""
+    first = make_cbz(mangas, "Alpha - Tome 1", pages=8, seed=1)
+    make_cbz(mangas, "Alpha - Tome 2", seed=2)
+    store.set_folders([str(mangas)])
+    lib = window.library
+    lib.refresh()
+    scanned(qtbot, lib, 2)
+    rebuilds = []
+    real = lib._rebuild_list
+    lib._rebuild_list = lambda *a, **k: rebuilds.append(1) or real(*a, **k)
+    store.set_progress(first, 4, 8, False)
+    lib.update_progress_display({first})
+    assert rebuilds == []
+    assert lib._path_to_item[first].data(ROLE_PROG_TEXT) == "Page 5 / 8"
+    assert lib.shelf.list.count() == 1 and lib.shelf.isVisible()
+    lib._set_status_filter("reading")       # la vue depend du statut : reconstruction
+    rebuilds.clear()
+    lib.update_progress_display({first})
+    assert rebuilds
+
+
+def test_reader_uses_the_library_entry_like_the_file_name(window, qtbot, mangas, store):
+    """Le lecteur recoit l'entree de la bibliotheque : serie et libelle de
+    statistiques identiques a ce qu'il deduisait du nom de fichier."""
+    from beheread.ui.reader.widget import ReaderWidget
+
+    paths = [make_cbz(mangas, "Berserk T01", seed=1), make_cbz(mangas, "Errance", seed=2)]
+    manual = make_cbz(mangas, "Bonus", seed=3)
+    store.set_series_override(manual, "Berserk")
+    store.set_folders([str(mangas)])
+    lib = window.library
+    lib.refresh()
+    scanned(qtbot, lib, 3)
+    for path in paths + [manual]:
+        with_entry = ReaderWidget(path, store, entry=lib.entry(path))
+        without = ReaderWidget(path, store)
+        try:
+            assert with_entry.entry is not None and without.entry is None
+            assert with_entry._series_key == without._series_key
+            assert with_entry._series_label() == without._series_label()
+        finally:
+            with_entry.release()
+            without.release()

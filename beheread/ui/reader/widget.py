@@ -85,7 +85,7 @@ class ReaderWidget(HudMixin, EndCardMixin, DisplayMixin, InputMixin,
     session_ended = Signal(str)     # fin de la seance de lecture de ce tome (suivi AniList)
     fullscreen_toggled = Signal()
 
-    def __init__(self, path: str, store: Store, parent=None, direct_mode=False):
+    def __init__(self, path: str, store: Store, parent=None, direct_mode=False, entry=None):
         super().__init__(parent)
         self.setFocusPolicy(Qt.StrongFocus)
         self.setMouseTracking(True)
@@ -96,6 +96,9 @@ class ReaderWidget(HudMixin, EndCardMixin, DisplayMixin, InputMixin,
         self.direct_mode = direct_mode
         self.store = store
         self.path = path
+        # entree de la bibliotheque (LibraryEntry) : serie et numero deja
+        # connus, rien a redeviner du nom de fichier. None hors bibliotheque.
+        self.entry = entry if entry is not None and entry.path == path else None
         self._released = False   # voir release()
         self.archive = Archive(path)          # peut lever ArchiveError
         try:

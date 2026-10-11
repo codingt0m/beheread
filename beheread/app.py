@@ -108,6 +108,7 @@ class MainWindow(QMainWindow):
         self.resize(1200, 800)   # taille de repli si l'utilisateur desmaximise
 
         self.library = LibraryWidget(self.store)
+        self._session_paths = set()   # tomes ouverts depuis le dernier retour a la bibliotheque
         self.library.mangaActivated.connect(self.open_manga)
         self.library.preferencesChanged.connect(self.apply_preferences)
 
@@ -175,7 +176,8 @@ class MainWindow(QMainWindow):
 
     def open_manga(self, path: str):
         try:
-            reader = ReaderWidget(path, self.store, direct_mode=self.direct_mode)
+            reader = ReaderWidget(path, self.store, direct_mode=self.direct_mode,
+                                  entry=self.library.entry(path))
         except ArchiveError as e:
             logging.warning("Ouverture impossible (%s): %s", path, e)
             QMessageBox.warning(self, "Impossible d'ouvrir le manga", plain(e))
@@ -189,6 +191,7 @@ class MainWindow(QMainWindow):
 
         old_reader = self.reader
         self.reader = reader
+        self._session_paths.add(path)
         reader.closed.connect(self.close_reader)
         reader.next_volume_requested.connect(self.open_manga)
         reader.session_ended.connect(self.tracker.on_session_end)
@@ -293,7 +296,8 @@ class MainWindow(QMainWindow):
         win.deleteLater()
         if self.reader_window is not None:
             return   # un autre tome a ete ouvert pendant la sortie du plein ecran
-        self.library.update_progress_display()
+        paths, self._session_paths = self._session_paths, set()
+        self.library.update_progress_display(paths)
         self.showMaximized()
         self.activateWindow()
 
