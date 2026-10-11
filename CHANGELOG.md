@@ -52,6 +52,8 @@ Les numéros de version suivent [SemVer](https://semver.org/lang/fr/). Chaque se
 
 ### Lecture
 
+* Les réglages du lecteur (double page, ajustement, recadrage, décalage) sont retenus pour chaque série : un tome d'une série déjà réglée retrouve ses réglages, les autres séries reprennent le dernier choix fait.
+* En double page, l'appairage se recale tout seul après une planche double : la page suivante commence une nouvelle paire, comme dans le livre imprimé.
 * Un tome refermé sur sa page 1, 2 ou 3 n'est plus considéré comme commencé : sa progression est effacée à la sortie du lecteur, et il n'apparaît ni « en cours » ni dans « Continuer la lecture ». Un tome déjà terminé le reste.
 * **Corrigé** : un album nommé « Série - Tome 4 - Titre de l'album », ou un fichier au nommage « scène » (« Chainsaw.Man.T20.Fujimoto.FR.[CBZ]-NoTag »), formait sa propre série au lieu de rejoindre les autres tomes.
 

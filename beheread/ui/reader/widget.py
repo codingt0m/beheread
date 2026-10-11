@@ -121,16 +121,21 @@ class ReaderWidget(HudMixin, EndCardMixin, DisplayMixin, InputMixin,
         if prog and 0 <= prog[0] < self.total:
             self.page = prog[0]
 
-        # reglages du lecteur : communs a tous les mangas (le dernier choix
-        # fait dans un tome se retrouve a l'ouverture de n'importe quel autre),
-        # sauf le sens de lecture, detecte ou choisi serie par serie
-        self.double_page = bool(store.reader_pref("double_page", True))
+        # reglages du lecteur : ceux choisis dans la serie du tome, sinon le
+        # dernier choix fait dans n'importe quel tome (voir
+        # Store.reader_setting) ; le sens de lecture est detecte ou choisi
+        # serie par serie, l'Ambilight vaut pour tous
         self._series_key = self._resolve_series_key()
+        key = self._series_key
+        self.double_page = bool(store.reader_setting("double_page", key, True))
         self.manga_mode = self._initial_manga_mode()
-        self.fit_mode = normalize_fit(store.reader_pref("fit_mode"))
-        self.smart_crop = bool(store.reader_pref("smart_crop", False))
+        self.fit_mode = normalize_fit(store.reader_setting("fit_mode", key))
+        self.smart_crop = bool(store.reader_setting("smart_crop", key, False))
         self.ambilight = bool(store.reader_pref("ambilight", False))
-        self.page_offset = int(store.reader_pref("page_offset", 0)) & 1
+        self.page_offset = int(store.reader_setting("page_offset", key, 0)) & 1
+        # planches doubles deja vues (index -> bool) : l'appairage s'y recale
+        # (pairing.pair_anchor), meme une fois la page sortie du cache
+        self._spreads = {}
         self.zoom = 1.0
         self.pan = QPoint(0, 0)
         # alignement a appliquer au prochain rendu d'une page plus haute que
@@ -328,14 +333,16 @@ class ReaderWidget(HudMixin, EndCardMixin, DisplayMixin, InputMixin,
         (p, p+1) devient (p-1, p) - c'est justement la bonne planche double
         quand une couverture en tete de tome decale tout l'appairage. Seule
         exception : tout au debut, la couverture s'affiche seule (pas de
-        voisine avant elle). Le choix vaut pour tous les mangas."""
+        voisine avant elle). Le choix vaut pour la serie (voir
+        Store.reader_setting)."""
         self.page_offset ^= 1
-        self.store.set_reader_pref("page_offset", self.page_offset)
+        self.store.set_reader_setting("page_offset", self.page_offset, self._series_key)
         # apres inversion, une page qui etait debut de paire devient fin de
         # paire : on recule d'une page pour reafficher une paire (au lieu
         # d'isoler la page courante), sauf a la toute premiere page.
+        anchor = pairing.pair_anchor(self.page, self.page_offset, self._is_spread)
         if (self.double_page and self.page > 0
-                and (self.page - self.page_offset) % 2 != 0):
+                and (self.page - anchor) % 2 != 0):
             self._go_to(self.page - 1)
         else:
             self._update_hud()
@@ -429,6 +436,7 @@ class ReaderWidget(HudMixin, EndCardMixin, DisplayMixin, InputMixin,
         self._ambient_cache.pop(index, None)
 
     def _on_page_loaded(self, index: int):
+        self._is_spread(index)   # retenue pour l'appairage des pages suivantes
         if index in self._current_indices():
             if self.ambilight:
                 self._update_ambient_target()

@@ -79,3 +79,25 @@ def test_step_back_two_when_previous_is_a_pair():
 def test_step_back_one_when_previous_page_is_spread():
     # page 3 precedee d'une planche double (page 2) : recul d'une seule page
     assert pairing.step_back(3, 10, 0, True, spreads(2)) == 1
+
+
+
+# ----- recalage apres une planche double -----
+
+def test_page_after_a_spread_starts_a_new_pair():
+    # planche double en 3 : 4 commence une paire (4-5), quel que soit le
+    # decalage de depart
+    for offset in (0, 1):
+        assert pairing.current_indices(4, 12, offset, True, spreads(3)) == [4, 5]
+        assert pairing.current_indices(6, 12, offset, True, spreads(3)) == [6, 7]
+
+
+def test_offset_still_rules_before_the_first_spread():
+    assert pairing.current_indices(0, 12, 1, True, spreads(7)) == [0]
+    assert pairing.current_indices(1, 12, 1, True, spreads(7)) == [1, 2]
+
+
+def test_step_back_over_a_pair_that_follows_a_spread():
+    # 3 = planche double, paire (4, 5) : depuis 6, reculer de deux pages
+    assert pairing.step_back(6, 12, 0, True, spreads(3)) == 2
+    assert pairing.pair_anchor(6, 0, spreads(3)) == 4

@@ -8,12 +8,24 @@ voisine. `is_spread` est un predicat index -> bool fourni par l'appelant.
 """
 
 
+def pair_anchor(page, page_offset, is_spread):
+    """Premiere page de l'appairage dont releve `page` : celle qui suit la
+    derniere planche double qui la precede - dans le livre imprime, une
+    planche double termine toujours une double page, la suivante en commence
+    une nouvelle -, sinon le decalage de parite choisi (touche S). Le lecteur
+    se recale ainsi de lui-meme apres chaque planche double."""
+    for i in range(page - 1, -1, -1):
+        if is_spread(i):
+            return i + 1
+    return page_offset
+
+
 def pairs_with_next(page, total, page_offset, double_page, is_spread):
     """La page `page` forme-t-elle une paire avec `page + 1` ? Depend du mode
     double page, du decalage de parite (touche S) et des planches doubles."""
     return (double_page and 0 <= page and page + 1 < total
             and not is_spread(page) and not is_spread(page + 1)
-            and (page - page_offset) % 2 == 0)
+            and (page - pair_anchor(page, page_offset, is_spread)) % 2 == 0)
 
 
 def current_indices(page, total, page_offset, double_page, is_spread):

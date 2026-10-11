@@ -691,6 +691,25 @@ class Store:
         self.settings.setdefault("reader", {})[key] = value
         self._schedule("settings")
 
+    # Reglages du lecteur retenus par serie (double page, ajustement,
+    # recadrage, decalage de parite) : un choix fait dans un tome vaut pour
+    # toute sa serie, et devient aussi le reglage general que reprennent les
+    # series sans choix propre. Indexes par cle de serie normalisee.
+    def reader_setting(self, key, series_key, default=None):
+        """Reglage du lecteur pour un tome : celui choisi dans sa serie, sinon
+        le reglage general."""
+        if series_key:
+            value = self.settings.get("series_reader", {}).get(series_key, {}).get(key)
+            if value is not None:
+                return value
+        return self.reader_pref(key, default)
+
+    def set_reader_setting(self, key, value, series_key):
+        self.set_reader_pref(key, value)
+        if series_key:
+            self.settings.setdefault("series_reader", {}).setdefault(series_key, {})[key] = value
+            self._schedule("settings")
+
     def library_pref(self, key, default=None):
         return self.settings.get("library", {}).get(key, default)
 
@@ -852,7 +871,8 @@ class Store:
         return {"series_overrides": self._overrides, "volume_direction": self._directions,
                 "added": self._added, "pages": self._pages,
                 "series_names": self.settings.setdefault("series_names", {}),
-                "series_direction": self.settings.setdefault("series_direction", {})}
+                "series_direction": self.settings.setdefault("series_direction", {}),
+                "series_reader": self.settings.setdefault("series_reader", {})}
 
     # ------------------------------------------------------------ AniList (suivi)
     def anilist(self) -> dict:

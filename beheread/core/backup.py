@@ -28,14 +28,14 @@ VERSION = 1
 # (ajoutes a l'import seulement s'ils manquent localement). Les dossiers
 # sources, propres a chaque PC, n'en font pas partie.
 BACKUP_SETTINGS = ("series_overrides", "series_names", "volume_direction",
-                   "series_direction", "added", "pages")
+                   "series_direction", "added", "pages", "series_reader")
 
 # type attendu des valeurs de chaque reglage repris (voir Store) : une
 # sauvegarde est un fichier quelconque choisi par l'utilisateur, une valeur
 # d'un autre type casserait durablement la bibliotheque une fois enregistree
 _SETTING_TYPES: dict[str, type | tuple[type, ...]] = {"series_overrides": str, "series_names": str,
                   "volume_direction": bool, "series_direction": bool,
-                  "added": (int, float), "pages": int}
+                  "added": (int, float), "pages": int, "series_reader": dict}
 
 
 def _content_keys(d):

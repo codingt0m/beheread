@@ -165,9 +165,13 @@ def test_reader_settings_follow_from_one_manga_to_another(window, qtbot, mangas,
     assert other.fit_mode == FIT_WIDTH and other.page_offset == 1
     assert other.chip_crop.isChecked()
 
-    # le dernier decalage choisi vaut partout, meme pour un tome deja regle
+    # une serie garde ses propres choix : le decalage change dans Beta ne
+    # touche pas Alpha, qui l'avait deja regle
     other._shift_parity()
-    assert _open(window, qtbot, first.path).page_offset == 0
+    again = _open(window, qtbot, first.path)
+    assert again.page_offset == 1 and again.fit_mode == FIT_WIDTH
+    # ... mais devient le reglage d'une serie encore jamais reglee
+    assert _open(window, qtbot, make_cbz(mangas, "Gamma - Tome 1", seed=3)).page_offset == 0
 
 
 def test_reading_direction_stays_per_series(window, qtbot, mangas, store):
@@ -385,3 +389,16 @@ def test_zoom_is_rendered_sharp_once_the_gesture_ends(window, qtbot, mangas, sto
     qtbot.waitUntil(lambda: not reader._zooming, timeout=2000)
     reader.repaint()
     assert any(key not in before for key in reader._scaled_cache)
+
+
+def test_series_keeps_its_reader_settings(window, qtbot, mangas, store):
+    """Reglages retenus par serie : un tome d'une serie deja reglee les
+    retrouve, quels que soient les choix faits ailleurs depuis."""
+    alpha1 = make_cbz(mangas, "Alpha - Tome 1", seed=1)
+    alpha2 = make_cbz(mangas, "Alpha - Tome 2", seed=2)
+    reader = _open(window, qtbot, alpha1)
+    reader.toggle_double_page()                       # Alpha : simple page
+    beta = _open(window, qtbot, make_cbz(mangas, "Beta - Tome 1", seed=3))
+    assert beta.double_page is False                  # reglage general repris
+    beta.toggle_double_page()                         # Beta : double page
+    assert _open(window, qtbot, alpha2).double_page is False

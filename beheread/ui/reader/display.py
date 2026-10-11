@@ -95,9 +95,15 @@ class DisplayMixin:
 
     def _is_spread(self, index):
         """Une image plus large que haute couvre deja une double page (scan
-        de planche double) : elle doit s'afficher seule, jamais couplee."""
+        de planche double) : elle doit s'afficher seule, jamais couplee. Le
+        resultat est retenu : une planche sortie du cache continue de recaler
+        l'appairage des pages qui la suivent."""
         s = self._effective_size(index)
-        return s is not None and s.width() > s.height()
+        if s is None:
+            return self._spreads.get(index, False)
+        wide = s.width() > s.height()
+        self._spreads[index] = wide
+        return wide
 
     def _ambient_color_for(self, index):
         """Couleur de fond Ambilight pour cette page (moyenne assombrie),
@@ -209,13 +215,13 @@ class DisplayMixin:
         self._scaled_order.clear()
 
     # --- bascules (partagees par le clavier et les chips du HUD) -----------
-    # Chaque choix est enregistre comme preference du lecteur : il vaut pour
-    # tous les mangas, pas seulement pour celui qui est ouvert. Seul le sens
-    # de lecture reste propre a chaque serie (voir _initial_manga_mode) : il
-    # ne touche pas au sens par defaut des preferences.
+    # Chaque choix vaut pour la serie du tome et devient le reglage general des
+    # series sans choix propre (voir Store.reader_setting). Le sens de lecture
+    # reste propre a chaque serie (voir _initial_manga_mode) : il ne touche
+    # pas au sens par defaut des preferences.
     def toggle_double_page(self):
         self.double_page = not self.double_page
-        self.store.set_reader_pref("double_page", self.double_page)
+        self.store.set_reader_setting("double_page", self.double_page, self._series_key)
         self._go_to(self.page)
 
     def toggle_manga_mode(self):
@@ -308,14 +314,14 @@ class DisplayMixin:
 
     def cycle_fit_mode(self):
         self.fit_mode = FIT_WIDTH if self.fit_mode == FIT_HEIGHT else FIT_HEIGHT
-        self.store.set_reader_pref("fit_mode", self.fit_mode)
+        self.store.set_reader_setting("fit_mode", self.fit_mode, self._series_key)
         self.zoom = 1.0
         self._clear_scaled_cache()
         self._go_to(self.page)
 
     def toggle_smart_crop(self):
         self.smart_crop = not self.smart_crop
-        self.store.set_reader_pref("smart_crop", self.smart_crop)
+        self.store.set_reader_setting("smart_crop", self.smart_crop, self._series_key)
         self._clear_scaled_cache()
         self._update_hud()
         self.update()
