@@ -28,6 +28,13 @@ from beheread.ui.reader.widget import ReaderWidget
 from beheread.ui.safe_text import plain
 from beheread.version import __version__
 
+try:   # fonctionnalites locales facultatives, absentes du depot
+    from beheread import perso
+except ModuleNotFoundError as exc:
+    if exc.name != "beheread.perso":
+        raise
+    perso = None
+
 APP_NAME = "Beheread"
 
 # Sous macOS, un fichier ouvert depuis le Finder n'est pas passe en argument :
@@ -108,6 +115,8 @@ class MainWindow(QMainWindow):
         self.library.volumesFinished.connect(self.tracker.on_volumes_finished)
         QTimer.singleShot(3000, self.tracker.flush_pending)   # envois restes en attente
         self.setCentralWidget(self.library)
+        if perso is not None:
+            perso.install(self)
 
         self.reader = None
         self.reader_window = None
