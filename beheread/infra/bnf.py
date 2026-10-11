@@ -14,7 +14,9 @@ de haut, un manga relie 17 a 21 cm. La collection (« Seinen », « Shonen »...
 et l'editeur (labels manga connus) completent cet indice.
 """
 
+import http.client
 import re
+import socket
 import threading
 import time
 import urllib.error
@@ -30,6 +32,12 @@ TIMEOUT = 15
 MIN_INTERVAL = 0.5
 MAX_RECORDS = 20
 USER_AGENT = "Beheread/1.1 (lecteur de BD et mangas)"
+
+# adresse de catalogue.bnf.fr, utilisee seulement si le DNS ne resout pas le
+# nom (constate avec le DNS de Google, 8.8.8.8, en echec sur tout bnf.fr).
+# Le certificat reste verifie pour catalogue.bnf.fr : une adresse perimee
+# echoue proprement, sans jamais parler a un autre serveur.
+FALLBACK_IP = "194.199.8.30"
 
 # ressemblance minimale (0..1) entre le nom cherche et le titre de serie
 # d'une notice : la recherche « tous les mots » de la BnF ramene aussi des
@@ -69,6 +77,41 @@ def _throttle():
         if elapsed < MIN_INTERVAL:
             time.sleep(MIN_INTERVAL - elapsed)
         _last_request = time.monotonic()
+
+
+class _PinnedConnection(http.client.HTTPSConnection):
+    """Connexion HTTPS vers FALLBACK_IP, mais SNI, en-tete Host et
+    verification du certificat restent ceux du nom demande."""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._create_connection = self._connect_pinned
+
+    @staticmethod
+    def _connect_pinned(address, *args, **kwargs):
+        return socket.create_connection((FALLBACK_IP, address[1]), *args, **kwargs)
+
+
+class _PinnedHTTPSHandler(urllib.request.HTTPSHandler):
+    def https_open(self, req):
+        return self.do_open(_PinnedConnection, req, context=self._context)
+
+
+def _open_pinned(req):
+    return urllib.request.build_opener(_PinnedHTTPSHandler()).open(req, timeout=TIMEOUT)
+
+
+def _fetch(req) -> bytes:
+    """Corps de la reponse ; si le nom ne se resout pas, nouvel essai
+    directement sur FALLBACK_IP."""
+    try:
+        with urllib.request.urlopen(req, timeout=TIMEOUT) as resp:
+            return resp.read()
+    except urllib.error.URLError as e:
+        if not isinstance(e.reason, socket.gaierror):
+            raise
+    with _open_pinned(req) as resp:
+        return resp.read()
 
 
 def _fold(text: str) -> str:
@@ -146,9 +189,7 @@ def search_series(name: str):
     url = f"{URL}?{urllib.parse.urlencode(params)}"
     _throttle()
     try:
-        req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
-        with urllib.request.urlopen(req, timeout=TIMEOUT) as resp:
-            xml = resp.read()
+        xml = _fetch(urllib.request.Request(url, headers={"User-Agent": USER_AGENT}))
     except (urllib.error.URLError, OSError, ValueError, TimeoutError) as e:
         raise BnfError(str(e)) from e
 

@@ -117,3 +117,36 @@ def test_doctype_is_refused(monkeypatch):
     _serve(monkeypatch, b'<?xml version="1.0"?><!DOCTYPE x [<!ENTITY a "b">]><x/>')
     with pytest.raises(bnf.BnfError):
         bnf.search_series("Seuls")
+
+
+def test_dns_failure_falls_back_to_pinned_ip(monkeypatch):
+    def unresolved(req, timeout=None):
+        raise bnf.urllib.error.URLError(bnf.socket.gaierror(11002, "getaddrinfo failed"))
+    monkeypatch.setattr(bnf.urllib.request, "urlopen", unresolved)
+    monkeypatch.setattr(bnf, "_open_pinned", lambda req: _Resp(_response(
+        _record("100 bullets. 1", "Azzarello, Brian. Auteur du texte", "Semic", "2004",
+                "1 vol. : ill. en coul. ; 26 cm"))))
+    assert bnf.search_series("100 Bullets")["authors"] == ["Brian Azzarello"]
+
+
+def test_other_network_errors_skip_the_fallback(monkeypatch):
+    def refused(req, timeout=None):
+        raise bnf.urllib.error.URLError(ConnectionRefusedError())
+    monkeypatch.setattr(bnf.urllib.request, "urlopen", refused)
+    monkeypatch.setattr(bnf, "_open_pinned", lambda req: pytest.fail("repli inattendu"))
+    with pytest.raises(bnf.BnfError):
+        bnf.search_series("Seuls")
+
+
+def test_pinned_connection_keeps_the_hostname(monkeypatch):
+    targets = []
+
+    def create_connection(addr, *a, **k):
+        targets.append(addr)
+        raise OSError("pas de reseau en test")
+    monkeypatch.setattr(bnf.socket, "create_connection", create_connection)
+    conn = bnf._PinnedConnection("catalogue.bnf.fr")
+    with pytest.raises(OSError):
+        conn.connect()
+    assert targets == [(bnf.FALLBACK_IP, 443)]
+    assert conn.host == "catalogue.bnf.fr"   # SNI et certificat verifies sur ce nom
