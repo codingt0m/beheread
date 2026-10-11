@@ -90,6 +90,7 @@ beheread/
     babelio.py           Recherche Babelio d'un tome (page locale ouverte depuis la fiche de fin)
     library_model.py     Statuts de lecture, tris, sélection « Continuer la lecture »
     search.py            Recherche : normalisation, index inversé, tolérance aux fautes de frappe
+    text.py              Normalisation partagée : accents, noms qui ne désignent pas une série
     pairing.py           Appairage double page (parité, planches doubles, recul)
     wheel_nav.py         Molette / pavé tactile (défilement puis tour de page)
     stats.py             Statistiques (périodes, comparaison, jours d'affilée, classement)
@@ -102,11 +103,12 @@ beheread/
     generic.py           Repli pour les autres systèmes (non pris en charge)
   infra/                 Persistance, archives, réseau
     storage.py           Store : façade de persistance (identité par contenu, écritures différées)
-    database.py          Base SQLite : schéma versionné, dépôts, écritures incrémentales
+    database.py          Base SQLite : schéma versionné, dépôts (une ligne par tome), écritures incrémentales
     reading_log.py       Journal de lecture : table SQL, agrégats par période des statistiques
     archive.py           Ouverture CBZ/CBR/EPUB en mémoire, rendu des PDF (QtPdf), scan des dossiers
     metadata.py          Cascade ComicInfo.xml -> Google Books -> AniList -> MangaDex -> BnF
     googlebooks.py, anilist.py, mangadex.py, bnf.py   Clients d'API
+    net.py               Accès réseau commun : espacement des requêtes, pause après un 429, User-Agent
     anilist_auth.py      Connexion AniList (récepteur local du jeton)
     secret_store.py      Protection du jeton AniList (DPAPI, Trousseau : voir platforms)
     single_instance.py   Instance unique (verrou + canal local)

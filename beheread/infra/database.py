@@ -27,19 +27,34 @@ from pathlib import Path
 
 from beheread.infra import reading_log
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
-TABLES = ("settings", "progress", "volume_meta", "series_meta", "fingerprints",
-          "stats_devices", "library_index")
+# depots du schema 1
+TABLES_V1 = ("settings", "progress", "volume_meta", "series_meta", "fingerprints",
+             "stats_devices", "library_index")
+# schema 3 : donnees par tome et etat AniList sortis de la ligne « settings »
+# (une ligne par tome au lieu d'un dictionnaire entier reecrit a chaque
+# modification), index de la bibliotheque sur une ligne par tome. Les donnees
+# y sont deplacees par Store au premier lancement (voir Store._split_settings).
+TABLES_V3 = ("volume_added", "page_counts", "series_overrides", "volume_directions",
+             "continue_dismissed", "anilist_map", "anilist_pending", "anilist_last",
+             "library_entries")
+TABLES = TABLES_V1 + TABLES_V3
+
+# entretien a la fermeture : VACUUM seulement si au moins ce nombre de pages,
+# dont plus de cette part est libre (place laissee par des suppressions)
+VACUUM_MIN_PAGES = 256
+VACUUM_FREE_RATIO = 0.25
 
 # version -> etapes qui y menent depuis la precedente : instructions SQL, ou
 # fonctions recevant le curseur de la transaction (reprise de donnees)
 MIGRATIONS = {
-    1: [f"CREATE TABLE {t} (key TEXT PRIMARY KEY, value TEXT NOT NULL)" for t in TABLES]
+    1: [f"CREATE TABLE {t} (key TEXT PRIMARY KEY, value TEXT NOT NULL)" for t in TABLES_V1]
        # informations sur la base elle-meme (ex. import des anciens JSON termine)
        + ["CREATE TABLE app_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)"],
     # journal de lecture en table SQL ; l'ancien (stats_devices) n'est plus lu
     2: reading_log.SCHEMA + [reading_log.copy_legacy_journal],
+    3: [f"CREATE TABLE {t} (key TEXT PRIMARY KEY, value TEXT NOT NULL)" for t in TABLES_V3],
 }
 
 
@@ -125,6 +140,20 @@ class Database:
                 raise
             cur.execute("COMMIT")
 
+    def maintenance(self):
+        """Entretien leger, a la fermeture : statistiques de l'optimiseur
+        (PRAGMA optimize) et compactage si beaucoup de place est libre."""
+        try:
+            with self.lock:
+                self.conn.execute("PRAGMA optimize")
+                pages = self.conn.execute("PRAGMA page_count").fetchone()[0]
+                free = self.conn.execute("PRAGMA freelist_count").fetchone()[0]
+                if pages >= VACUUM_MIN_PAGES and free > pages * VACUUM_FREE_RATIO:
+                    self.conn.execute("VACUUM")
+                    logging.info("Base compactee (%d pages libres sur %d)", free, pages)
+        except sqlite3.Error:
+            logging.warning("Entretien de la base impossible", exc_info=True)
+
     def close(self):
         with self.lock:
             self.conn.close()
@@ -154,16 +183,19 @@ class JsonTable:
                 continue
             self._persisted[key] = text
 
-    def pending_changes(self):
+    def pending_changes(self, only=None):
         """(lignes a ecrire, cles a supprimer) depuis la derniere ecriture.
-        Peut lever RuntimeError si le dictionnaire est modifie par un autre
-        thread pendant le calcul (l'appelant retente)."""
+        `only` : seules cles modifiees, a serialiser (toutes par defaut) ; les
+        suppressions sont toujours detectees, par simple comparaison des jeux
+        de cles. Peut lever RuntimeError si le dictionnaire est modifie par un
+        autre thread pendant le calcul (l'appelant retente)."""
         upserts = []
-        for key, value in self.data.items():
-            text = json.dumps(value, ensure_ascii=False, sort_keys=True)
+        keys = list(self.data) if only is None else [k for k in only if k in self.data]
+        for key in keys:
+            text = json.dumps(self.data[key], ensure_ascii=False, sort_keys=True)
             if self._persisted.get(key) != text:
                 upserts.append((key, text))
-        deletes = [k for k in self._persisted if k not in self.data]
+        deletes = [k for k in list(self._persisted) if k not in self.data]
         return upserts, deletes
 
     def write(self, cur, upserts, deletes):

@@ -230,7 +230,7 @@ def test_forget_content_after_delete(store, tmp_path):
     store.forget_content(key, path)
 
     assert key not in store.progress
-    assert key not in store.settings["added"]
+    assert key not in store._added
     assert key not in store.meta_cache["volume"]
     assert path not in store._fp
 

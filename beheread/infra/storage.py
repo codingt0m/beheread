@@ -51,12 +51,22 @@ DB_NAME = "beheread.db"
 
 # depot -> table SQLite (voir database.py)
 REPOS = {"settings": "settings", "progress": "progress", "volume_meta": "volume_meta",
-         "series_meta": "series_meta", "fp": "fingerprints", "index": "library_index"}
-# nom passe a _schedule -> depots a ecrire
-DIRTY_TO_REPOS = {"settings": ("settings",), "progress": ("progress",),
-                  "meta": ("volume_meta", "series_meta"), "fp": ("fp",)}
-REPO_TO_DIRTY = {"settings": "settings", "progress": "progress", "volume_meta": "meta",
-                 "series_meta": "meta", "fingerprints": "fp", "library_index": "settings"}
+         "series_meta": "series_meta", "fp": "fingerprints", "index": "library_index",
+         # schema 3 : une ligne par tome (ou par serie) au lieu d'un dictionnaire
+         # entier dans la ligne « settings »
+         "added": "volume_added", "pages": "page_counts", "overrides": "series_overrides",
+         "directions": "volume_directions", "dismissed": "continue_dismissed",
+         "al_map": "anilist_map", "al_pending": "anilist_pending", "al_last": "anilist_last",
+         "entries": "library_entries"}
+# nom passe a _schedule -> depots a ecrire (par defaut : le depot du meme nom)
+DIRTY_TO_REPOS = {"meta": ("volume_meta", "series_meta")}
+REPO_TO_DIRTY = {"volume_meta": "meta", "series_meta": "meta"}
+REPO_TO_DIRTY.update({table: name for name, table in REPOS.items()
+                      if table not in REPO_TO_DIRTY})
+# reglages autrefois ranges dans la ligne « settings » -> depot du schema 3
+SPLIT_SETTINGS = {"added": "added", "pages": "pages", "series_overrides": "overrides",
+                  "volume_direction": "directions", "continue_dismissed": "dismissed"}
+SPLIT_ANILIST = {"map": "al_map", "pending": "al_pending", "last": "al_last"}
 # anciens fichiers JSON (versions <= 0.1), importes au premier lancement
 LEGACY_IMPORT_KEY = "legacy_json_import"
 # fins de tome anterieures au journal de lecture, reprises une seule fois
@@ -68,6 +78,16 @@ LEGACY_FILES = {"settings": "settings.json", "progress": "progress.json",
 
 def _as_dict(value) -> dict:
     return value if isinstance(value, dict) else {}
+
+
+def _index_rows(entries) -> dict:
+    """Index de bibliotheque (liste d'entrees) -> {chemin: entree + rang} :
+    une ligne par tome, l'ordre etant garde par le rang (« seq »)."""
+    rows = {}
+    for i, entry in enumerate(entries if isinstance(entries, list) else []):
+        if isinstance(entry, dict) and isinstance(entry.get("path"), str):
+            rows[entry["path"]] = dict(entry, seq=i)
+    return rows
 FP_HEAD = 65536           # octets de tete lus pour l'empreinte de contenu
 
 
@@ -125,6 +145,12 @@ class Store:
         self.meta_cache = {"volume": self._repos["volume_meta"].data,
                            "series": self._repos["series_meta"].data}
         self._fp = self._repos["fp"].data                 # chemin -> {m, s, k}
+        # donnees par tome (empreinte -> valeur), une ligne chacune
+        self._added = self._repos["added"].data           # date d'ajout
+        self._pages = self._repos["pages"].data           # nombre de pages
+        self._overrides = self._repos["overrides"].data   # regroupement manuel
+        self._directions = self._repos["directions"].data  # sens de lecture d'un tome seul
+        self._dismissed = self._repos["dismissed"].data   # masques de « Continuer »
         # journal de lecture (statistiques) : table SQL, voir reading_log.py
         self.reading_log = ReadingLog(self.db)
         # empreintes deja resolues pendant la session (chemin -> cle) : evite un
@@ -140,6 +166,9 @@ class Store:
         self._save_lock = threading.RLock()
         self._io_lock = threading.Lock()   # serialise les ecritures disque
         self._dirty = set()
+        # nom -> cles modifiees depuis la derniere ecriture (seules celles-ci
+        # sont serialisees), ou None : tout le depot est a comparer
+        self._dirty_keys = {}
         self._deadline = None              # echeance de la prochaine ecriture (monotonic)
         self._wake = threading.Event()
         self._saver = None
@@ -147,6 +176,7 @@ class Store:
 
         if self.db.get_meta(LEGACY_IMPORT_KEY) is None:
             self._import_legacy_json()
+        self._split_settings()
         self.settings.setdefault("folders", [])
         self.settings.setdefault("reader", {})
         self._migrate_meta_cache_out_of_settings()
@@ -157,6 +187,49 @@ class Store:
             self._schedule("settings")
         if self.db.get_meta(FINISHED_HISTORY_KEY) is None:
             self._import_finished_history()
+
+    # ------------------------------------------------------------ schema 3
+    def _split_settings(self):
+        """Deplace dans leurs depots du schema 3 les donnees par tome et
+        l'etat AniList encore ranges dans la ligne « settings » (base d'avant
+        le schema 3, ou anciens fichiers JSON tout juste importes), ainsi que
+        l'index de la bibliotheque (un seul bloc -> une ligne par tome). Une
+        seule transaction : rien n'est perdu si elle echoue, elle est alors
+        retentee au lancement suivant."""
+        moved = set()
+        for old, name in SPLIT_SETTINGS.items():
+            values = self.settings.pop(old, None)
+            if values is None:
+                continue
+            moved.update(("settings", name))
+            if isinstance(values, dict):
+                for key, value in values.items():
+                    self._repos[name].data.setdefault(key, value)
+        anilist = self.settings.get("anilist")
+        if isinstance(anilist, dict):
+            for old, name in SPLIT_ANILIST.items():
+                values = anilist.pop(old, None)
+                if values is None:
+                    continue
+                moved.update(("settings", name))
+                if isinstance(values, dict):
+                    for key, value in values.items():
+                        self._repos[name].data.setdefault(key, value)
+        index = self._repos["index"].data.pop("entries", None)
+        if index is not None:
+            moved.update(("index", "entries"))
+            self._repos["entries"].data.update(_index_rows(index))
+        if not moved:
+            return
+        try:
+            with self._io_lock:
+                self._write_all(sorted(moved))
+        except Exception:
+            logging.error("Passage des donnees au schema 3 impossible (nouvel essai "
+                          "au prochain lancement)", exc_info=True)
+            raise
+        logging.info("Donnees deplacees vers les tables du schema 3 : %s",
+                     ", ".join(sorted(moved)))
 
     # ------------------------------------------------------------ import des anciens JSON
     def _import_legacy_json(self):
@@ -235,11 +308,21 @@ class Store:
         for repo, upserts, deletes in changes:
             repo.mark_written(upserts, deletes)
 
-    def _schedule(self, name: str):
-        """Marque un fichier comme a sauvegarder et repousse l'echeance : tant
-        que des modifications arrivent, l'ecriture est differee de SAVE_DELAY."""
+    def _schedule(self, name: str, *keys):
+        """Marque un depot comme a sauvegarder et repousse l'echeance : tant
+        que des modifications arrivent, l'ecriture est differee de SAVE_DELAY.
+        `keys` : seules cles modifiees du depot, les seules a serialiser (un
+        tour de page ne serialise plus toute la progression) ; sans cle, tout
+        le depot sera compare a ce qui est en base."""
         with self._save_lock:
             self._dirty.add(name)
+            if not keys:
+                self._dirty_keys[name] = None
+            else:
+                pending = self._dirty_keys.get(name, set())
+                if pending is not None:
+                    pending.update(keys)
+                    self._dirty_keys[name] = pending
             self._deadline = time.monotonic() + SAVE_DELAY
             if self._saver is None:
                 self._saver = threading.Thread(
@@ -286,16 +369,19 @@ class Store:
                 return True
             with self._save_lock:
                 dirty, self._dirty = self._dirty, set()
+                dirty_keys, self._dirty_keys = self._dirty_keys, {}
                 changes = []
                 for name in dirty:
-                    for repo_name in DIRTY_TO_REPOS[name]:
+                    only = dirty_keys.get(name)
+                    for repo_name in DIRTY_TO_REPOS.get(name, (name,)):
                         repo = self._repos[repo_name]
                         try:
-                            upserts, deletes = repo.pending_changes()
+                            upserts, deletes = repo.pending_changes(only)
                         except RuntimeError:
                             logging.info("Modification concurrente de %s pendant la "
                                          "serialisation, nouvel essai", repo.table)
                             self._dirty.add(name)
+                            self._dirty_keys[name] = None
                             retry = True
                             continue
                         except Exception:
@@ -318,6 +404,7 @@ class Store:
                     with self._save_lock:
                         for repo, _u, _d in changes:
                             self._dirty.add(REPO_TO_DIRTY[repo.table])
+                            self._dirty_keys[REPO_TO_DIRTY[repo.table]] = None
                     return False
                 for repo, upserts, deletes in changes:
                     repo.mark_written(upserts, deletes)
@@ -343,6 +430,7 @@ class Store:
         self.flush()
         with self._io_lock:
             self._closed = True
+            self.db.maintenance()
             self.db.close()
 
     def _migrate_meta_cache_out_of_settings(self):
@@ -393,7 +481,7 @@ class Store:
         with self._save_lock:   # appele aussi depuis le ScanWorker
             self._fp[path] = {"m": st.st_mtime_ns, "s": st.st_size, "k": key}
         self._key_memo[path] = key
-        self._schedule("fp")
+        self._schedule("fp", path)
         return key
 
     def invalidate_key_memo(self):
@@ -413,7 +501,7 @@ class Store:
         entry = self._fp.pop(old_path, None)
         if entry is not None:
             self._fp[new_path] = entry
-            self._schedule("fp")
+            self._schedule("fp", new_path)
 
     # ------------------------------------------------------------ nettoyage des caches
     def purge_orphan_caches(self, current_paths):
@@ -436,7 +524,7 @@ class Store:
             for p in stale:
                 self._fp.pop(p, None)
                 self._key_memo.pop(p, None)
-            self._schedule("fp")
+            self._schedule("fp", *stale)   # suppressions seules : rien a reserialiser
 
         # vignettes : garde uniquement les fichiers attendus pour les tomes
         # actuels (le nom encode l'empreinte de contenu + le facteur d'echelle)
@@ -475,8 +563,7 @@ class Store:
         if shared:
             return
         # cle de contenu ET eventuelle entree heritee indexee par chemin
-        for name, data in (("progress", self.progress),
-                           ("settings", self.settings.get("added", {})),
+        for name, data in (("progress", self.progress), ("added", self._added),
                            ("meta", self.meta_cache.get("volume", {}))):
             removed = [data.pop(key, None), data.pop(path, None)]
             if any(r is not None for r in removed):
@@ -518,21 +605,19 @@ class Store:
         """Renvoie le nom de serie force pour ce tome, la sentinelle de
         detachement (Store.SERIES_DETACHED), ou None si regroupement
         automatique."""
-        return self.settings.get("series_overrides", {}).get(self.key_for(path))
+        return self._overrides.get(self.key_for(path))
 
     def set_series_override(self, path: str, value: str):
-        self.settings.setdefault("series_overrides", {})[self.key_for(path)] = value
-        self._schedule("settings")
+        key = self.key_for(path)
+        self._overrides[key] = value
+        self._schedule("overrides", key)
         self.flush()
 
     def clear_series_override(self, path: str):
-        ov = self.settings.get("series_overrides")
-        if ov is not None:
-            key = self.key_for(path)
-            if key in ov:
-                del ov[key]
-                self._schedule("settings")
-                self.flush()
+        key = self.key_for(path)
+        if self._overrides.pop(key, None) is not None:
+            self._schedule("overrides", key)
+            self.flush()
 
     # ------------------------------------------------- nom affiche d'une serie
     # Renommage manuel d'un dossier de serie (affichage uniquement) : indexe
@@ -553,11 +638,12 @@ class Store:
     def continue_dismissed(self) -> dict:
         """{empreinte: horodatage} des tomes masques de la bande « Continuer
         la lecture » (ils y reviennent s'ils sont relus apres ce masquage)."""
-        return self.settings.get("continue_dismissed", {})
+        return self._dismissed
 
     def dismiss_continue(self, path: str):
-        self.settings.setdefault("continue_dismissed", {})[self.key_for(path)] = time.time()
-        self._schedule("settings")
+        key = self.key_for(path)
+        self._dismissed[key] = time.time()
+        self._schedule("dismissed", key)
 
     # ------------------------------------------------------- sens de lecture
     # Choix explicite de l'utilisateur (manga = droite->gauche), memorise par
@@ -573,14 +659,16 @@ class Store:
             v = self.settings.get("series_direction", {}).get(series_key)
             if v is not None:
                 return bool(v)
-        return self.settings.get("volume_direction", {}).get(self.key_for(path))
+        return self._directions.get(self.key_for(path))
 
     def set_reading_direction(self, path: str, series_key, manga_mode: bool):
         if series_key:
             self.settings.setdefault("series_direction", {})[series_key] = bool(manga_mode)
+            self._schedule("settings")
         else:
-            self.settings.setdefault("volume_direction", {})[self.key_for(path)] = bool(manga_mode)
-        self._schedule("settings")
+            key = self.key_for(path)
+            self._directions[key] = bool(manga_mode)
+            self._schedule("directions", key)
         self.flush()
 
     # ------------------------------------------------------------ preferences
@@ -609,18 +697,18 @@ class Store:
     def ensure_added(self, paths):
         """Horodate chaque contenu encore inconnu et renvoie le dict
         chemin -> timestamp. Un seul chemin d'ecriture pour tout un scan."""
-        added = self.settings.setdefault("added", {})
+        added = self._added
         now = time.time()
-        changed = False
+        changed = []
         result = {}
         for p in paths:
             k = self.key_for(p)
             if k not in added:
                 added[k] = now
-                changed = True
+                changed.append(k)
             result[p] = added[k]
         if changed:
-            self._schedule("settings")
+            self._schedule("added", *changed)
         return result
 
     # ------------------------------------------------------------ progression
@@ -651,7 +739,7 @@ class Store:
         entry.update({"page": page, "total": total, "finished": finished,
                       "ts": time.time()})   # horodatage : sert a la rangee "Reprendre"
         self.progress[key] = entry
-        self._schedule("progress")
+        self._schedule("progress", key)
 
     def progress_ts(self, path: str) -> float:
         """Date de derniere lecture (epoch) pour ce fichier, ou 0."""
@@ -713,7 +801,8 @@ class Store:
 
     # ------------------------------------------------------------ sauvegarde (export / import)
     def export_backup(self, path):
-        data = backup_model.build_backup(self.settings, self.progress, self.reading_log.export(),
+        data = backup_model.build_backup(self._backup_settings(), self.progress,
+                                         self.reading_log.export(),
                                          self.meta_cache, self.continue_dismissed(),
                                          self.device_id(), self.device_name())
         backup_model.write_json_atomic(path, data)
@@ -731,19 +820,29 @@ class Store:
         with self._io_lock:
             self.reading_log.replace_devices(backup_model.journal_sections_to_import(
                 self.reading_log.devices(), data.get("stats", {}), self.device_id()))
-        dismissed = self.settings.setdefault("continue_dismissed", {})
-        extras = backup_model.merge_extras(self.settings, self.meta_cache, data)
-        if backup_model.merge_dismissed(dismissed, data.get("continue_dismissed", {})) or extras:
-            self._schedule("settings")
-            self._schedule("meta")
+        extras = backup_model.merge_extras(self._backup_settings(), self.meta_cache, data)
+        if backup_model.merge_dismissed(self._dismissed, data.get("continue_dismissed", {})):
+            self._schedule("dismissed")
+        if extras:
+            for name in ("settings", "meta", "overrides", "directions", "added", "pages"):
+                self._schedule(name)
         self.flush()
         return {"progress": progress, "extras": extras}
 
+    def _backup_settings(self) -> dict:
+        """Reglages par tome et par serie repris par une sauvegarde (voir
+        backup.BACKUP_SETTINGS), sous leur nom d'echange : dictionnaires
+        vivants, que merge_extras complete en place."""
+        return {"series_overrides": self._overrides, "volume_direction": self._directions,
+                "added": self._added, "pages": self._pages,
+                "series_names": self.settings.setdefault("series_names", {}),
+                "series_direction": self.settings.setdefault("series_direction", {})}
+
     # ------------------------------------------------------------ AniList (suivi)
     def anilist(self) -> dict:
-        """Etat AniList de l'utilisateur : user, tracking, token_enc, map,
-        pending, last (voir anilist_tracker.py). Le Client ID de
-        l'application, lui, est dans beheread/config.py."""
+        """Etat AniList de l'utilisateur : user, tracking, token_enc (voir
+        anilist_tracker.py) ; les donnees par serie sont dans anilist_series.
+        Le Client ID de l'application, lui, est dans beheread/config.py."""
         return self.settings.setdefault("anilist", {})
 
     def anilist_token(self):
@@ -768,12 +867,15 @@ class Store:
         self._schedule("settings")
 
     def anilist_series(self, section: str) -> dict:
-        """Sous-dictionnaire par cle de serie : "map" (oeuvre associee),
-        "pending" (mises a jour en attente), "last" (derniere mise a jour)."""
-        return self.anilist().setdefault(section, {})
+        """Dictionnaire par cle de serie : "map" (oeuvre associee),
+        "pending" (mises a jour en attente), "last" (derniere mise a jour).
+        Chacun a sa table (une ligne par serie)."""
+        return self._repos[SPLIT_ANILIST[section]].data
 
     def touch_anilist(self):
         self._schedule("settings")
+        for name in SPLIT_ANILIST.values():
+            self._schedule(name)
 
     # ------------------------------------------------------------ estimation du temps de lecture
     def median_page_seconds(self):
@@ -796,16 +898,15 @@ class Store:
     def page_count(self, path: str):
         """Nombre de pages connu pour ce fichier (par empreinte de contenu),
         ou None. Renseigne lors de la generation de la vignette / de la lecture."""
-        return self.settings.get("pages", {}).get(self.key_for(path))
+        return self._pages.get(self.key_for(path))
 
     def set_page_count(self, path: str, n: int):
         if not n or n <= 0:
             return
-        pages = self.settings.setdefault("pages", {})
         key = self.key_for(path)
-        if pages.get(key) != n:
-            pages[key] = int(n)
-            self._schedule("settings")
+        if self._pages.get(key) != n:
+            self._pages[key] = int(n)
+            self._schedule("pages", key)
 
     # ------------------------------------------------------------ cache metadonnees serie
     def series_meta(self, series_key: str):
@@ -874,16 +975,20 @@ class Store:
     def load_library_index(self):
         """Dernier instantane connu de la bibliotheque (liste d'entrees), pour
         un affichage immediat au demarrage avant le rescan reel. [] si absent."""
-        data = self._repos["index"].data.get("entries", [])
-        return data if isinstance(data, list) else []
+        rows = [r for r in self._repos["entries"].data.values() if isinstance(r, dict)]
+        rows.sort(key=lambda r: r.get("seq", 0) if isinstance(r.get("seq"), int) else 0)
+        return [{k: v for k, v in r.items() if k != "seq"} for r in rows]
 
     def save_library_index(self, entries):
         """Persiste l'instantane de la bibliotheque (ecriture directe : appele
-        une fois par scan, pas a chaque tour de page)."""
-        self._repos["index"].data["entries"] = list(entries)
+        une fois par scan, pas a chaque tour de page). Une ligne par tome :
+        seules les lignes ajoutees, changees ou retirees sont ecrites."""
+        data = self._repos["entries"].data
+        data.clear()
+        data.update(_index_rows(entries))
         try:
             with self._io_lock:
-                self._write_all(["index"])
+                self._write_all(["entries"])
         except Exception:
             logging.warning("Ecriture de l'instantane de bibliotheque impossible",
                             exc_info=True)

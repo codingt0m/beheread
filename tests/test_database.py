@@ -163,3 +163,107 @@ def test_fresh_install_marks_import_done(data_dir):
     s = Store()
     assert s.db.get_meta("legacy_json_import") == "aucun fichier"
     s.close()
+
+
+def _schema_2_database(path, settings, index):
+    """Base telle que la laissait une version a schema 2 (avant le decoupage
+    des reglages par tome)."""
+    con = sqlite3.connect(str(path), isolation_level=None)
+    cur = con.cursor()
+    for version in (1, 2):
+        for step in database.MIGRATIONS[version]:
+            step(cur) if callable(step) else cur.execute(step)
+    for key, value in settings.items():
+        cur.execute("INSERT INTO settings VALUES (?, ?)", (key, json.dumps(value)))
+    cur.execute("INSERT INTO library_index VALUES ('entries', ?)", (json.dumps(index),))
+    for key in (storage.LEGACY_IMPORT_KEY, storage.FINISHED_HISTORY_KEY):
+        cur.execute("INSERT INTO app_meta VALUES (?, 'fait')", (key,))
+    cur.execute("PRAGMA user_version = 2")
+    con.close()
+
+
+def test_schema_2_data_moves_to_its_own_tables(data_dir):
+    settings = {
+        "folders": ["D:/Mangas"], "reader": {"double_page": False},
+        "added": {"c1:a": 5.0}, "pages": {"c1:a": 40},
+        "series_overrides": {"c1:a": "Berserk"}, "volume_direction": {"c1:b": True},
+        "continue_dismissed": {"c1:a": 7.0},
+        "anilist": {"user": "tom", "map": {"berserk": {"id": 1}},
+                    "pending": {"vagabond": {"name": "Vagabond"}}, "last": {"berserk": {"ts": 1}}},
+    }
+    index = [{"path": "B.cbz", "title": "B"}, {"path": "A.cbz", "title": "A"}]
+    _schema_2_database(data_dir / storage.DB_NAME, settings, index)
+
+    for s in (Store(), Store()):   # migration, puis relecture telle quelle
+        assert s.db.version == SCHEMA_VERSION == 3
+        assert s._added == {"c1:a": 5.0} and s._pages == {"c1:a": 40}
+        assert s._overrides == {"c1:a": "Berserk"} and s._directions == {"c1:b": True}
+        assert s.continue_dismissed() == {"c1:a": 7.0}
+        assert s.anilist_series("map") == {"berserk": {"id": 1}}
+        assert s.anilist_series("pending") == {"vagabond": {"name": "Vagabond"}}
+        assert s.anilist() == {"user": "tom"}
+        assert s.folders() == ["D:/Mangas"] and s.reader_pref("double_page") is False
+        assert [e["title"] for e in s.load_library_index()] == ["B", "A"]   # ordre garde
+        assert not set(storage.SPLIT_SETTINGS) & set(s.settings)
+        s.close()
+    assert (data_dir / "beheread-v2.bak").exists()   # copie d'avant migration
+    con = sqlite3.connect(str(data_dir / storage.DB_NAME))
+    try:
+        assert con.execute("SELECT COUNT(*) FROM settings WHERE key = 'added'").fetchone()[0] == 0
+        assert con.execute("SELECT COUNT(*) FROM library_index").fetchone()[0] == 0
+        assert con.execute("SELECT COUNT(*) FROM library_entries").fetchone()[0] == 2
+    finally:
+        con.close()
+
+
+def _spy(repo, method):
+    calls = []
+    original = getattr(repo, method)
+
+    def spy(*args):
+        calls.append(args)
+        return original(*args)
+    setattr(repo, method, spy)
+    return calls
+
+
+def test_a_page_turn_serializes_only_its_volume(data_dir, tmp_path):
+    s = Store()
+    for i in range(30):
+        s.progress[f"c1:{i}"] = {"page": i, "total": 50, "finished": False, "ts": 1}
+    s._schedule("progress")
+    s.flush()
+    manga = tmp_path / "a.cbz"
+    manga.write_bytes(b"PK\x03\x04tome-unique" + b"\x00" * 100)
+    key = s.key_for(str(manga))
+    calls = _spy(s._repos["progress"], "pending_changes")
+    s.set_progress(str(manga), 3, 50, False)
+    s.flush()
+    assert calls == [({key},)]
+    assert Store().get_progress(str(manga)) == (3, 50, False)
+
+
+def test_library_index_writes_only_changed_rows(data_dir):
+    s = Store()
+    entries = [{"path": f"{i}.cbz", "title": str(i)} for i in range(20)]
+    s.save_library_index(entries)
+    writes = _spy(s._repos["entries"], "write")
+    entries[-1] = {"path": "19.cbz", "title": "renomme"}
+    s.save_library_index(entries)
+    (_cur, upserts, deletes), = writes
+    assert [k for k, _v in upserts] == ["19.cbz"] and deletes == []
+    assert Store().load_library_index()[-1]["title"] == "renomme"
+
+
+def test_maintenance_compacts_a_mostly_empty_database(tmp_path, monkeypatch):
+    monkeypatch.setattr(database, "VACUUM_MIN_PAGES", 1)
+    db = Database(tmp_path / "b.db")
+    with db.transaction() as cur:
+        cur.executemany("INSERT INTO progress VALUES (?, ?)",
+                        [(f"k{i}", "x" * 500) for i in range(2000)])
+    with db.transaction() as cur:
+        cur.execute("DELETE FROM progress")
+    assert db.conn.execute("PRAGMA freelist_count").fetchone()[0] > 0
+    db.maintenance()
+    assert db.conn.execute("PRAGMA freelist_count").fetchone()[0] == 0
+    db.close()

@@ -67,6 +67,15 @@ Les numéros de version suivent [SemVer](https://semver.org/lang/fr/). Chaque se
 
 * **Nouveau** : le panneau « Dossiers de la bibliothèque » indique la place occupée par les mangas de chaque dossier (« 283 mangas · 12,4 Go »).
 
+### Performances
+
+* Le lecteur affiche ses pages sans attendre la fin de la génération des couvertures de la bibliothèque, et les tours de page restent fluides avec le recadrage des marges ou l'Ambilight.
+* Le zoom (molette, `+` / `-`) suit le geste sans à-coups ; la page redevient nette dès la fin du geste.
+* Les couvertures, l'aperçu de la barre de défilement et la préparation du tome suivant sont plus rapides à produire.
+* Les auteurs arrivent bien plus vite au premier remplissage d'une grande bibliothèque : chaque série n'est plus cherchée qu'une fois en ligne, au lieu d'une fois par tome.
+* Une recherche d'auteur qui a échoué (réseau, service saturé) est retentée dans la session, après 5, 15 puis 60 minutes, au lieu d'attendre le prochain lancement. Beheread respecte les pauses demandées par les services en ligne.
+* L'enregistrement de la progression ne dépend plus de la taille de la bibliothèque : seules les données modifiées sont écrites. La base de données est réorganisée au premier lancement (une copie de l'ancienne est gardée à côté), puis entretenue à la fermeture.
+
 ### Corrections
 
 * **Corrigé** : supprimer une copie d'un tome présent en double effaçait la progression de l'autre copie.
