@@ -75,6 +75,7 @@ from beheread.ui.charts import (
     _plural,
     data_colors,
 )
+from beheread.ui.recap import RecapDialog
 
 
 def _fmt_day(d, year=True) -> str:
@@ -278,6 +279,11 @@ class StatsDialog(QDialog):
             seg.addWidget(btn)
             self.period_buttons[key] = btn
         head.addWidget(segmented)
+        recap = QPushButton("Bilan de l'année")
+        recap.setToolTip("Votre année de lecture en une image à partager")
+        recap.setCursor(Qt.PointingHandCursor)
+        recap.clicked.connect(self._open_recap)
+        head.addWidget(recap)
         # en plein ecran, il n'y a pas de barre de titre : la fermeture est ici
         self.close_button = QPushButton("Fermer")
         self.close_button.setToolTip("Fermer les statistiques (Échap)")
@@ -306,6 +312,9 @@ class StatsDialog(QDialog):
         row.addWidget(self.method)
         v.addLayout(row)
         return v
+
+    def _open_recap(self):
+        RecapDialog(self.store.reading_log, self.c, self.today, self.resolve, self).exec()
 
     def _build_body(self):
         c, dc = self.c, self.dc

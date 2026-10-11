@@ -122,6 +122,7 @@ beheread/
     stats_view.py        Fenêtre des statistiques (assemblage du rapport)
     flow.py              Disposition en flux (pastilles qui passent à la ligne)
     charts.py            Composants graphiques des statistiques (tuiles, histogramme, calendrier…)
+    recap.py             Bilan annuel : image à partager et sa fenêtre
     keys.py              Raccourcis propres au système et noms des touches affichés (⌘F sous macOS)
     appicon.py           Icône de l'application re-teintée dans la couleur d'accentuation
     library/             Bibliothèque

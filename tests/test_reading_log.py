@@ -190,3 +190,23 @@ def test_journal_exports_to_a_csv_excel_reads(tmp_path, monkeypatch):
     assert rows[0][0] == "Date" and rows[1] == [TODAY.isoformat(), "Salon", "Berserk",
                                                 "Berserk T01", "12", "5,5", "1", "oui"]
     store.close()
+
+
+def test_year_recap_favorite_weekday_and_streak(log):
+    """Bilan annuel : le jour prefere est celui ou l'on lit le plus de pages
+    EN MOYENNE (rapporte au nombre de ces jours dans la periode)."""
+    today = dt.date(2026, 3, 31)
+    sunday = dt.date(2026, 3, 1)                 # un dimanche
+    assert sunday.weekday() == 6
+    _add(log, sunday, "k1", 300, 3600, series="Berserk")          # un gros dimanche
+    for offset in range(1, 4):                                     # 3 jours d'affilee
+        _add(log, sunday + dt.timedelta(days=offset), "k2", 40, 900, series="Pluto")
+    _add(log, dt.date(2025, 12, 31), "k3", 999, 99, series="Avant")   # autre annee
+    recap = stats.year_recap(log, 2026, today)
+    assert (recap.pages, recap.finished) == (420, 0)
+    assert recap.favorite_weekday == 6 and recap.favorite_pages == pytest.approx(300 / 13)
+    assert recap.best_streak == 4                                  # 1er au 4 mars
+    assert recap.months[2] == 3600 + 3 * 900 and recap.months[0] == 0
+    assert [s.name for s in recap.series] == ["Berserk", "Pluto"]
+    assert stats.recap_years(log, today) == [2026, 2025]
+    assert stats.year_recap(log, 2027, today).empty

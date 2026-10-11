@@ -434,3 +434,68 @@ def time_ticks(max_seconds: float, count: int = 4):
         step = 86400 * nice_ticks(max_seconds / 86400, count)[1]
     top = step * -(-int(max_seconds) // step)
     return list(range(0, max(top, step) + 1, step))
+
+
+# ---------------------------------------------------------------- bilan annuel
+
+WEEKDAYS_FR = ("lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi", "dimanche")
+
+
+@dataclass(frozen=True)
+class YearRecap:
+    """Bilan d'une annee de lecture (image a partager, voir ui/recap.py)."""
+    year: int
+    seconds: float
+    pages: int
+    finished: int
+    favorite_weekday: Optional[int]   # 0 = lundi ; None sans lecture
+    favorite_pages: float             # pages lues en moyenne ce jour-la
+    best_streak: int                  # plus longue suite de jours de lecture de l'annee
+    series: list                      # SeriesRank, les plus lues
+    months: list                      # secondes de lecture par mois (12)
+
+    @property
+    def empty(self) -> bool:
+        return not (self.pages or self.seconds or self.finished)
+
+
+def recap_years(log, today: _dt.date) -> list:
+    """Annees ayant au moins une ligne de journal, de la plus recente a la
+    plus ancienne."""
+    first = log.first_day()
+    if first is None:
+        return []
+    return list(range(today.year, first.year - 1, -1))
+
+
+def year_recap(log, year: int, today: _dt.date, resolve=None, top: int = 3) -> YearRecap:
+    """Bilan de l'annee `year`, arrete a `today` pour l'annee en cours. Le
+    jour de lecture prefere est le jour de la semaine ou il a ete lu le plus
+    de pages en moyenne (total de ce jour divise par son nombre d'occurrences
+    dans la periode, jours sans lecture compris)."""
+    start = _dt.date(year, 1, 1)
+    end = min(_dt.date(year, 12, 31), today)
+    if end < start:
+        return YearRecap(year, 0.0, 0, 0, None, 0.0, 0, [], [0.0] * 12)
+    totals = log.totals(start, end)
+    pages_by_weekday = [0] * 7
+    for day, pages, _seconds, _finished in log.buckets(start, end, "day"):
+        pages_by_weekday[_dt.date.fromisoformat(day).weekday()] += pages or 0
+    occurrences = [0] * 7
+    for offset in range((end - start).days + 1):
+        occurrences[(start + _dt.timedelta(days=offset)).weekday()] += 1
+    averages = [p / n if n else 0.0 for p, n in zip(pages_by_weekday, occurrences, strict=True)]
+    best_day = max(range(7), key=lambda d: averages[d])
+    favorite = best_day if averages[best_day] > 0 else None
+    months = [0.0] * 12
+    for key, _pages, seconds, _finished in log.buckets(start, end, "month"):
+        months[int(key[5:7]) - 1] = float(seconds or 0)
+    streak = 0
+    for first, last, _length in log.reading_runs():
+        a = max(_dt.date.fromisoformat(first), start)
+        b = min(_dt.date.fromisoformat(last), end)
+        if a <= b:
+            streak = max(streak, (b - a).days + 1)
+    return YearRecap(year, float(totals.seconds), int(totals.pages), int(totals.finished),
+                     favorite, averages[best_day] if favorite is not None else 0.0, streak,
+                     top_series(log.volumes(start, end), resolve, top), months)

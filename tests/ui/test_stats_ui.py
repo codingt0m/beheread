@@ -228,3 +228,21 @@ def test_stats_open_from_the_library(window, qtbot, mangas, store, monkeypatch):
     dlg.set_period("all")
     assert [r[0] for r in dlg.series_list.rows] == ["Alpha"]
     assert _titles(dlg) == ["Alpha · Tome 1"]
+
+
+def test_year_recap_image_is_rendered_and_saved(qtbot, store, tmp_path, monkeypatch):
+    import datetime as dt
+
+    from beheread.ui import recap, theme
+
+    path = tmp_path / "a.cbz"
+    path.write_bytes(b"PK\x03\x04contenu" + b"\x00" * 50)
+    store.record_reading(str(path), 30, 600, True, "Alpha T01", "Alpha", date=dt.date.today())
+    dlg = recap.RecapDialog(store.reading_log, theme.colors("dark"))
+    qtbot.addWidget(dlg)
+    assert dlg.image.size() == recap.SIZE and not dlg.preview.pixmap().isNull()
+    out = tmp_path / "bilan.png"
+    monkeypatch.setattr(recap.QFileDialog, "getSaveFileName",
+                        staticmethod(lambda *a, **k: (str(out), "")))
+    dlg._save()
+    assert out.exists() and out.stat().st_size > 10_000
