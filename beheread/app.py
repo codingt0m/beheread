@@ -18,7 +18,7 @@ from PySide6.QtGui import QAction, QColor, QKeySequence, QPalette, QShortcut
 from PySide6.QtWidgets import QApplication, QMainWindow, QMenuBar, QMessageBox
 
 from beheread import platforms
-from beheread.infra import applogging
+from beheread.infra import applogging, archive
 from beheread.infra.archive import ArchiveError
 from beheread.infra.database import DatabaseTooNew
 from beheread.infra.single_instance import SingleInstance, send_to_primary
@@ -108,6 +108,7 @@ class MainWindow(QMainWindow):
         self.setWindowIcon(appicon.app_icon())
         self.resize(1200, 800)   # taille de repli si l'utilisateur desmaximise
 
+        archive.set_extra_page_words(store.library_pref("extra_page_words"))
         self.library = LibraryWidget(self.store)
         self._session_paths = set()   # tomes ouverts depuis le dernier retour a la bibliotheque
         self.library.mangaActivated.connect(self.open_manga)

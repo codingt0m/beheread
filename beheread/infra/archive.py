@@ -132,12 +132,30 @@ def _natural_key(name: str):
 
 # images ajoutees aux scans qui ne sont pas des pages du tome : pages de
 # credits ou de recrutement des equipes de traduction, conventionnellement
-# nommees pour se ranger a la fin (« zzz-credits.jpg »). Motifs prudents,
-# compares au nom du fichier (sans dossier ni extension, en minuscules).
-EXTRA_IMAGE_PATTERNS = [
-    re.compile(r"^z{2,}[\W_]"),
-    re.compile(r"(?:^|[\W_])(?:credits?|recrutement|recruitment)(?:[\W_]|$)"),
-]
+# nommees pour se ranger a la fin (« zzz-credits.jpg »). Mots compares au nom
+# du fichier (sans dossier ni extension, en minuscules) : un mot entier, ou un
+# debut de nom (« ^zz » : « zz », « zzz »... suivi d'un separateur).
+# Reglables dans les preferences (voir set_extra_page_words).
+DEFAULT_EXTRA_PAGE_WORDS = ("^zz", "credits", "credit", "recrutement", "recruitment")
+
+
+def _extra_pattern(word):
+    word = word.strip().lower()
+    if word.startswith("^"):
+        return re.compile("^" + re.escape(word[1:]) + r"\w*?[\W_]")
+    return re.compile(r"(?:^|[\W_])" + re.escape(word) + r"(?:[\W_]|$)")
+
+
+EXTRA_IMAGE_PATTERNS = [_extra_pattern(w) for w in DEFAULT_EXTRA_PAGE_WORDS]
+
+
+def set_extra_page_words(words):
+    """Mots des images a ne pas compter comme des pages (preferences) ; None :
+    ceux d'origine. Vaut pour les archives ouvertes ensuite."""
+    global EXTRA_IMAGE_PATTERNS
+    words = DEFAULT_EXTRA_PAGE_WORDS if words is None else words
+    EXTRA_IMAGE_PATTERNS = [_extra_pattern(w) for w in words
+                            if isinstance(w, str) and w.strip().lstrip("^")]
 
 
 def _without_extras(names):

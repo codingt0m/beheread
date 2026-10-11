@@ -5,7 +5,7 @@ tome ou d'une serie."""
 import html
 from pathlib import Path
 
-from PySide6.QtCore import QSize, Qt, QThreadPool, QTimer, QUrl
+from PySide6.QtCore import QPoint, QRect, QSize, Qt, QThreadPool, QTimer, QUrl
 from PySide6.QtGui import QColor, QDesktopServices, QIcon
 from PySide6.QtWidgets import (
     QApplication,
@@ -20,6 +20,7 @@ from PySide6.QtWidgets import (
     QGroupBox,
     QHBoxLayout,
     QLabel,
+    QLayout,
     QLineEdit,
     QMessageBox,
     QPushButton,
@@ -33,7 +34,7 @@ from PySide6.QtWidgets import (
 )
 
 from beheread import config, platforms
-from beheread.infra import anilist
+from beheread.infra import anilist, archive
 from beheread.infra.anilist_auth import LocalAuthReceiver
 from beheread.ui import icons, theme
 from beheread.ui.help_overlay import (
@@ -294,6 +295,66 @@ class FolderManagerDialog(QDialog):
         """)
 
 
+# ---------------------------------------------------------------- disposition en flux
+
+class FlowLayout(QLayout):
+    """Elements cote a cote, qui passent a la ligne quand la largeur manque
+    (pastilles des mots des pages ignorees)."""
+
+    def __init__(self, parent=None, spacing=6):
+        super().__init__(parent)
+        self._items = []
+        self._spacing = spacing
+        self.setContentsMargins(0, 0, 0, 0)
+
+    def addItem(self, item):
+        self._items.append(item)
+
+    def count(self):
+        return len(self._items)
+
+    def itemAt(self, index):
+        return self._items[index] if 0 <= index < len(self._items) else None
+
+    def takeAt(self, index):
+        return self._items.pop(index) if 0 <= index < len(self._items) else None
+
+    def expandingDirections(self):
+        return Qt.Orientations(0)
+
+    def hasHeightForWidth(self):
+        return True
+
+    def heightForWidth(self, width):
+        return self._arrange(QRect(0, 0, width, 0), apply=False)
+
+    def setGeometry(self, rect):
+        super().setGeometry(rect)
+        self._arrange(rect, apply=True)
+
+    def sizeHint(self):
+        return self.minimumSize()
+
+    def minimumSize(self):
+        size = QSize()
+        for item in self._items:
+            size = size.expandedTo(item.minimumSize())
+        return size
+
+    def _arrange(self, rect, apply):
+        x, y, line_h = rect.x(), rect.y(), 0
+        for item in self._items:
+            hint = item.sizeHint()
+            if x + hint.width() > rect.right() + 1 and line_h:
+                x, y = rect.x(), y + line_h + self._spacing
+                line_h = 0
+            if apply:
+                item.setGeometry(QRect(QPoint(x, y), hint))
+            x += hint.width() + self._spacing
+            line_h = max(line_h, hint.height())
+        return y + line_h - rect.y()
+
+
 # ---------------------------------------------------------------- styles communs
 
 def _dialog_css(c):
@@ -378,6 +439,7 @@ class PreferencesDialog(QDialog):
             QTabBar::tab:selected {{ color: {colors['text']};
                                      border-bottom: 2px solid {theme.ACCENT}; }}
             QScrollArea#shortcutScroll, #shortcutHost {{ background: transparent; border: none; }}
+            QPushButton#chip {{ border-radius: 12px; padding: 3px 10px; background: {colors['button']}; }}
             QLabel#shortcutGroup {{ font-size: 15px; font-weight: 700; }}
         """ + sections_css(colors))
         root = QVBoxLayout(self)
@@ -650,6 +712,25 @@ class PreferencesDialog(QDialog):
         gv.addLayout(row)
         v.addWidget(g)
 
+        g = QGroupBox("Journal de lecture")
+        gv = QVBoxLayout(g)
+        gv.addWidget(self._hint(
+            "Chaque jour de lecture, tome par tome : date, série, tome, pages lues, temps "
+            "de lecture, tome terminé. Lisible par Excel, LibreOffice ou Google Sheets."))
+        row = QHBoxLayout()
+        csv_btn = QPushButton("Exporter en CSV…")
+        csv_btn.clicked.connect(lambda: self._report(self.actions["export_csv"]()))
+        row.addWidget(csv_btn)
+        lines = len(s.reading_log.csv_rows())
+        count = self._hint(f"Tous les appareils · {lines} ligne{'s' if lines > 1 else ''}")
+        count.setWordWrap(False)
+        row.addWidget(count)
+        row.addStretch(1)
+        gv.addLayout(row)
+        v.addWidget(g)
+
+        v.addWidget(self._extra_words_group())
+
         g = QGroupBox("Données locales")
         gv = QVBoxLayout(g)
         path = QLabel(str(s.dir))
@@ -671,6 +752,73 @@ class PreferencesDialog(QDialog):
         v.addWidget(self.status)
         v.addStretch(1)
         return w
+
+    # ----- pages ignorees (credits des equipes de traduction) -----
+    def _extra_words_group(self):
+        g = QGroupBox("Pages ignorées")
+        gv = QVBoxLayout(g)
+        gv.addWidget(self._hint(
+            "Les images dont le nom contient l'un de ces mots ne sont pas comptées comme "
+            "des pages : crédits et recrutement des équipes de traduction. Un tome n'est "
+            "jamais vidé."))
+        words = self.store.library_pref("extra_page_words")
+        self._extra_words = list(archive.DEFAULT_EXTRA_PAGE_WORDS if words is None else words)
+        self._chips_host = QWidget()
+        self._chips = FlowLayout(self._chips_host, spacing=6)
+        gv.addWidget(self._chips_host)
+        row = QHBoxLayout()
+        label = QLabel("Ajouter un mot")
+        label.setObjectName("hint")
+        row.addWidget(label)
+        self._new_word = QLineEdit()
+        self._new_word.setPlaceholderText("ex. teamscan")
+        self._new_word.setMaximumWidth(200)
+        self._new_word.returnPressed.connect(self._add_extra_word)
+        label.setBuddy(self._new_word)
+        row.addWidget(self._new_word)
+        add = QPushButton("Ajouter")
+        add.clicked.connect(self._add_extra_word)
+        row.addWidget(add)
+        row.addStretch(1)
+        reset = QPushButton("Rétablir les mots d'origine")
+        reset.clicked.connect(self._reset_extra_words)
+        row.addWidget(reset)
+        gv.addLayout(row)
+        self._refresh_extra_chips()
+        return g
+
+    @staticmethod
+    def _extra_word_label(word):
+        return f"Commence par « {word[1:]} »" if word.startswith("^") else word
+
+    def _refresh_extra_chips(self):
+        while self._chips.count():
+            w = self._chips.takeAt(0).widget()
+            if w is not None:
+                w.deleteLater()
+        for word in self._extra_words:
+            chip = QPushButton(f"{self._extra_word_label(word)}   ×")
+            chip.setObjectName("chip")
+            chip.setToolTip("Retirer ce mot")
+            chip.setAccessibleName(f"Retirer « {self._extra_word_label(word)} »")
+            chip.clicked.connect(lambda _c=False, w=word: self._remove_extra_word(w))
+            self._chips.addWidget(chip)
+
+    def _add_extra_word(self):
+        word = self._new_word.text().strip().lower()
+        if word and word.lstrip("^") and word not in self._extra_words:
+            self._extra_words.append(word)
+            self._refresh_extra_chips()
+        self._new_word.clear()
+
+    def _remove_extra_word(self, word):
+        if word in self._extra_words:
+            self._extra_words.remove(word)
+            self._refresh_extra_chips()
+
+    def _reset_extra_words(self):
+        self._extra_words = list(archive.DEFAULT_EXTRA_PAGE_WORDS)
+        self._refresh_extra_chips()
 
     def _anilist_tab(self):
         w, v = self._page()
@@ -776,6 +924,10 @@ class PreferencesDialog(QDialog):
         s.set_reader_pref("boss_key", self.boss_key.isChecked())
         s.set_reader_pref("babelio_button", self.babelio.isChecked())
         s.set_ui_pref("global_hotkey", self.global_hotkey.isChecked())
+        # mots d'origine : rien d'enregistre (ils suivront une evolution de la liste)
+        s.set_library_pref("extra_page_words",
+                           None if tuple(self._extra_words) == archive.DEFAULT_EXTRA_PAGE_WORDS
+                           else list(self._extra_words))
         s.set_anilist_value("tracking", self.tracking.isChecked())
         # une case decochee apres un choix vaut refus explicite ; si
         # l'utilisateur n'a jamais repondu et laisse decoche, on garde « pas

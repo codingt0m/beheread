@@ -167,3 +167,23 @@ def test_babelio_button_preference_is_off_by_default_and_saved(qtbot, store):
     dlg.babelio.setChecked(True)
     dlg.save()
     assert store.reader_pref("babelio_button") is True
+
+
+def test_extra_page_words_are_edited_in_the_preferences(window, qtbot, store):
+    from beheread.infra import archive
+    from beheread.ui import theme
+    from beheread.ui.library.dialogs import PreferencesDialog
+
+    dlg = PreferencesDialog(store, theme.colors("dark"), {}, None, window.library)
+    qtbot.addWidget(dlg)
+    assert dlg._extra_words == list(archive.DEFAULT_EXTRA_PAGE_WORDS)
+    dlg._new_word.setText("TeamScan")
+    dlg._add_extra_word()
+    dlg._remove_extra_word("^zz")
+    assert dlg._chips.count() == len(archive.DEFAULT_EXTRA_PAGE_WORDS)
+    dlg.save()
+    assert store.library_pref("extra_page_words") == ["credits", "credit", "recrutement",
+                                                      "recruitment", "teamscan"]
+    dlg._reset_extra_words()
+    dlg.save()
+    assert store.library_pref("extra_page_words") is None   # mots d'origine : rien d'enregistre

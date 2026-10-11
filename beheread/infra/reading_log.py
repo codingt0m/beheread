@@ -166,6 +166,16 @@ class ReadingLog:
         return [row[0] for row in self._query(
             "SELECT DISTINCT day FROM reading_log WHERE pages > 0 ORDER BY day")]
 
+    def csv_rows(self):
+        """Toutes les lignes du journal pour l'export CSV, du plus ancien jour
+        au plus recent : (jour, appareil, serie, tome, pages, secondes,
+        seances, tome termine)."""
+        return self._query(
+            """SELECT l.day, COALESCE(NULLIF(d.name, ''), l.device), l.series, l.title,
+                      l.pages, l.seconds, l.sessions, l.finished
+               FROM reading_log l LEFT JOIN reading_devices d ON d.device = l.device
+               ORDER BY l.day, l.series, l.title""")
+
     # ------------------------------------------------------------ sauvegarde
     def devices(self) -> dict:
         """{appareil: date de derniere ecriture} des sections connues."""

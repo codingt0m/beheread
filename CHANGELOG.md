@@ -67,6 +67,8 @@ Les numéros de version suivent [SemVer](https://semver.org/lang/fr/). Chaque se
 
 ### Bibliothèque
 
+* **Nouveau** : le journal de lecture s'exporte en CSV (Préférences > Données), pour Excel, LibreOffice ou Google Sheets.
+* **Nouveau** : les mots qui désignent les pages de crédits des équipes de traduction se règlent dans Préférences > Données.
 * **Nouveau** : un tome illisible (fichier incomplet ou abîmé, outil RAR manquant) est signalé sur sa vignette ; « Voir l'erreur… » dans le menu contextuel explique le problème et permet de réessayer ou de montrer le fichier.
 * **Nouveau** : quand la recherche de l'auteur et de l'année échoue, le panneau d'informations l'indique, avec l'heure du prochain essai automatique et un bouton « Réessayer maintenant ».
 * **Nouveau** : le panneau « Dossiers de la bibliothèque » indique la place occupée par les mangas de chaque dossier (« 283 mangas · 12,4 Go »).

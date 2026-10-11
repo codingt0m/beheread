@@ -169,3 +169,24 @@ def test_streaks_computed_by_sqlite_match_the_day_by_day_count(log):
         assert (stats.streaks_from_runs(log.reading_runs(), today)
                 == stats.streaks(log.active_days(), today))
     assert stats.streaks_from_runs([], TODAY) == (0, 0)
+
+
+def test_journal_exports_to_a_csv_excel_reads(tmp_path, monkeypatch):
+    """Export CSV : une ligne par jour et par tome, separateur « ; » et
+    virgule decimale (Excel en francais), BOM UTF-8, nom de l'appareil."""
+    import csv
+
+    from beheread.infra import storage
+    monkeypatch.setattr(storage, "data_dir", lambda: tmp_path / "data")
+    (tmp_path / "data").mkdir()
+    store = storage.Store()
+    store.reading_log.add(store.device_id(), "Salon", TODAY, "c1:a", 12, 330, True,
+                          "Berserk T01", "Berserk", 1.0)
+    out = tmp_path / "journal.csv"
+    assert store.export_reading_csv(out) == 1
+    raw = out.read_bytes()
+    assert raw.startswith(b"\xef\xbb\xbf")
+    rows = list(csv.reader(raw.decode("utf-8-sig").splitlines(), delimiter=";"))
+    assert rows[0][0] == "Date" and rows[1] == [TODAY.isoformat(), "Salon", "Berserk",
+                                                "Berserk T01", "12", "5,5", "1", "oui"]
+    store.close()

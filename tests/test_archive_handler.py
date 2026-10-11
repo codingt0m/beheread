@@ -304,3 +304,20 @@ def test_scanlation_extra_images_are_not_pages(tmp_path, names, expected):
         assert ar.pages == expected
     finally:
         ar.close()
+
+
+def test_extra_page_words_follow_the_preferences(tmp_path):
+    path = tmp_path / "t.cbz"
+    with zipfile.ZipFile(path, "w") as zf:
+        for n in ("001.jpg", "002.jpg", "teamscan-pub.jpg", "zzz-credits.jpg"):
+            zf.writestr(n, b"img")
+    try:
+        archive.set_extra_page_words(["teamscan"])        # « zz » retire, « teamscan » ajoute
+        ar = Archive(str(path))
+        assert ar.pages == ["001.jpg", "002.jpg", "zzz-credits.jpg"]
+        ar.close()
+    finally:
+        archive.set_extra_page_words(None)
+    ar = Archive(str(path))
+    assert ar.pages == ["001.jpg", "002.jpg", "teamscan-pub.jpg"]
+    ar.close()

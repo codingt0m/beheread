@@ -27,6 +27,7 @@ Trois points d'architecture :
   de l'application pour garantir la persistance des dernieres modifications.
 """
 
+import csv
 import datetime
 import hashlib
 import json
@@ -863,6 +864,23 @@ class Store:
                 self._schedule(name)
         self.flush()
         return {"progress": progress, "extras": extras}
+
+    def export_reading_csv(self, path) -> int:
+        """Ecrit le journal de lecture en CSV (separateur « ; », virgule
+        decimale, UTF-8 avec BOM : ouvert tel quel par Excel en francais, et
+        par LibreOffice ou Google Sheets). Renvoie le nombre de lignes."""
+        rows = self.reading_log.csv_rows()
+        tmp = Path(str(path) + ".tmp")
+        with open(tmp, "w", encoding="utf-8-sig", newline="") as f:
+            out = csv.writer(f, delimiter=";")
+            out.writerow(["Date", "Appareil", "Série", "Tome", "Pages lues",
+                          "Temps de lecture (min)", "Séances", "Tome terminé"])
+            for day, device, series, title, pages, seconds, sessions, finished in rows:
+                minutes = f"{(seconds or 0) / 60:.1f}".replace(".", ",")
+                out.writerow([day, device, series, title, pages, minutes, sessions,
+                              "oui" if finished else ""])
+        os.replace(tmp, path)
+        return len(rows)
 
     def _backup_settings(self) -> dict:
         """Reglages par tome et par serie repris par une sauvegarde (voir

@@ -19,7 +19,7 @@ from PySide6.QtWidgets import (
 from beheread.core.anilist_track import ONESHOT
 from beheread.core.library_model import FINISHED
 from beheread.core.series import normalize_name, parse_path
-from beheread.infra import anilist, metadata
+from beheread.infra import anilist, archive, metadata
 from beheread.ui import theme
 
 # modules extraits (voir chacun) : constantes de rendu, delegates, dialogues et
@@ -36,7 +36,8 @@ class ServicesMixin:
         c = theme.colors(self.store.ui_pref("theme", "dark"))
         actions = {"clear_thumbs": self._clear_thumbnails,
                    "clear_meta": self._clear_downloaded_meta,
-                   "export": self._export_backup, "import": self._import_backup}
+                   "export": self._export_backup, "import": self._import_backup,
+                   "export_csv": self._export_reading_csv}
         dlg = PreferencesDialog(self.store, c, actions, self.tracker, self)
         if dlg.exec() != QDialog.Accepted:
             return
@@ -48,6 +49,7 @@ class ServicesMixin:
         self._set_group_series(self.store.library_pref("group_series", False))
         if self._online_meta() and not was_online:
             self.meta.forget_failures()
+        archive.set_extra_page_words(self.store.library_pref("extra_page_words"))
         self._rebuild_list()
         self.preferencesChanged.emit()
 
@@ -187,6 +189,19 @@ class ServicesMixin:
             QMessageBox.warning(self, "Export impossible", plain(e))
             return ""
         return f"Sauvegarde exportée : {path}"
+
+    def _export_reading_csv(self) -> str:
+        default = Path.home() / f"beheread-journal-{time.strftime('%Y-%m-%d')}.csv"
+        path, _ = QFileDialog.getSaveFileName(self, "Exporter le journal de lecture",
+                                              str(default), "Tableur CSV (*.csv)")
+        if not path:
+            return ""
+        try:
+            n = self.store.export_reading_csv(path)
+        except OSError as e:
+            QMessageBox.warning(self, "Export impossible", plain(e))
+            return ""
+        return f"Journal exporté ({n} ligne{'s' if n > 1 else ''}) : {path}"
 
     def _import_backup(self) -> str:
         path, _ = QFileDialog.getOpenFileName(self, "Importer une sauvegarde", str(Path.home()),
