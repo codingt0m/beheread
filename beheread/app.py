@@ -6,6 +6,8 @@ Lancement :  python main.py
 Voir README.md pour l'installation et le support des fichiers CBR.
 """
 
+import importlib
+import importlib.util
 import logging
 import os
 import sys
@@ -28,12 +30,12 @@ from beheread.ui.reader.widget import ReaderWidget
 from beheread.ui.safe_text import plain
 from beheread.version import __version__
 
-try:   # fonctionnalites locales facultatives, absentes du depot
-    from beheread import perso
-except ModuleNotFoundError as exc:
-    if exc.name != "beheread.perso":
-        raise
-    perso = None
+# fonctionnalites locales facultatives, absentes du depot. find_spec : seule
+# l'absence de ce paquet est toleree, une erreur d'import a l'interieur reste
+# une erreur (« from beheread import perso » leve une simple ImportError en son
+# absence, indiscernable d'une erreur interne)
+perso = (importlib.import_module("beheread.perso")
+         if importlib.util.find_spec("beheread.perso") is not None else None)
 
 APP_NAME = "Beheread"
 

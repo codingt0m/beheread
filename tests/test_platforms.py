@@ -50,6 +50,7 @@ def test_windows_never_runs_a_program_from_the_current_directory(tmp_path, monke
         subprocess.run(["beheread-planted"], capture_output=True)
 
 
+@pytest.mark.skipif(sys.platform != "win32", reason="chemin du systeme Windows")
 def test_windows_explorer_is_run_by_its_full_path():
     from beheread.platforms import windows
     exe = windows._explorer_exe()
