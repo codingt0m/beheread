@@ -9,6 +9,7 @@ un etat propre, extraites de LibraryWidget et reliees a lui par signaux.
 
 import logging
 import os
+import time
 from pathlib import Path
 
 from PySide6.QtCore import QFileSystemWatcher, QObject, QThreadPool, QTimer, Signal
@@ -32,6 +33,11 @@ from beheread.ui.library.workers import (
 )
 
 MAX_WATCHED_DIRS = 2000
+# metadonnees : nouvel essai d'une recherche en echec (reseau, resultat
+# provisoire) pendant la session, apres ces delais successifs (secondes) ;
+# au-dela, plus rien avant le prochain lancement
+RETRY_DELAYS = (5 * 60, 15 * 60, 60 * 60)
+RETRY_CHECK_MS = 60 * 1000
 
 
 class ScanController(QObject):
@@ -164,18 +170,51 @@ class MetadataController(QObject):
         self.series_pool.setMaxThreadCount(1)
         self._workers = {}
         self._pending = set()
-        self._failed = set()          # echecs : pas retente avant redemarrage
+        self._entries = {}            # chemin -> entree, recherches en cours
+        self._failed = set()          # echecs : retentes plus tard (voir RETRY_DELAYS)
         self._series_workers = {}
         self._series_pending = set()
         self._series_failed = set()
+        self._series_args = {}        # cle -> (nom, indices d'auteur), recherches en cours
+        # nouveaux essais programmes : ("volume", chemin) / ("series", cle) ->
+        # [nombre d'echecs, echeance (monotonic) ou None, relance]
+        self._retries = {}
+        self._retry_timer = QTimer(self)
+        self._retry_timer.setInterval(RETRY_CHECK_MS)
+        self._retry_timer.timeout.connect(self._run_due_retries)
+        self._now = time.monotonic   # remplace dans les tests
 
     def forget_failures(self, path=None):
-        """Autorise une nouvelle tentative (pour un tome, ou pour tout)."""
+        """Autorise une nouvelle tentative immediate (pour un tome, ou pour tout)."""
         if path is None:
             self._failed.clear()
             self._series_failed.clear()
+            self._retries.clear()
         else:
             self._failed.discard(path)
+            self._retries.pop(("volume", path), None)
+
+    def _schedule_retry(self, key, relaunch):
+        """Programme le prochain essai d'une recherche en echec, apres un
+        delai croissant (RETRY_DELAYS) ; rien hors ligne (aucune source n'est
+        interrogee) ni une fois les delais epuises."""
+        failures = (self._retries.get(key) or [0])[0] + 1
+        if not self.online() or failures > len(RETRY_DELAYS):
+            self._retries[key] = [failures, None, relaunch]
+            return
+        self._retries[key] = [failures, self._now() + RETRY_DELAYS[failures - 1], relaunch]
+        if not self._retry_timer.isActive():
+            self._retry_timer.start()
+
+    def _run_due_retries(self):
+        now = self._now()
+        due = [(key, r) for key, r in self._retries.items() if r[1] is not None and r[1] <= now]
+        for (kind, value), retry in due:
+            retry[1] = None   # le compte d'echecs est garde pour le delai suivant
+            (self._failed if kind == "volume" else self._series_failed).discard(value)
+            retry[2]()
+        if not any(r[1] is not None for r in self._retries.values()):
+            self._retry_timer.stop()
 
     def cached_or_fetch(self, entry):
         """Metadonnees en cache de ce tome (ou None si pas encore connues) ;
@@ -191,6 +230,7 @@ class MetadataController(QObject):
         self.ensure_series_author(series_key, entry.series, hint)
         if path not in self._pending and path not in self._failed:
             self._pending.add(path)
+            self._entries[path] = entry   # pour un eventuel nouvel essai
             cached_series = self.store.series_meta(series_key)
             if cached_series is not None and metadata.is_stale(cached_series):
                 cached_series = None
@@ -209,8 +249,13 @@ class MetadataController(QObject):
             self.store.set_series_meta(series_key, series_data)
         if ok:
             self.store.set_volume_meta(path, data if data else metadata.not_found_sentinel())
+        entry = self._entries.pop(path, None)
         if not ok or (data or {}).get("partial"):
-            self._failed.add(path)   # retente a la prochaine session
+            self._failed.add(path)
+            if entry is not None:
+                self._schedule_retry(("volume", path), lambda: self.cached_or_fetch(entry))
+        else:
+            self._retries.pop(("volume", path), None)
         self.volumeUpdated.emit(path)
 
     def ensure_series_author(self, series_key, series_name, author_hint=None):
@@ -224,6 +269,7 @@ class MetadataController(QObject):
         if series_key in self._series_pending or series_key in self._series_failed:
             return
         self._series_pending.add(series_key)
+        self._series_args[series_key] = (series_name, author_hint)
         worker = SeriesMetaWorker(series_key, series_name, author_hint)
         worker.signals.done.connect(self._on_series_done)
         self._series_workers[series_key] = worker
@@ -234,8 +280,14 @@ class MetadataController(QObject):
         self._series_workers.pop(series_key, None)
         if ok and series_data is not None:
             self.store.set_series_meta(series_key, series_data)
+        name, hint = self._series_args.pop(series_key, (None, None))
         if not ok or series_data is None or series_data.get("partial"):
-            self._series_failed.add(series_key)   # retente a la prochaine session
+            self._series_failed.add(series_key)
+            if name is not None:
+                self._schedule_retry(("series", series_key), lambda: self.ensure_series_author(
+                    series_key, name, hint))
+        else:
+            self._retries.pop(("series", series_key), None)
         self.seriesUpdated.emit(series_key)
 
 

@@ -19,3 +19,13 @@ def _default_accent():
     yield
     from beheread.ui import theme
     theme.set_accent(None)
+
+
+@pytest.fixture(autouse=True)
+def _fresh_series_memo():
+    """Les recherches de serie sont partagees pour la session (etat global de
+    metadata.py) : chaque test repart sans recherche memorisee."""
+    from beheread.infra import metadata
+    metadata.clear_series_memo()
+    yield
+    metadata.clear_series_memo()

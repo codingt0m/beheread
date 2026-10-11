@@ -22,14 +22,13 @@ quand la recherche n'aboutit a rien - ce n'est pas une erreur reseau.
 
 import json
 import re
-import threading
-import time
 import urllib.error
 import urllib.parse
 import urllib.request
 
 from beheread.core import anilist_track
 from beheread.core.series import matches_author
+from beheread.infra import net
 from beheread.infra.mangadex import title_score
 
 URL = "https://graphql.anilist.co"
@@ -39,8 +38,7 @@ TIMEOUT = 8
 # state ») : au-dela, il repond 429 et la cascade de metadonnees se rabattait
 # sur des sources moins fiables. 2,1 s entre deux requetes reste en dessous.
 MIN_INTERVAL = 2.1
-USER_AGENT = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-             "(KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36")
+USER_AGENT = net.BROWSER_USER_AGENT   # Cloudflare : voir plus haut
 
 _SEARCH = """
 query ($search: String) {
@@ -83,8 +81,7 @@ mutation ($mediaId: Int, $status: MediaListStatus, $progress: Int, $progressVolu
 }
 """
 
-_last_request = 0.0
-_throttle_lock = threading.Lock()
+_LIMITER = net.RateLimiter(MIN_INTERVAL)
 
 
 class AniListError(Exception):
@@ -101,15 +98,8 @@ class AniListRefused(AniListError):
 
 
 def _throttle():
-    """Espace les requetes d'au moins MIN_INTERVAL. Sous verrou : plusieurs
-    pools de threads (metadonnees par tome et par serie, suivi) interrogent
-    la meme API en parallele, et sans verrou ils pouvaient partir en meme temps."""
-    global _last_request
-    with _throttle_lock:
-        elapsed = time.monotonic() - _last_request
-        if elapsed < MIN_INTERVAL:
-            time.sleep(MIN_INTERVAL - elapsed)
-        _last_request = time.monotonic()
+    """Espace les requetes vers ce service (voir net.RateLimiter)."""
+    _LIMITER.wait()
 
 
 def _mentions_token(error) -> bool:
@@ -145,6 +135,7 @@ def _post(query: str, variables: dict, token: str = None):
         if token and (e.code in (401, 403) or (e.code == 400 and _mentions_token(e))):
             raise AniListAuthError(f"HTTP {e.code}") from e
         if e.code == 429:
+            _LIMITER.back_off(net.retry_after(e))
             raise AniListError("limite de requêtes AniList atteinte, nouvel essai plus tard") from e
         raise AniListError(f"HTTP {e.code}") from e
     except (urllib.error.URLError, OSError, ValueError, TimeoutError) as e:

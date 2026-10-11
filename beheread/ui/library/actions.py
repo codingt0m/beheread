@@ -12,6 +12,7 @@ from PySide6.QtWidgets import QDialog, QInputDialog, QLineEdit, QMessageBox
 from beheread import platforms
 from beheread.core.library_model import FINISHED, aggregate_series_info
 from beheread.core.series import normalize_name
+from beheread.infra import metadata
 from beheread.infra.archive import Archive
 from beheread.ui import theme
 
@@ -236,6 +237,7 @@ class ActionsMixin:
         pour relancer la cascade ComicInfo/Google Books/AniList a zero -
         utile si une recherche precedente n'a rien trouve, s'est trompee, ou
         a echoue faute de reseau au moment ou elle a ete tentee."""
+        metadata.clear_series_memo()   # sinon la recherche de serie de la session reviendrait
         for p in paths:
             self.store.remove_volume_meta(p)
             self.meta.forget_failures(p)

@@ -21,12 +21,12 @@ de tomes.
 from __future__ import annotations
 
 import re
-import unicodedata
 from dataclasses import dataclass
 from functools import lru_cache
 from typing import Dict, FrozenSet, Iterable, List, Mapping, Optional, Set
 
 from beheread.core.anilist_track import AUTO_MATCH_MIN_SCORE
+from beheread.core.text import strip_accents
 
 # lettres que la decomposition Unicode (NFKD) ne ramene pas a une lettre de
 # base suivie d'un accent : ligatures et lettres barrees
@@ -54,8 +54,7 @@ def fold(text: str) -> str:
     "One_Piece", "Dr. Stone"), lettres et chiffres separes et zeros de tete
     retires ("T01" -> "t 1"). Memorise : les memes noms de serie et d'auteur
     reviennent pour chaque tome et a chaque reconstruction de l'index."""
-    s = unicodedata.normalize("NFKD", text.casefold().translate(_TRANSLIT))
-    s = "".join(c for c in s if not unicodedata.combining(c))
+    s = strip_accents(text.casefold().translate(_TRANSLIT))
     s = _NON_WORD.sub(" ", s)
     s = _LETTER_DIGIT.sub(" ", s)
     s = _LEADING_ZEROS.sub("", s)

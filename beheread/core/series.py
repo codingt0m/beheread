@@ -7,14 +7,15 @@ sans numero de tome detectable est traite comme une serie a un seul tome.
 """
 
 import re
-import unicodedata
 from pathlib import Path
+
+from beheread.core.text import GENERIC_NAMES, strip_accents
 
 
 def _remove_accents(text: str) -> str:
-    """Normalise les accents pour la recherche (é->e, ç->c, etc.)."""
-    return ''.join(c for c in unicodedata.normalize('NFD', text)
-                   if unicodedata.category(c) != 'Mn')
+    """Normalise les accents (é->e, ç->c, etc.) sous la forme des cles de
+    serie enregistrees en base (voir text.strip_accents)."""
+    return strip_accents(text, compat=False)
 
 
 # Marqueurs explicites de tome, du plus specifique au plus generique.
@@ -43,18 +44,13 @@ _TITLED_NUMBER = re.compile(r"(?:^|(?<=\s))0*(\d{1,3})\s+-\s+(?=\S)")
 # tri, la nature "range" evite de la confondre avec le tome seul
 _RANGE = re.compile(r"(?:^|[\s_.])0*(\d{1,3})\s*-\s*0*(\d{1,3})\s*$")
 
-# noms de serie qui n'en sont pas : un fichier nomme seulement « Tome 01 » ou
-# « Volume 1 » tire son nom de serie de son dossier (voir parse_series_ex)
-_GENERIC_NAMES = {"", "tome", "tomes", "tomo", "volume", "volumes", "vol", "t", "v",
-                  "chapitre", "chapter", "chap", "ch", "episode", "ep", "cycle",
-                  "integrale", "n", "no", "book", "livre", "manga", "bd", "scan", "scans"}
 
 
 def is_generic_name(name: str) -> bool:
     """Vrai si `name` n'est pas un vrai nom de serie : vide, nombre seul ou
     simple marqueur de tome (« Tome », « Volume », « Chapitre »...)."""
     key = normalize_name(name or "")
-    return key in _GENERIC_NAMES or key.isdigit()
+    return key in GENERIC_NAMES or key.isdigit()
 
 
 def _to_number(text: str):

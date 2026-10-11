@@ -19,19 +19,18 @@ Deux specificites techniques :
 import difflib
 import json
 import re
-import threading
-import time
 import urllib.error
 import urllib.parse
 import urllib.request
 
 from beheread.core.series import matches_author
+from beheread.infra import net
 
 BASE_URL = "https://api.mangadex.org/manga"
 TIMEOUT = 10
 MIN_INTERVAL = 0.3
 # MangaDex bloque les UA de navigateur : un identifiant applicatif est attendu.
-USER_AGENT = "Beheread/1.0 (manga reader; +https://github.com/beheread)"
+USER_AGENT = net.APP_USER_AGENT
 
 # langue d'origine (originalLanguage) -> code pays facon AniList, pour un sens
 # de lecture coherent : japonais -> Japon (droite->gauche), coreen/chinois ->
@@ -47,8 +46,7 @@ _PAREN_SUFFIX = re.compile(r"\s*[\(（][^)）]*[\)）]\s*$")
 # considere que MangaDex n'a pas la bonne serie (evite un auteur/date faux).
 _MIN_SCORE = 0.5
 
-_last_request = 0.0
-_throttle_lock = threading.Lock()
+_LIMITER = net.RateLimiter(MIN_INTERVAL)
 
 
 class MangaDexError(Exception):
@@ -56,15 +54,8 @@ class MangaDexError(Exception):
 
 
 def _throttle():
-    """Espace les requetes d'au moins MIN_INTERVAL. Sous verrou : plusieurs
-    pools de threads (metadonnees par tome et par serie) interrogent la meme
-    API en parallele, et sans verrou ils pouvaient partir en meme temps."""
-    global _last_request
-    with _throttle_lock:
-        elapsed = time.monotonic() - _last_request
-        if elapsed < MIN_INTERVAL:
-            time.sleep(MIN_INTERVAL - elapsed)
-        _last_request = time.monotonic()
+    """Espace les requetes vers ce service (voir net.RateLimiter)."""
+    _LIMITER.wait()
 
 
 def _norm_tokens(text: str):
@@ -192,6 +183,8 @@ def search_series(name: str, author_hint=None):
     except urllib.error.HTTPError as e:
         if e.code == 404:
             return None
+        if e.code == 429:
+            _LIMITER.back_off(net.retry_after(e))
         raise MangaDexError(str(e)) from e
     except (urllib.error.URLError, OSError, ValueError, TimeoutError) as e:
         raise MangaDexError(str(e)) from e

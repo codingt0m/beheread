@@ -59,6 +59,7 @@ class ServicesMixin:
 
     def _clear_downloaded_meta(self) -> int:
         n = self.store.clear_downloaded_meta()
+        metadata.clear_series_memo()
         self.meta.forget_failures()
         self._rebuild_list()
         return n
@@ -85,7 +86,7 @@ class ServicesMixin:
             name, number, kind = parse_path(path)
             if number is None:
                 kind = ONESHOT
-            return (normalize_name(name), metadata._fold_accents(name),
+            return (normalize_name(name), metadata.fold_accents(name),
                     [(number, kind, finished(path))])
         if e.detached:
             return None
@@ -94,9 +95,9 @@ class ServicesMixin:
         if e.volume is None:
             if e.manual or len(grp) != 1:
                 return None
-            return key, metadata._fold_accents(e.series), [(None, ONESHOT, finished(path))]
+            return key, metadata.fold_accents(e.series), [(None, ONESHOT, finished(path))]
         name = self._series_raw_name.get(key, e.series)
-        return key, metadata._fold_accents(name), [(x.volume, x.kind, finished(x.path))
+        return key, metadata.fold_accents(name), [(x.volume, x.kind, finished(x.path))
                                                    for x in grp]
 
     def _associate_anilist(self, key, path):

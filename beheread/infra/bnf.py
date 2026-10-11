@@ -17,21 +17,20 @@ et l'editeur (labels manga connus) completent cet indice.
 import http.client
 import re
 import socket
-import threading
-import time
 import urllib.error
 import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ET
 
-from beheread.infra import safe_xml
+from beheread.core.text import strip_accents
+from beheread.infra import net, safe_xml
 from beheread.infra.mangadex import title_score
 
 URL = "https://catalogue.bnf.fr/api/SRU"
 TIMEOUT = 15
 MIN_INTERVAL = 0.5
 MAX_RECORDS = 20
-USER_AGENT = "Beheread/1.1 (lecteur de BD et mangas)"
+USER_AGENT = net.APP_USER_AGENT
 
 # adresse de catalogue.bnf.fr, utilisee seulement si le DNS ne resout pas le
 # nom (constate avec le DNS de Google, 8.8.8.8, en echec sur tout bnf.fr).
@@ -62,8 +61,7 @@ _ROLE = re.compile(r"\.\s+(?:Auteur|Illustrateur|Dessinateur|Sc[ée]nariste|Colo
                    r"Traducteur|Adaptateur|Interpr[èe]te|[ÉE]diteur)\b.*$")
 _HEIGHT = re.compile(r"(\d+)\s*(?:x\s*\d+\s*)?cm\b")
 
-_last_request = 0.0
-_throttle_lock = threading.Lock()
+_LIMITER = net.RateLimiter(MIN_INTERVAL)
 
 
 class BnfError(Exception):
@@ -71,12 +69,8 @@ class BnfError(Exception):
 
 
 def _throttle():
-    global _last_request
-    with _throttle_lock:
-        elapsed = time.monotonic() - _last_request
-        if elapsed < MIN_INTERVAL:
-            time.sleep(MIN_INTERVAL - elapsed)
-        _last_request = time.monotonic()
+    """Espace les requetes vers ce service (voir net.RateLimiter)."""
+    _LIMITER.wait()
 
 
 class _PinnedConnection(http.client.HTTPSConnection):
@@ -115,9 +109,7 @@ def _fetch(req) -> bytes:
 
 
 def _fold(text: str) -> str:
-    import unicodedata
-    text = unicodedata.normalize("NFKD", text or "")
-    return "".join(c for c in text if not unicodedata.combining(c)).casefold()
+    return strip_accents(text).casefold()
 
 
 def series_title(dc_title: str) -> str:
@@ -190,6 +182,10 @@ def search_series(name: str):
     _throttle()
     try:
         xml = _fetch(urllib.request.Request(url, headers={"User-Agent": USER_AGENT}))
+    except urllib.error.HTTPError as e:
+        if e.code == 429:
+            _LIMITER.back_off(net.retry_after(e))
+        raise BnfError(str(e)) from e
     except (urllib.error.URLError, OSError, ValueError, TimeoutError) as e:
         raise BnfError(str(e)) from e
 

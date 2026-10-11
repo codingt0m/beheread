@@ -21,15 +21,17 @@ pas : il n'est retenu que si son titre ressemble vraiment au nom cherche
 Chaque couche n'est interrogee que si la precedente n'a rien donne
 d'exploitable (ni auteur, ni annee). Aucune requete reseau n'est faite si
 ComicInfo.xml suffit deja. Les deux niveaux "serie" (AniList puis MangaDex)
-(AniList, MangaDex puis BnF) sont mutualises dans _search_series_sources :
+(AniList, MangaDex puis BnF) sont mutualises dans _search_series_sources
+(une seule recherche par serie et par session, voir _search_series_once) :
 leur resultat sert a la fois de
 metadonnees du tome et d'entree de cache serie (partagee entre tous les tomes).
 """
 
 import logging
-import unicodedata
+import threading
 
 from beheread.core.anilist_track import AUTO_MATCH_MIN_SCORE
+from beheread.core.text import GENERIC_NAMES, strip_accents
 from beheread.infra import anilist, bnf, googlebooks, mangadex
 from beheread.infra.archive import Archive
 
@@ -75,14 +77,13 @@ def is_stale(cached) -> bool:
 
 
 
-def _fold_accents(text: str) -> str:
-    """Retire les accents/diacritiques (ex. "lumiere" au lieu de "lumiere"
-    accentue). Constate empiriquement : la recherche AniList (et
-    vraisemblablement Google Books) echoue souvent sur un titre francais
-    accentue alors qu'elle aboutit sur sa version sans accents - les
-    interroger avec la version repliee ameliore nettement le taux de succes."""
-    normalized = unicodedata.normalize("NFKD", text)
-    return "".join(c for c in normalized if not unicodedata.combining(c))
+def fold_accents(text: str) -> str:
+    """Nom a envoyer aux sources en ligne, sans accents ni diacritiques.
+    Constate empiriquement : la recherche AniList (et vraisemblablement
+    Google Books) echoue souvent sur un titre francais accentue alors
+    qu'elle aboutit sur sa version sans accents - les interroger avec la
+    version repliee ameliore nettement le taux de succes."""
+    return strip_accents(text)
 
 
 def _read_comicinfo_meta(path: str):
@@ -107,15 +108,11 @@ def _read_comicinfo_meta(path: str):
     }
 
 
-# noms de serie qui n'en sont pas : un fichier nomme seulement « Volume 1 »
-# ou « Tome 3 » n'a rien a chercher (sinon AniList trouve « Full Volume »)
-_GENERIC_NAMES = {"", "volume", "vol", "tome", "tomo", "chapitre", "chapter", "chap",
-                  "episode", "cycle", "integrale", "book", "livre", "manga", "bd", "scan"}
-
-
 def _searchable(series_name: str) -> bool:
-    words = "".join(c if c.isalnum() else " " for c in _fold_accents(series_name or ""))
-    return " ".join(words.casefold().split()) not in _GENERIC_NAMES
+    """Faux pour un nom qui n'en est pas un (« Volume », « Tome ») : il n'y
+    a rien a chercher (sinon AniList trouve « Full Volume »)."""
+    words = "".join(c if c.isalnum() else " " for c in fold_accents(series_name or ""))
+    return " ".join(words.casefold().split()) not in GENERIC_NAMES
 
 
 def _useful(data):
@@ -164,6 +161,48 @@ def _search_series_sources(query_name: str, author_hint=None):
     return None, network_ok
 
 
+# recherches de serie deja faites pendant la session : (nom replie, indices
+# d'auteur) -> [threading.Event, resultat]. Les tomes d'une serie partent
+# tous avant la reponse de la premiere recherche (leur cache serie, capture au
+# lancement, est vide) : sans ce partage, chaque tome absent de Google Books
+# refaisait la meme recherche AniList, MangaDex puis BnF.
+_series_lock = threading.Lock()
+_series_memo = {}
+SERIES_WAIT_TIMEOUT = 300   # secondes
+
+
+def clear_series_memo():
+    """Oublie les recherches de serie de la session (rechargement demande par
+    l'utilisateur, metadonnees en ligne effacees)."""
+    with _series_lock:
+        _series_memo.clear()
+
+
+def _search_series_once(query_name: str, author_hint=None):
+    """_search_series_sources, partage pour la session : une recherche deja
+    faite, ou en cours dans un autre thread, n'est pas refaite. Un echec
+    reseau n'est pas memorise : la recherche suivante retente."""
+    key = (query_name.casefold(), tuple(author_hint or ()))
+    with _series_lock:
+        slot = _series_memo.get(key)
+        owner = slot is None
+        if owner:
+            slot = _series_memo[key] = [threading.Event(), None]
+    if not owner:
+        # borne de securite : une recherche dure au plus quelques requetes
+        if not slot[0].wait(SERIES_WAIT_TIMEOUT):
+            return None, False
+        return slot[1] or (None, False)
+    try:
+        slot[1] = _search_series_sources(query_name, author_hint)
+    finally:
+        with _series_lock:
+            if slot[1] is None or not slot[1][1]:
+                _series_memo.pop(key, None)
+        slot[0].set()
+    return slot[1]
+
+
 def _stamped(data, source, partial=False):
     out = dict(data)
     out["source"] = source
@@ -183,7 +222,7 @@ def fetch_series(series_name: str, author_hint=None):
     cacher)."""
     if not _searchable(series_name):
         return not_found_sentinel(), True
-    series, ok = _search_series_sources(_fold_accents(series_name), author_hint)
+    series, ok = _search_series_once(fold_accents(series_name), author_hint)
     if _useful(series):
         return series, True
     if not ok:
@@ -218,7 +257,7 @@ def fetch(path: str, series_name: str, volume, cached_series=None, online=True,
     if not _searchable(series_name):
         return None, True, not_found_sentinel()
 
-    query_name = _fold_accents(series_name)
+    query_name = fold_accents(series_name)
     network_ok = True
 
     try:
@@ -243,7 +282,7 @@ def fetch(path: str, series_name: str, volume, cached_series=None, online=True,
             return out, True, None
         return None, network_ok, None
 
-    series, ok = _search_series_sources(query_name, author_hint)
+    series, ok = _search_series_once(query_name, author_hint)
     if not ok:
         network_ok = False
     if _useful(series):

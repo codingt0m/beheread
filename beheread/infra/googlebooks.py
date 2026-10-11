@@ -14,20 +14,18 @@ GoogleBooksError) et n'empechent pas le repli sur AniList.
 import difflib
 import json
 import re
-import threading
-import time
 import urllib.error
 import urllib.parse
 import urllib.request
 
+from beheread.infra import net
+
 BASE_URL = "https://www.googleapis.com/books/v1/volumes"
 TIMEOUT = 8
 MIN_INTERVAL = 1.0
-USER_AGENT = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-             "(KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36")
+USER_AGENT = net.BROWSER_USER_AGENT
 
-_last_request = 0.0
-_throttle_lock = threading.Lock()
+_LIMITER = net.RateLimiter(MIN_INTERVAL)
 
 
 class GoogleBooksError(Exception):
@@ -35,15 +33,8 @@ class GoogleBooksError(Exception):
 
 
 def _throttle():
-    """Espace les requetes d'au moins MIN_INTERVAL. Sous verrou : plusieurs
-    pools de threads (metadonnees par tome et par serie) interrogent la meme
-    API en parallele, et sans verrou ils pouvaient partir en meme temps."""
-    global _last_request
-    with _throttle_lock:
-        elapsed = time.monotonic() - _last_request
-        if elapsed < MIN_INTERVAL:
-            time.sleep(MIN_INTERVAL - elapsed)
-        _last_request = time.monotonic()
+    """Espace les requetes vers ce service (voir net.RateLimiter)."""
+    _LIMITER.wait()
 
 
 def _norm_tokens(text: str):
@@ -86,6 +77,10 @@ def search_volume(series_name: str, number=None, lang: str = "fr"):
         req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
         with urllib.request.urlopen(req, timeout=TIMEOUT) as resp:
             payload = json.loads(resp.read().decode("utf-8"))
+    except urllib.error.HTTPError as e:
+        if e.code == 429:
+            _LIMITER.back_off(net.retry_after(e))   # quota anonyme depasse
+        raise GoogleBooksError(str(e)) from e
     except (urllib.error.URLError, OSError, ValueError, TimeoutError) as e:
         raise GoogleBooksError(str(e)) from e
 

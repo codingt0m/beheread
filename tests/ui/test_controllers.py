@@ -123,10 +123,10 @@ def test_metadata_controller_refreshes_stale_results(qtbot, store, mangas, monke
 
 
 
-def test_provisional_result_is_not_retried_in_the_same_session(qtbot, store, mangas,
-                                                               monkeypatch):
+def test_provisional_result_is_not_retried_right_away(qtbot, store, mangas,
+                                                      monkeypatch):
     """Un resultat provisoire (AniList injoignable) est affiche, sans
-    nouvelle tentative avant la session suivante."""
+    nouvelle tentative immediate (essais programmes : voir le test suivant)."""
     path = make_cbz(mangas, "Vagabond - Tome 1", seed=1)
     calls = []
 
@@ -168,3 +168,39 @@ def test_metadata_worker_failure_does_not_leave_the_volume_pending(qtbot, store,
     qtbot.waitUntil(lambda: bool(updated) and not ctrl._series_pending, timeout=10000)
     assert path not in ctrl._pending and path in ctrl._failed
     assert store.volume_meta(path) is None   # rien de faux mis en cache
+
+
+def test_failed_search_is_retried_later_with_growing_delays(qtbot, store, mangas,
+                                                            monkeypatch):
+    """Un echec reseau est retente pendant la session, apres 5, 15 puis
+    60 minutes ; ensuite, plus rien avant le prochain lancement."""
+    from beheread.ui.library import controllers
+
+    path = make_cbz(mangas, "Berserk - Tome 1", seed=1)
+    calls = []
+
+    def offline(p, series, volume, cached_series, online=True, author_hint=None):
+        calls.append(p)
+        return None, False, None
+
+    monkeypatch.setattr(metadata, "fetch", offline)
+    monkeypatch.setattr(metadata, "fetch_series", lambda name, hint=None: (None, False))
+    ctrl = MetadataController(store, online=lambda: True)
+    clock = [1000.0]
+    ctrl._now = lambda: clock[0]
+    entry = LibraryEntry(path=path, title="Berserk - Tome 1", series="Berserk", volume=1)
+    ctrl.cached_or_fetch(entry)
+    qtbot.waitUntil(lambda: path in ctrl._failed, timeout=10000)
+    for delay in controllers.RETRY_DELAYS:
+        tries = len(calls)
+        clock[0] += delay - 1
+        ctrl._run_due_retries()
+        assert len(calls) == tries               # pas avant l'echeance
+        clock[0] += 1
+        ctrl._run_due_retries()
+        qtbot.waitUntil(lambda: len(calls) == tries + 1 and path in ctrl._failed,
+                        timeout=10000)
+    clock[0] += 10 * 3600
+    ctrl._run_due_retries()
+    qtbot.wait(100)
+    assert len(calls) == 1 + len(controllers.RETRY_DELAYS)
