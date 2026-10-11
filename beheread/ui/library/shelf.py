@@ -32,7 +32,7 @@ class ContinueShelf(QWidget):
     activated = Signal(str)                 # chemin du tome a ouvrir
     contextMenuRequested = Signal(str, object)   # chemin, position globale
 
-    def __init__(self, store, parent=None):
+    def __init__(self, store, covers=None, parent=None):
         super().__init__(parent)
         self.setObjectName("shelf")
         # sans cet attribut, un QWidget simple ignore le « background » de sa
@@ -57,7 +57,7 @@ class ContinueShelf(QWidget):
         self.list.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.list.setSpacing(0)
         self.list.setWordWrap(True)
-        self.delegate = MangaDelegate(store, self.list, compact=True)
+        self.delegate = MangaDelegate(store, self.list, compact=True, covers=covers)
         self.delegate.set_scale(SHELF_SCALE)
         self.list.setItemDelegate(self.delegate)
         self.list.setGridSize(QSize(self.delegate.cell_w + GRID_GAP,

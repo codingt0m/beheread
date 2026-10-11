@@ -96,9 +96,11 @@ class MetaWorker(QRunnable):
         self.series_name = series_name
         self.volume = volume
         self.cached_series = cached_series
+        self.started = False   # voir MetadataController.prioritize
         self.signals = _MetaSignals()
 
     def run(self):
+        self.started = True
         data, ok, series_data = None, False, None
         try:
             data, ok, series_data = metadata.fetch(

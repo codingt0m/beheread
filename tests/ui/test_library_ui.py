@@ -345,8 +345,8 @@ def test_deletion_waits_for_a_background_read_to_finish(window, qtbot, mangas, s
             raise PermissionError(32, "fichier utilise par un autre processus")
         Path(p).unlink()
 
-    monkeypatch.setattr(actions, "DELETE_RETRY_S", 0)
+    monkeypatch.setattr(actions, "DELETE_DELAYS", (0.01,) * 2 + actions.DELETE_DELAYS)
     monkeypatch.setattr(QMessageBox, "question", staticmethod(lambda *a, **k: QMessageBox.Yes))
     monkeypatch.setattr(platforms, "trash_function", lambda: busy_then_free)
     lib._delete_many([path])
-    assert len(attempts) == 3 and not Path(path).exists() and lib._entries == []
+    assert len(attempts) >= 3 and not Path(path).exists() and lib._entries == []

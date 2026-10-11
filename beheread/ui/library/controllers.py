@@ -10,20 +10,21 @@ un etat propre, extraites de LibraryWidget et reliees a lui par signaux.
 import logging
 import os
 import time
+from collections import OrderedDict
 from pathlib import Path
 
-from PySide6.QtCore import QFileSystemWatcher, QObject, QThreadPool, QTimer, Signal
+from PySide6.QtCore import (
+    QFileSystemWatcher,
+    QObject,
+    QThread,
+    QThreadPool,
+    QTimer,
+    Signal,
+)
 from PySide6.QtGui import QPixmap
 
 from beheread.core.series import author_hint, normalize_name
 from beheread.infra import metadata
-from beheread.ui.library.constants import (
-    ROLE_IS_SERIES,
-    ROLE_PIXMAP,
-    ROLE_PIXMAP2,
-    ROLE_PIXMAP3,
-    ROLE_SERIES_PATHS,
-)
 from beheread.ui.library.workers import (
     HydrateWorker,
     MetaWorker,
@@ -188,6 +189,7 @@ class MetadataController(QObject):
         self._workers = {}
         self._pending = set()
         self._entries = {}            # chemin -> entree, recherches en cours
+        self._prioritized = set()     # recherches deja passees devant (voir prioritize)
         self._failed = set()          # echecs : retentes plus tard (voir RETRY_DELAYS)
         self._series_workers = {}
         self._series_pending = set()
@@ -210,6 +212,23 @@ class MetadataController(QObject):
         else:
             self._failed.discard(path)
             self._retries.pop(("volume", path), None)
+
+    def prioritize(self, path):
+        """Tome a l'ecran : sa recherche, si elle attend encore dans la file,
+        passe devant celles des tomes hors de vue."""
+        worker = self._workers.get(path)
+        # une tache demarree peut deja avoir ete detruite par Qt (elle l'est a
+        # la fin de run, avant que sa reponse ne soit traitee ici) : on ne
+        # touche qu'a une tache encore en file
+        if worker is None or worker.started or path in self._prioritized:
+            return
+        self._prioritized.add(path)
+        try:
+            taken = self.pool.tryTake(worker)
+        except RuntimeError:   # demarree et terminee entre-temps
+            return
+        if taken:
+            self.pool.start(worker, 1)
 
     def _schedule_retry(self, key, relaunch):
         """Programme le prochain essai d'une recherche en echec, apres un
@@ -262,6 +281,7 @@ class MetadataController(QObject):
     def _on_volume_done(self, path, data, series_data, ok, series_key):
         self._pending.discard(path)
         self._workers.pop(path, None)
+        self._prioritized.discard(path)
         if series_data is not None:
             self.store.set_series_meta(series_key, series_data)
         if ok:
@@ -308,11 +328,21 @@ class MetadataController(QObject):
         self.seriesUpdated.emit(series_key)
 
 
+# memoire des couvertures decodees (a la taille d'affichage) : budget en
+# octets, et nombre minimal garde quoi qu'il arrive (voir CoverCache.capacity)
+COVER_BUDGET_BYTES = 256 * 1024 * 1024
+COVER_MIN_KEPT = 150
+
+
 class CoverCache(QObject):
     """Couvertures des tomes : generees en arriere-plan (ThumbWorker, cache
-    disque), gardees en memoire a la taille d'affichage maximale, et
-    distribuees aux items abonnes (un tome, ou un dossier de serie qui
-    empile jusqu'a trois couvertures)."""
+    disque), gardees en memoire a la taille d'affichage maximale.
+
+    Elles sont demandees au moment ou une case est peinte (lookup, appele par
+    les delegates) ou va l'etre (request, cases proches de la zone visible) :
+    une bibliotheque de 5 000 tomes ne met plus 5 000 taches en file au scan.
+    La memoire est bornee (cache LRU, voir capacity) : une couverture sortie
+    du cache est relue depuis le cache disque si sa case revient a l'ecran."""
 
     coverReady = Signal(str)   # chemin du tome dont la couverture vient d'arriver
 
@@ -320,27 +350,43 @@ class CoverCache(QObject):
         super().__init__(parent)
         self.store = store
         self.display_size = display_size
-        self.pool = QThreadPool.globalInstance()
-        self.cache = {}            # chemin -> QPixmap
+        # pool propre : les couvertures ne retardent ni le lecteur ni le scan
+        self.pool = QThreadPool(self)
+        self.pool.setMaxThreadCount(max(2, QThread.idealThreadCount() // 2))
+        self.cache = OrderedDict()   # chemin -> QPixmap, du moins au plus recent
         self._pending = set()
         self._workers = {}
-        self._subscribers = {}     # chemin -> items qui affichent cette couverture
+        self._failed = set()         # illisibles : pas de nouvel essai a chaque peinture
+        self._seq = 0                # la derniere demandee passe en premier
+        self.min_kept = 0            # cases visibles (voir LibraryWidget)
 
-    def reset_subscribers(self):
-        """A appeler quand la liste est reconstruite (anciens items detruits)."""
-        self._subscribers = {}
+    @property
+    def capacity(self) -> int:
+        """Nombre de couvertures gardees : budget memoire, mais jamais moins
+        que deux fois ce qui est a l'ecran (sinon une couverture visible
+        serait evincee par une autre, puis regeneree, sans fin)."""
+        per_cover = max(1, self.display_size.width() * self.display_size.height() * 4)
+        return max(COVER_MIN_KEPT, COVER_BUDGET_BYTES // per_cover, 2 * self.min_kept)
 
     def get(self, path):
-        return self.cache.get(path)
-
-    def bind(self, item, path, role):
-        """Associe la couverture de `path` a `item` (au role donne) : tout de
-        suite si elle est en cache, sinon a son arrivee."""
         pm = self.cache.get(path)
         if pm is not None:
-            item.setData(role, pm)
+            self.cache.move_to_end(path)
+        return pm
+
+    def lookup(self, path):
+        """Couverture a peindre (delegate), ou None : elle est alors demandee
+        en arriere-plan, et coverReady la signalera."""
+        pm = self.get(path)
+        if pm is None and path:
+            self.request(path)
+        return pm
+
+    def request(self, path):
+        """Genere la couverture si elle n'est ni en memoire, ni en cours, ni
+        illisible."""
+        if path in self.cache or path in self._pending or path in self._failed:
             return
-        self._subscribers.setdefault(path, []).append(item)
         self._request(path)
 
     def rename(self, old_path, new_path):
@@ -350,37 +396,33 @@ class CoverCache(QObject):
     def forget(self, paths):
         for p in paths:
             self.cache.pop(p, None)
+            self._failed.discard(p)
 
     def clear(self):
         self.cache.clear()
+        self._failed.clear()
 
     def _request(self, path):
-        if path in self._pending:
-            return
         self._pending.add(path)
         worker = ThumbWorker(path, self.store.thumb_path(path), self.display_size)
         worker.signals.done.connect(self._on_done)
         worker.signals.failed.connect(self._on_failed)
         worker.signals.count.connect(self.store.set_page_count)
         self._workers[path] = worker
-        self.pool.start(worker)
+        self._seq += 1
+        self.pool.start(worker, self._seq)
 
     def _on_done(self, path, image):
-        pm = QPixmap.fromImage(image)
-        self.cache[path] = pm
         self._pending.discard(path)
         self._workers.pop(path, None)
-        for item in self._subscribers.get(path, ()):
-            if item.data(ROLE_IS_SERIES):
-                cover_paths = item.data(ROLE_SERIES_PATHS) or []
-                for role, p in zip((ROLE_PIXMAP, ROLE_PIXMAP2, ROLE_PIXMAP3), cover_paths):
-                    if p == path:
-                        item.setData(role, pm)
-            else:
-                item.setData(ROLE_PIXMAP, pm)
+        self.cache[path] = QPixmap.fromImage(image)
+        self.cache.move_to_end(path)
+        while len(self.cache) > self.capacity:
+            self.cache.popitem(last=False)
         self.coverReady.emit(path)
 
     def _on_failed(self, path, _message):
         # la vignette reste grise ; l'erreur detaillee apparaitra a l'ouverture
         self._pending.discard(path)
         self._workers.pop(path, None)
+        self._failed.add(path)

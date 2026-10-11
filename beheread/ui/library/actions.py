@@ -27,20 +27,20 @@ from beheread.ui.safe_text import plain
 # Windows refuse de supprimer un fichier ouvert : une tache d'arriere-plan
 # (vignette, ComicInfo.xml, empreinte) peut lire le tome un bref instant, par
 # exemple juste apres son apparition dans la bibliotheque. La suppression est
-# alors retentee quelques fois avant d'etre signalee en echec.
-DELETE_ATTEMPTS = 6
-DELETE_RETRY_S = 0.15
+# alors retentee apres ces delais croissants (~1,5 s au total) avant d'etre
+# signalee en echec.
+DELETE_DELAYS = (0.05, 0.1, 0.2, 0.4, 0.8)
 
 
 def _remove_file(remove, path):
-    for attempt in range(DELETE_ATTEMPTS):
+    for delay in DELETE_DELAYS + (None,):
         try:
             remove(path)
             return
         except OSError:
-            if attempt == DELETE_ATTEMPTS - 1 or not os.path.exists(path):
+            if delay is None or not os.path.exists(path):
                 raise
-            time.sleep(DELETE_RETRY_S)
+            time.sleep(delay)
 
 
 class ActionsMixin:

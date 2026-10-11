@@ -23,7 +23,7 @@ LIST_THUMB_W, LIST_THUMB_H = 42, 58
 ROLE_PATH = Qt.UserRole
 ROLE_FRACTION = Qt.UserRole + 1
 ROLE_FINISHED = Qt.UserRole + 2
-ROLE_PIXMAP = Qt.UserRole + 3
+# Qt.UserRole + 3 : ancien role de couverture (les delegates lisent CoverCache)
 ROLE_PROG_TEXT = Qt.UserRole + 4
 # Qt.UserRole + 5 : ancien role d'en-tete de serie (vue liste), retire
 ROLE_AUTHOR_TEXT = Qt.UserRole + 6
@@ -32,8 +32,7 @@ ROLE_AUTHOR_TEXT = Qt.UserRole + 6
 ROLE_IS_SERIES = Qt.UserRole + 7
 ROLE_SERIES_KEY = Qt.UserRole + 8
 ROLE_SERIES_COUNT = Qt.UserRole + 9
-ROLE_PIXMAP2 = Qt.UserRole + 10     # 2e couverture de la pile
-ROLE_PIXMAP3 = Qt.UserRole + 11     # 3e couverture de la pile
+# Qt.UserRole + 10, + 11 : anciennes 2e et 3e couvertures de la pile
 ROLE_SERIES_PATHS = Qt.UserRole + 12   # chemins des tomes dont on empile la couverture
 
 # decalage de l'empilement des couvertures d'un dossier de serie (pixels)

@@ -7,7 +7,7 @@ en cache sur disque."""
 import logging
 from pathlib import Path
 
-from PySide6.QtCore import QSize, Qt, Signal
+from PySide6.QtCore import QSize, Qt, QTimer, Signal
 from PySide6.QtGui import QGuiApplication, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QHBoxLayout,
@@ -46,9 +46,6 @@ from beheread.ui.library.constants import (
     ROLE_FRACTION,
     ROLE_IS_SERIES,
     ROLE_PATH,
-    ROLE_PIXMAP,
-    ROLE_PIXMAP2,
-    ROLE_PIXMAP3,
     ROLE_PROG_TEXT,
     ROLE_SERIES_COUNT,
     ROLE_SERIES_KEY,
@@ -170,7 +167,7 @@ class LibraryWidget(ChromeMixin, DetailPanelMixin, ActionsMixin, MenusMixin,
         content.setContentsMargins(0, 0, 0, 0)
         content.setSpacing(0)
         body.addLayout(content, 1)
-        self.shelf = ContinueShelf(self.store)
+        self.shelf = ContinueShelf(self.store, self.covers)
         self.shelf.activated.connect(self.mangaActivated.emit)
         self.shelf.contextMenuRequested.connect(self._show_shelf_menu)
         self.shelf.hide()
@@ -195,9 +192,9 @@ class LibraryWidget(ChromeMixin, DetailPanelMixin, ActionsMixin, MenusMixin,
         self.list_host = ScrollingHeaderHost(self.shelf, self.list)
         content.addWidget(self.list_host, 1)
 
-        self.grid_delegate = MangaDelegate(self.store, self.list)
+        self.grid_delegate = MangaDelegate(self.store, self.list, covers=self.covers)
         self.grid_delegate.set_scale(self._grid_scale_pct / 100.0)
-        self.list_delegate = ListDelegate(self.store, self.list)
+        self.list_delegate = ListDelegate(self.store, self.list, covers=self.covers)
         self._apply_view_mode()
 
         content.addWidget(self._build_empty_panel(), 1)
@@ -213,6 +210,15 @@ class LibraryWidget(ChromeMixin, DetailPanelMixin, ActionsMixin, MenusMixin,
         self.apply_theme()
 
         self.list.backRequested.connect(self._exit_series)
+
+        # couvertures et metadonnees des cases visibles (ou presque) d'abord :
+        # apres chaque defilement, redimensionnement ou reconstruction
+        self._visible_timer = QTimer(self)
+        self._visible_timer.setSingleShot(True)
+        self._visible_timer.setInterval(40)
+        self._visible_timer.timeout.connect(self._request_visible)
+        self.list.verticalScrollBar().valueChanged.connect(self._visible_soon)
+        self.shelf.list.horizontalScrollBar().valueChanged.connect(self._visible_soon)
 
         # offline-first : affiche l'instantane persiste immediatement, puis
         # lance le scan reel en arriere-plan pour reconcilier
@@ -295,11 +301,39 @@ class LibraryWidget(ChromeMixin, DetailPanelMixin, ActionsMixin, MenusMixin,
         self.list.viewport().update()
         self._search_meta_changed()
 
-    def _bind_cover(self, item, path, role):
-        self.covers.bind(item, path, role)
+    def _visible_soon(self, *_args):
+        self._visible_timer.start()
+
+    def _request_visible(self):
+        """Demande les couvertures des cases a l'ecran et d'une marge autour
+        (un demi-ecran au-dessus, un ecran au-dessous), et fait passer leurs
+        recherches de metadonnees devant celles des tomes hors de vue."""
+        visible = 0
+        for lst, horizontal in ((self.list, False), (self.shelf.list, True)):
+            if not lst.isVisible():
+                continue
+            area = lst.viewport().rect()
+            if horizontal:
+                area = area.adjusted(-area.width() // 2, 0, area.width(), 0)
+            else:
+                area = area.adjusted(0, -area.height() // 2, 0, area.height())
+            model = lst.model()
+            for row in range(lst.count()):
+                if lst.isRowHidden(row) or not lst.visualRect(model.index(row, 0)).intersects(area):
+                    continue
+                item = lst.item(row)
+                if item.data(ROLE_IS_SERIES):
+                    paths = (item.data(ROLE_SERIES_PATHS) or [])[:3]
+                else:
+                    paths = [item.data(ROLE_PATH)]
+                    self.meta.prioritize(paths[0])
+                for path in paths:
+                    self.covers.request(path)
+                visible += len(paths)
+        self.covers.min_kept = visible
 
     def _on_cover_ready(self, path):
-        self.list.viewport().update()
+        self.list.viewport().update()   # les delegates relisent le cache
         self.shelf.list.viewport().update()
         self._refresh_detail_for(path)
 
@@ -499,7 +533,6 @@ class LibraryWidget(ChromeMixin, DetailPanelMixin, ActionsMixin, MenusMixin,
         self._path_to_item = {}   # reconstruit avec la liste (acces O(1) ensuite)
         self._row_paths = []
         self._row_visible = []
-        self.covers.reset_subscribers()
         self._meta_subscribers = {}
         entries = self._entries
 
@@ -528,6 +561,7 @@ class LibraryWidget(ChromeMixin, DetailPanelMixin, ActionsMixin, MenusMixin,
         self._apply_filter()
 
         self._update_back_button()
+        self._visible_soon()
         self.list._center_grid()
         self._update_consent_banner()
         if keep_position:
@@ -635,6 +669,7 @@ class LibraryWidget(ChromeMixin, DetailPanelMixin, ActionsMixin, MenusMixin,
                 self._row_visible[i] = visible
             count += n
         self._visible_count = count
+        self._visible_soon()
         searching = hits is not None
         self.shelf.setVisible(self._shelf_has_picks and not searching)
         self._update_empty_state(has_any_result=count > 0, searching=searching)
@@ -680,6 +715,7 @@ class LibraryWidget(ChromeMixin, DetailPanelMixin, ActionsMixin, MenusMixin,
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
+        self._visible_soon()
         if self._help.isVisible():
             self._help.show_centered()
 
@@ -771,7 +807,6 @@ class LibraryWidget(ChromeMixin, DetailPanelMixin, ActionsMixin, MenusMixin,
         self._row_paths.append((e.path,))
         self._row_visible.append(True)
         self._path_to_item[e.path] = item
-        self._bind_cover(item, e.path, ROLE_PIXMAP)
 
     def _series_featured_index(self, vols):
         """Indice (dans `vols`, tries par numero) du tome a mettre en tete de
@@ -844,8 +879,6 @@ class LibraryWidget(ChromeMixin, DetailPanelMixin, ActionsMixin, MenusMixin,
         self.list.addItem(item)
         self._row_paths.append(tuple(e.path for e in group))
         self._row_visible.append(True)
-        for role, path in zip((ROLE_PIXMAP, ROLE_PIXMAP2, ROLE_PIXMAP3), cover_paths):
-            self._bind_cover(item, path, role)
 
     def _series_progress(self, group):
         """Agrege la progression d'une serie : nombre de tomes termines,
@@ -1005,7 +1038,6 @@ class LibraryWidget(ChromeMixin, DetailPanelMixin, ActionsMixin, MenusMixin,
             else:
                 item.setToolTip(plain(f"{info.title}\nReprendre la lecture"))
             lst.addItem(item)
-            self._bind_cover(item, info.path, ROLE_PIXMAP)
         self._shelf_has_picks = bool(picks)
         self.shelf.setVisible(self._shelf_has_picks and self._search_hits is None)
 

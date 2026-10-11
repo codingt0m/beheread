@@ -65,7 +65,10 @@ def test_request_is_delivered_to_primary(qapp, tmp_path, monkeypatch):
         "ok", send_to_primary({"open": "C:\\a.cbz"}, name)))
     sender.start()
     deadline = time.monotonic() + 5
-    while not received and time.monotonic() < deadline:
+    # boucle jusqu'a la fin de l'ENVOI, pas seulement jusqu'a la reception :
+    # l'accuse de reception de l'instance principale part lui aussi par la
+    # boucle d'evenements (l'arreter trop tot faisait echouer l'envoi)
+    while sender.is_alive() and time.monotonic() < deadline:
         qapp.processEvents()
         time.sleep(0.01)
     sender.join(5)

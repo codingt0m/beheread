@@ -17,11 +17,10 @@ from beheread.ui.library.constants import (
     ROLE_FINISHED,
     ROLE_FRACTION,
     ROLE_IS_SERIES,
-    ROLE_PIXMAP,
-    ROLE_PIXMAP2,
-    ROLE_PIXMAP3,
+    ROLE_PATH,
     ROLE_PROG_TEXT,
     ROLE_SERIES_COUNT,
+    ROLE_SERIES_PATHS,
     STACK_PEEK,
     THUMB_H,
     THUMB_W,
@@ -56,6 +55,12 @@ def _keyboard_focus(option) -> bool:
     return bool(st & QStyle.State_HasFocus and st & QStyle.State_KeyboardFocusChange)
 
 
+def _cover(covers, path):
+    """Couverture d'un tome pour le rendu, ou None (alors demandee en
+    arriere-plan : voir CoverCache.lookup)."""
+    return covers.lookup(path) if covers is not None and path else None
+
+
 class MangaDelegate(QStyledItemDelegate):
     """Dessine la vignette, le titre, la barre de progression et le badge.
     La taille des couvertures est pilotee par un facteur d'echelle (curseur de
@@ -70,9 +75,10 @@ class MangaDelegate(QStyledItemDelegate):
     CAPTION_H = 80        # hauteur fixe de la legende (grille normale)
     CAPTION_H_COMPACT = 40
 
-    def __init__(self, store: Store, parent=None, compact=False):
+    def __init__(self, store: Store, parent=None, compact=False, covers=None):
         super().__init__(parent)
         self.store = store
+        self.covers = covers   # CoverCache : couvertures demandees a la peinture
         self.compact = compact
         self.set_scale(1.0)
 
@@ -124,7 +130,7 @@ class MangaDelegate(QStyledItemDelegate):
         # pm est la couverture haute resolution ; drawPixmap la met a l'echelle
         # de la case courante (voir _cover_source_rect). Le curseur de taille
         # change donc la taille sans toucher au cache.
-        pm: QPixmap = index.data(ROLE_PIXMAP)
+        pm: QPixmap = _cover(self.covers, index.data(ROLE_PATH))
         if pm and not pm.isNull():
             painter.drawPixmap(cover, pm, _cover_source_rect(pm, cover.size()))
         else:
@@ -227,8 +233,7 @@ class MangaDelegate(QStyledItemDelegate):
         r = option.rect
         finished = bool(index.data(ROLE_FINISHED))
 
-        pms = [index.data(ROLE_PIXMAP), index.data(ROLE_PIXMAP2),
-               index.data(ROLE_PIXMAP3)]
+        pms = [_cover(self.covers, p) for p in (index.data(ROLE_SERIES_PATHS) or [])[:3]]
         pms = [pm for pm in pms if pm and not pm.isNull()]
         layers = max(1, min(3, len(pms) or 1))   # au moins 1 couche (placeholder)
 
@@ -285,9 +290,10 @@ class MangaDelegate(QStyledItemDelegate):
 class ListDelegate(QStyledItemDelegate):
     """Rendu compact en ligne (tomes et dossiers de serie)."""
 
-    def __init__(self, store: Store, parent=None):
+    def __init__(self, store: Store, parent=None, covers=None):
         super().__init__(parent)
         self.store = store
+        self.covers = covers
 
     def sizeHint(self, option, index):
         return QSize(0, LIST_ROW_H)
@@ -326,7 +332,10 @@ class ListDelegate(QStyledItemDelegate):
         clip = QPainterPath()
         clip.addRoundedRect(thumb, 4, 4)
         painter.setClipPath(clip)
-        pm = index.data(ROLE_PIXMAP)
+        if is_series:
+            pm = _cover(self.covers, (index.data(ROLE_SERIES_PATHS) or [None])[0])
+        else:
+            pm = _cover(self.covers, index.data(ROLE_PATH))
         if pm and not pm.isNull():
             # meme couverture haute resolution que la grille : drawPixmap la
             # met a l'echelle de la petite vignette de liste (voir

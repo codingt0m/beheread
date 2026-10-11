@@ -181,7 +181,15 @@ def main(out: Path):
     grab(host, "08-fin-de-tome", wait=1.2)
     reader.release()
 
-    QThreadPool.globalInstance().waitForDone(5000)
+    # tous les pools de threads (global, et ceux de la bibliotheque et du
+    # lecteur) arretes avant la sortie brutale : un thread Qt encore vivant
+    # fait planter le processus pendant sa destruction par le systeme
+    pools = [QThreadPool.globalInstance()]
+    for top in QApplication.topLevelWidgets():
+        pools.extend(top.findChildren(QThreadPool))
+    for pool in pools:
+        pool.clear()
+        pool.waitForDone(5000)
     store.close()
     print("\n".join(f"{out / name}.png" for name in shots), flush=True)
     # sortie immediate : les captures sont ecrites, et la destruction des

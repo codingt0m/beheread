@@ -1,11 +1,9 @@
 """Tests des controleurs de la bibliotheque (scan, metadonnees, couvertures),
 extraits de LibraryWidget. Reseau simule : aucune requete reelle."""
 
-from PySide6.QtWidgets import QListWidgetItem
-
 from beheread.core.models import LibraryEntry
 from beheread.infra import metadata
-from beheread.ui.library.constants import ROLE_PIXMAP
+from beheread.ui.library.constants import ROLE_PATH
 from beheread.ui.library.controllers import (
     CoverCache,
     MetadataController,
@@ -78,24 +76,86 @@ def test_metadata_controller_offline_never_searches_series(qtbot, store, mangas,
     qtbot.waitUntil(lambda: len(seen) == 2, timeout=10000)
 
 
-def test_cover_cache_serves_subscribed_items(qtbot, store, mangas):
+def test_cover_cache_generates_on_demand(qtbot, store, mangas):
     from PySide6.QtCore import QSize
     path = make_cbz(mangas, "Alpha - Tome 1", seed=1)
     covers = CoverCache(store, QSize(100, 141))
-    item = QListWidgetItem("a")
     ready = []
     covers.coverReady.connect(ready.append)
-    covers.bind(item, path, ROLE_PIXMAP)
+    assert covers.lookup(path) is None                # demandee a la peinture
     qtbot.waitUntil(lambda: ready == [path], timeout=10000)
-    pm = item.data(ROLE_PIXMAP)
+    pm = covers.lookup(path)
     assert pm is not None and (pm.width(), pm.height()) == (100, 141)
     assert store.thumb_path(path).exists()            # cache disque ecrit
     assert store.page_count(path) == 4                # nombre de pages memorise
-    other = QListWidgetItem("b")
-    covers.bind(other, path, ROLE_PIXMAP)             # deja en memoire : immediat
-    assert other.data(ROLE_PIXMAP) is not None
     covers.rename(path, path + ".x")
     assert covers.get(path + ".x") is not None and covers.get(path) is None
+
+
+def test_cover_cache_is_bounded_and_skips_unreadable_files(qtbot, store, mangas, monkeypatch):
+    from PySide6.QtCore import QSize
+
+    from beheread.ui.library import controllers
+    monkeypatch.setattr(controllers, "COVER_MIN_KEPT", 3)
+    monkeypatch.setattr(controllers, "COVER_BUDGET_BYTES", 0)
+    covers = CoverCache(store, QSize(100, 141))
+    paths = [make_cbz(mangas, f"Alpha - Tome {i}", pages=1, size=(300, 420 + i))
+             for i in range(5)]
+    for p in paths:
+        covers.request(p)
+    qtbot.waitUntil(lambda: not covers._pending, timeout=10000)
+    assert len(covers.cache) == 3                     # les plus recentes seulement
+    covers.min_kept = 4                               # 4 couvertures a l'ecran
+    assert covers.capacity == 8
+    broken = mangas / "casse.cbz"
+    broken.write_bytes(b"PK pas une archive")
+    covers.request(str(broken))
+    qtbot.waitUntil(lambda: str(broken) in covers._failed, timeout=10000)
+    covers.lookup(str(broken))                        # pas de nouvel essai en boucle
+    assert str(broken) not in covers._pending
+
+
+def test_only_covers_near_the_screen_are_generated(window, qtbot, mangas, store):
+    """Une grande bibliotheque : seules les cases a l'ecran (et une marge)
+    demandent leur couverture."""
+    for i in range(80):
+        make_cbz(mangas, f"Serie {i:02d}", pages=1, size=(300, 420 + i))   # contenus distincts
+    store.set_folders([str(mangas)])
+    lib = window.library
+    lib.refresh()
+    qtbot.waitUntil(lambda: len(lib._entries) == 80 and not lib._scanning, timeout=20000)
+    qtbot.waitUntil(lambda: bool(lib.covers.cache), timeout=10000)
+    qtbot.wait(300)
+    requested = len(lib.covers.cache) + len(lib.covers._pending)
+    assert 0 < requested < 80
+    lib.list.verticalScrollBar().setValue(lib.list.verticalScrollBar().maximum())
+    last = lib.list.item(lib.list.count() - 1).data(ROLE_PATH)
+    qtbot.waitUntil(lambda: last in lib.covers.cache, timeout=10000)
+
+
+def test_visible_volume_metadata_jumps_the_queue(qtbot, store, mangas, monkeypatch):
+    import threading
+
+    started = []
+    gate = threading.Event()
+
+    def slow_fetch(p, series, volume, cached_series, online=True, author_hint=None):
+        started.append(p)
+        gate.wait(5)
+        return {"authors": ["X"], "source": "googlebooks"}, True, None
+
+    monkeypatch.setattr(metadata, "fetch", slow_fetch)
+    monkeypatch.setattr(metadata, "fetch_series", lambda name, hint=None: ({"not_found": True}, True))
+    ctrl = MetadataController(store, online=lambda: False)
+    entries = [LibraryEntry(path=f"/x/{i}.cbz", title=str(i), series=f"S{i}", volume=1)
+               for i in range(4)]
+    for e in entries:
+        ctrl.cached_or_fetch(e)
+    qtbot.waitUntil(lambda: len(started) == 1, timeout=5000)   # le premier occupe le thread
+    ctrl.prioritize("/x/3.cbz")
+    gate.set()
+    qtbot.waitUntil(lambda: len(started) == 4, timeout=10000)
+    assert started[1] == "/x/3.cbz"
 
 
 def test_metadata_controller_refreshes_stale_results(qtbot, store, mangas, monkeypatch):
