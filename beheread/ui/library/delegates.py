@@ -61,6 +61,52 @@ def _cover(covers, path):
     return covers.lookup(path) if covers is not None and path else None
 
 
+def _cover_error(covers, path):
+    """Message d'erreur si la couverture de ce tome est illisible, sinon None."""
+    return covers.error(path) if covers is not None and path else None
+
+
+def _warning_icon(painter, cx, cy, size, color):
+    """Triangle d'avertissement (trait), centre en (cx, cy)."""
+    painter.save()
+    pen = QPen(color, max(1.5, size / 14))
+    pen.setJoinStyle(Qt.RoundJoin)
+    painter.setPen(pen)
+    painter.setBrush(Qt.NoBrush)
+    h = size * 0.86
+    tri = QPainterPath()
+    tri.moveTo(cx, cy - h / 2)
+    tri.lineTo(cx + size / 2, cy + h / 2)
+    tri.lineTo(cx - size / 2, cy + h / 2)
+    tri.closeSubpath()
+    painter.drawPath(tri)
+    painter.drawLine(int(cx), int(cy - h * 0.12), int(cx), int(cy + h * 0.16))
+    painter.drawPoint(int(cx), int(cy + h * 0.32))
+    painter.restore()
+
+
+def _draw_unreadable(painter, rect, c, font):
+    """Contenu d'une vignette illisible : icone, « Illisible » et la raison
+    la plus probable (le detail est dans le menu contextuel)."""
+    color = QColor(c["warning"])
+    icon = max(16, min(30, rect.width() // 5))
+    _warning_icon(painter, rect.center().x(), rect.center().y() - icon, icon, color)
+    f = QFont(font)
+    f.setBold(True)
+    painter.setFont(f)
+    painter.setPen(color)
+    painter.drawText(QRect(rect.x(), rect.center().y() - 2, rect.width(), 20),
+                     Qt.AlignHCenter | Qt.AlignTop, "Illisible")
+    if rect.width() >= 110:
+        small = QFont(font)
+        small.setPointSizeF(small.pointSizeF() * 0.85)
+        painter.setFont(small)
+        painter.setPen(QColor(c["cover_text"]))
+        painter.drawText(QRect(rect.x() + 8, rect.center().y() + 20, rect.width() - 16, 36),
+                         Qt.AlignHCenter | Qt.AlignTop | Qt.TextWordWrap,
+                         "Archive abîmée ou incomplète")
+
+
 class MangaDelegate(QStyledItemDelegate):
     """Dessine la vignette, le titre, la barre de progression et le badge.
     La taille des couvertures est pilotee par un facteur d'echelle (curseur de
@@ -131,13 +177,21 @@ class MangaDelegate(QStyledItemDelegate):
         # de la case courante (voir _cover_source_rect). Le curseur de taille
         # change donc la taille sans toucher au cache.
         pm: QPixmap = _cover(self.covers, index.data(ROLE_PATH))
+        unreadable = _cover_error(self.covers, index.data(ROLE_PATH)) is not None
         if pm and not pm.isNull():
             painter.drawPixmap(cover, pm, _cover_source_rect(pm, cover.size()))
+        elif unreadable:
+            painter.fillRect(cover, QColor(c["cover_placeholder"]))
+            _draw_unreadable(painter, cover, c, option.font)
         else:
             painter.fillRect(cover, QColor(c["cover_placeholder"]))
             painter.setPen(QColor(c["cover_text"]))
             painter.drawText(cover, Qt.AlignCenter, "...")
         painter.setClipping(False)
+        if unreadable:
+            painter.setPen(QPen(QColor(c["warning_border"]), 1))
+            painter.setBrush(Qt.NoBrush)
+            painter.drawRoundedRect(cover, 6, 6)
         painter.setPen(QPen(theme.qcolor(c["cover_border"]), 1))
         painter.setBrush(Qt.NoBrush)
         painter.drawRoundedRect(cover, 6, 6)
@@ -192,8 +246,12 @@ class MangaDelegate(QStyledItemDelegate):
                          fm.elidedText(name, Qt.ElideRight, title_rect.width()))
 
         prog_text = index.data(ROLE_PROG_TEXT)
+        warning = (not index.data(ROLE_IS_SERIES)
+                   and _cover_error(self.covers, index.data(ROLE_PATH)) is not None)
+        if warning:
+            prog_text = "Clic droit : voir l'erreur"
         if prog_text:
-            painter.setPen(QColor(c["text_dim"]))
+            painter.setPen(QColor(c["warning"] if warning else c["text_dim"]))
             painter.drawText(QRect(title_rect.x(), title_rect.y() + 16,
                                    title_rect.width(), 16),
                              Qt.AlignHCenter | Qt.AlignTop, prog_text)
@@ -336,7 +394,12 @@ class ListDelegate(QStyledItemDelegate):
             pm = _cover(self.covers, (index.data(ROLE_SERIES_PATHS) or [None])[0])
         else:
             pm = _cover(self.covers, index.data(ROLE_PATH))
-        if pm and not pm.isNull():
+        unreadable = not is_series and _cover_error(self.covers, index.data(ROLE_PATH)) is not None
+        if unreadable and not (pm and not pm.isNull()):
+            painter.fillRect(thumb, QColor(c["cover_placeholder"]))
+            _warning_icon(painter, thumb.center().x(), thumb.center().y(), 18,
+                          QColor(c["warning"]))
+        elif pm and not pm.isNull():
             # meme couverture haute resolution que la grille : drawPixmap la
             # met a l'echelle de la petite vignette de liste (voir
             # _cover_source_rect), rendu net sans pre-redimensionnement.

@@ -65,6 +65,8 @@ Les numéros de version suivent [SemVer](https://semver.org/lang/fr/). Chaque se
 
 ### Bibliothèque
 
+* **Nouveau** : un tome illisible (fichier incomplet ou abîmé, outil RAR manquant) est signalé sur sa vignette ; « Voir l'erreur… » dans le menu contextuel explique le problème et permet de réessayer ou de montrer le fichier.
+* **Nouveau** : quand la recherche de l'auteur et de l'année échoue, le panneau d'informations l'indique, avec l'heure du prochain essai automatique et un bouton « Réessayer maintenant ».
 * **Nouveau** : le panneau « Dossiers de la bibliothèque » indique la place occupée par les mangas de chaque dossier (« 283 mangas · 12,4 Go »).
 
 ### Performances

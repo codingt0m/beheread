@@ -21,7 +21,7 @@ from beheread.ui import theme
 # modules extraits (voir chacun) : constantes de rendu, delegates, dialogues et
 # taches d'arriere-plan. LibraryWidget (ci-dessous) orchestre le tout.
 from beheread.ui.library.constants import ROLE_IS_SERIES, ROLE_PATH, ROLE_SERIES_KEY
-from beheread.ui.library.dialogs import EditInfoDialog
+from beheread.ui.library.dialogs import EditInfoDialog, UnreadableDialog
 from beheread.ui.safe_text import plain
 
 # Windows refuse de supprimer un fichier ouvert : une tache d'arriere-plan
@@ -227,6 +227,22 @@ class ActionsMixin:
         """Ouvre l'explorateur de fichiers (le Finder sous macOS) avec le
         fichier selectionne."""
         platforms.reveal_in_file_manager(path)
+
+    def _show_cover_error(self, path: str):
+        """Fenetre « tome illisible » : raison probable, detail technique,
+        et les deux suites utiles (montrer le fichier, reessayer)."""
+        message = self.covers.error(path)
+        if message is None:
+            return
+        e = self._entry_by_path.get(path)
+        title = self._display_title(e) if e is not None else Path(path).stem
+        dialog = UnreadableDialog(title, path, message,
+                                  theme.colors(self.store.ui_pref("theme", "dark")), self)
+        if dialog.exec() == UnreadableDialog.RETRY:
+            self.covers.retry(path)
+            self.list.viewport().update()
+        elif dialog.choice == UnreadableDialog.REVEAL:
+            self._show_in_explorer(path)
 
     def _mark_finished(self, path: str):
         prog = self.store.get_progress(path)

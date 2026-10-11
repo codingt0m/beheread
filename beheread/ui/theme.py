@@ -63,6 +63,10 @@ DARK = {
     "cover_border": "rgba(255, 255, 255, 30)",
     "selection": "rgba(255, 255, 255, 22)",
     "track_bg": "rgba(0, 0, 0, 160)",
+    # avertissements (vignette illisible, recherche en echec)
+    "warning": "#e0a64a",
+    "warning_bg": "#241d14",
+    "warning_border": "#5a4422",
 }
 
 LIGHT = {
@@ -82,6 +86,9 @@ LIGHT = {
     "cover_border": "rgba(0, 0, 0, 25)",
     "selection": "rgba(0, 0, 0, 18)",
     "track_bg": "rgba(0, 0, 0, 60)",
+    "warning": "#8a5a00",
+    "warning_bg": "#fbf1df",
+    "warning_border": "#e3c48f",
 }
 
 

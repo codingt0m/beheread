@@ -130,6 +130,26 @@ class DetailPanel(QFrame):
         self.form.setLabelAlignment(Qt.AlignLeft)
         self._v.addLayout(self.form)
 
+        # avertissement (recherche de metadonnees en echec) et son bouton
+        self.notice = QFrame()
+        self.notice.setObjectName("detailNotice")
+        nv = QVBoxLayout(self.notice)
+        nv.setContentsMargins(12, 10, 12, 10)
+        nv.setSpacing(8)
+        self.notice_text = QLabel()
+        self.notice_text.setObjectName("detailNoticeText")
+        self.notice_text.setTextFormat(Qt.PlainText)
+        self.notice_text.setWordWrap(True)
+        nv.addWidget(self.notice_text)
+        self.notice_button = QPushButton()
+        self.notice_button.setObjectName("detailNoticeButton")
+        self.notice_button.setCursor(Qt.PointingHandCursor)
+        self._notice_fn = None
+        self.notice_button.clicked.connect(self._on_notice_clicked)
+        nv.addWidget(self.notice_button, 0, Qt.AlignRight)
+        self.notice.hide()
+        self._v.addWidget(self.notice)
+
         self._actions_box = QVBoxLayout()
         self._actions_box.setSpacing(6)
         self._v.addSpacing(6)
@@ -154,6 +174,20 @@ class DetailPanel(QFrame):
             w.setVisible(visible)
         self._clear_form()
         self._clear_actions()
+        self._set_notice(None)
+
+    def _set_notice(self, notice):
+        self.notice.setVisible(notice is not None)
+        if notice is None:
+            self._notice_fn = None
+            return
+        text, button, self._notice_fn = notice
+        self.notice_text.setText(text)
+        self.notice_button.setText(button)
+
+    def _on_notice_clicked(self):
+        if self._notice_fn is not None:
+            self._notice_fn()
 
     def _clear_form(self):
         while self.form.rowCount():
@@ -166,9 +200,12 @@ class DetailPanel(QFrame):
                 w.hide()          # detruit plus tard : ne doit plus s'afficher d'ici la
                 w.deleteLater()
 
-    def show_content(self, cover: QPixmap, title: str, subtitle: str, rows, actions):
+    def show_content(self, cover: QPixmap, title: str, subtitle: str, rows, actions,
+                     notice=None):
         """rows : [(libelle, valeur)] (valeurs vides ignorees) ;
-        actions : [(libelle, fonction, principale)]."""
+        actions : [(libelle, fonction, principale)] ;
+        notice : (texte, libelle du bouton, fonction) d'un avertissement
+        (recherche en echec), affiche apres les informations."""
         self.placeholder.hide()
         self._set_visible_content(True)
         self.set_cover(cover)
@@ -188,6 +225,7 @@ class DetailPanel(QFrame):
             val.setTextInteractionFlags(Qt.TextSelectableByMouse)
             val.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
             self.form.addRow(k, val)
+        self._set_notice(notice)
         for label, fn, primary in actions:
             b = ElidedButton(label)
             b.setObjectName("detailPrimary" if primary else "detailAction")
@@ -227,4 +265,15 @@ class DetailPanel(QFrame):
             }}
             QPushButton#detailAction:hover {{ background: {c['button_hover']}; }}
             QPushButton:focus {{ border: 2px solid {c['text']}; }}
+            #detailNotice {{
+                background: {c['warning_bg']}; border: 1px solid {c['warning_border']};
+                border-radius: 8px;
+            }}
+            #detailNoticeText {{ color: {c['text']}; font-size: 12px; }}
+            QPushButton#detailNoticeButton {{
+                color: {c['text']}; background: {c['button']};
+                border: 1px solid {c['text_dim']}; border-radius: 6px;
+                padding: 5px 12px; font-size: 12px;
+            }}
+            QPushButton#detailNoticeButton:hover {{ background: {c['button_hover']}; }}
         """)

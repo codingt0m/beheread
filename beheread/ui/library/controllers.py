@@ -213,6 +213,25 @@ class MetadataController(QObject):
             self._failed.discard(path)
             self._retries.pop(("volume", path), None)
 
+    def failure(self, path):
+        """Etat d'une recherche en echec pour ce tome (reseau, resultat
+        provisoire), ou None : {"due": secondes avant le prochain essai
+        automatique, ou None s'il n'y en aura plus dans la session}."""
+        if path not in self._failed or not self.online():
+            return None
+        retry = self._retries.get(("volume", path))
+        due = None if not retry or retry[1] is None else max(0.0, retry[1] - self._now())
+        return {"due": due}
+
+    def retry_now(self, entry):
+        """« Reessayer maintenant » : relance tout de suite la recherche de ce
+        tome et celle de sa serie, sans attendre l'essai programme."""
+        self.forget_failures(entry.path)
+        key = normalize_name(entry.series)
+        self._series_failed.discard(key)
+        self._retries.pop(("series", key), None)
+        self.cached_or_fetch(entry)
+
     def prioritize(self, path):
         """Tome a l'ecran : sa recherche, si elle attend encore dans la file,
         passe devant celles des tomes hors de vue."""
@@ -356,7 +375,7 @@ class CoverCache(QObject):
         self.cache = OrderedDict()   # chemin -> QPixmap, du moins au plus recent
         self._pending = set()
         self._workers = {}
-        self._failed = set()         # illisibles : pas de nouvel essai a chaque peinture
+        self._failed = {}            # illisibles -> message : pas de nouvel essai a chaque peinture
         self._seq = 0                # la derniere demandee passe en premier
         self.min_kept = 0            # cases visibles (voir LibraryWidget)
 
@@ -389,6 +408,16 @@ class CoverCache(QObject):
             return
         self._request(path)
 
+    def error(self, path):
+        """Message d'erreur de la couverture de ce tome si elle n'a pas pu
+        etre lue (archive abimee, outil RAR absent...), sinon None."""
+        return self._failed.get(path)
+
+    def retry(self, path):
+        """Nouvel essai (« Reessayer » de la fenetre d'erreur)."""
+        self._failed.pop(path, None)
+        self.request(path)
+
     def rename(self, old_path, new_path):
         if old_path in self.cache:
             self.cache[new_path] = self.cache.pop(old_path)
@@ -396,7 +425,7 @@ class CoverCache(QObject):
     def forget(self, paths):
         for p in paths:
             self.cache.pop(p, None)
-            self._failed.discard(p)
+            self._failed.pop(p, None)
 
     def clear(self):
         self.cache.clear()
@@ -421,8 +450,9 @@ class CoverCache(QObject):
             self.cache.popitem(last=False)
         self.coverReady.emit(path)
 
-    def _on_failed(self, path, _message):
-        # la vignette reste grise ; l'erreur detaillee apparaitra a l'ouverture
+    def _on_failed(self, path, message):
+        # vignette « illisible » ; le detail est dans le menu contextuel
         self._pending.discard(path)
         self._workers.pop(path, None)
-        self._failed.add(path)
+        self._failed[path] = message or "Erreur inconnue"
+        self.coverReady.emit(path)   # la case se redessine en « illisible »

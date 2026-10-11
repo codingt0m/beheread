@@ -123,7 +123,26 @@ class DetailPanelMixin:
         if info.series_key and not e.detached:
             self._add_anilist_detail(info.series_key, path, rows, actions)
         self.detail.show_content(self._cover_for_detail(path), info.title, subtitle,
-                                 rows, actions)
+                                 rows, actions, self._metadata_notice(e))
+
+    def _metadata_notice(self, e):
+        """Avertissement du panneau quand la recherche d'auteur et d'annee de
+        ce tome a echoue (services en ligne injoignables ou satures), avec le
+        delai du prochain essai automatique et « Reessayer maintenant »."""
+        failure = self.meta.failure(e.path)
+        if failure is None:
+            return None
+        text = ("Auteur et année introuvables pour l'instant : les services en ligne "
+                "ne répondent pas.")
+        due = failure["due"]
+        if due is not None:
+            minutes = max(1, round(due / 60))
+            text += f" Nouvel essai automatique dans {minutes} min."
+
+        def retry():
+            self.meta.retry_now(e)
+            self._update_detail()
+        return text, "Réessayer maintenant", retry
 
     def _show_series_detail(self, key):
         grp = self._group_entries(self._entries).get(key)

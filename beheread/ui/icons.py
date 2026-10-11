@@ -176,3 +176,17 @@ def bar_chart(color) -> QIcon:
         for x, top in ((17, 36), (29, 22), (41, 30)):
             p.drawRoundedRect(QRectF(x, top, 7, 52 - top), 2, 2)
     return _make(draw, color)
+
+
+def warning(color) -> QIcon:
+    """Triangle d'avertissement (tome illisible, recherche en echec)."""
+    def draw(p):
+        path = QPainterPath()
+        path.moveTo(32, 9)
+        path.lineTo(58, 54)
+        path.lineTo(6, 54)
+        path.closeSubpath()
+        p.drawPath(path)
+        p.drawLine(QPointF(32, 25), QPointF(32, 38))
+        p.drawPoint(QPointF(32, 46))
+    return _make(draw, color)

@@ -59,6 +59,9 @@ class MenusMixin:
             "Déplacer vers une série…" if n == 1 else f"Déplacer {n} mangas vers une série…")
         act_rename = menu.addAction("Renommer le fichier…") if n == 1 else None
         act_explorer = menu.addAction(platforms.REVEAL_LABEL) if n == 1 else None
+        act_error = None
+        if n == 1 and self.covers.error(paths[0]) is not None:
+            act_error = menu.addAction("Voir l'erreur…")
 
         # --- regroupement en serie ---
         act_detach = act_restore = None
@@ -109,6 +112,8 @@ class MenusMixin:
             self._rename_tome(items[0].data(ROLE_PATH))
         elif act_explorer is not None and chosen == act_explorer:
             self._show_in_explorer(items[0].data(ROLE_PATH))
+        elif act_error is not None and chosen == act_error:
+            self._show_cover_error(paths[0])
         elif chosen == act_delete:
             self._delete_many([it.data(ROLE_PATH) for it in items])
 

@@ -930,3 +930,84 @@ class EditInfoDialog(QDialog):
         """(auteurs, annee) saisis : liste vide / None si laisses vides."""
         author = self.author.text().strip()
         return ([author] if author else []), (self.year.value() or None)
+
+
+# ---------------------------------------------------------------- tome illisible
+
+def explain_archive_error(message: str) -> str:
+    """Raison probable, en clair, d'une erreur d'ouverture d'archive."""
+    m = (message or "").lower()
+    if "aucun outil" in m:
+        return ("Ce fichier est une vraie archive RAR : il faut un outil de "
+                "décompression pour l'ouvrir. " + platforms.RAR_HELP)
+    if "mot de passe" in m:
+        return "Ce PDF est protégé par un mot de passe : Beheread ne peut pas l'ouvrir."
+    if "aucune image" in m or "aucune page" in m:
+        return "Ce fichier ne contient aucune page à afficher."
+    if "volumineuse" in m:
+        return "Une page de ce fichier est anormalement volumineuse : elle a été ignorée par sécurité."
+    if "zip invalide" in m or "rar" in m or "non reconnu" in m or "illisible" in m:
+        return ("Le fichier est probablement incomplet (téléchargement interrompu) ou "
+                "abîmé. Le télécharger à nouveau règle en général le problème.")
+    return "Beheread n'a pas pu lire ce fichier."
+
+
+class UnreadableDialog(QDialog):
+    """Detail d'un tome dont la couverture n'a pas pu etre lue."""
+
+    RETRY, REVEAL = 2, 3
+
+    def __init__(self, title, path, message, colors, parent=None):
+        super().__init__(parent)
+        self.choice = None
+        self.setWindowTitle("Tome illisible")
+        self.setMinimumWidth(560)
+        self.setStyleSheet(_dialog_css(colors) + f"""
+            QLabel#detail {{
+                color: {colors['text']}; background: {colors['panel']};
+                border: 1px solid {colors['border']}; border-radius: 6px; padding: 8px 10px;
+                font-family: Consolas, 'Cascadia Mono', Menlo, monospace; font-size: 12px;
+            }}""")
+        root = QVBoxLayout(self)
+        root.setContentsMargins(22, 18, 22, 16)
+        root.setSpacing(10)
+        head = QHBoxLayout()
+        head.setSpacing(10)
+        icon = QLabel()
+        icon.setPixmap(icons.warning(colors["warning"]).pixmap(20, 20))
+        head.addWidget(icon, 0, Qt.AlignTop)
+        heading = QLabel(f"« {title} » ne peut pas être ouvert")
+        heading.setTextFormat(Qt.PlainText)   # nom de fichier : non fiable
+        heading.setWordWrap(True)
+        heading.setStyleSheet("font-size: 15px; font-weight: 700;")
+        head.addWidget(heading, 1)
+        root.addLayout(head)
+        reason = QLabel(explain_archive_error(message))
+        reason.setTextFormat(Qt.PlainText)
+        reason.setWordWrap(True)
+        root.addWidget(reason)
+        detail_text = message if str(path) in message else f"{path}\n{message}"
+        detail = QLabel(detail_text)
+        detail.setObjectName("detail")
+        detail.setTextFormat(Qt.PlainText)
+        detail.setWordWrap(True)
+        detail.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        root.addWidget(detail)
+        row = QHBoxLayout()
+        reveal = QPushButton(platforms.REVEAL_LABEL)
+        reveal.clicked.connect(lambda: self._finish(self.REVEAL))
+        retry = QPushButton("Réessayer")
+        retry.clicked.connect(lambda: self._finish(self.RETRY))
+        close = QPushButton("Fermer")
+        close.setObjectName("primary")
+        close.setDefault(True)
+        close.clicked.connect(self.reject)
+        row.addWidget(reveal)
+        row.addWidget(retry)
+        row.addStretch(1)
+        row.addWidget(close)
+        root.addLayout(row)
+
+    def _finish(self, choice):
+        self.choice = choice
+        self.done(choice)

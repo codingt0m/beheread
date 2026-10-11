@@ -399,3 +399,67 @@ def test_reader_uses_the_library_entry_like_the_file_name(window, qtbot, mangas,
         finally:
             with_entry.release()
             without.release()
+
+
+def test_unreadable_volume_shows_its_error(window, qtbot, mangas, store, monkeypatch):
+    """Archive abimee : vignette « illisible », et « Voir l'erreur » explique
+    le probleme ; « Reessayer » relance la lecture de la couverture."""
+    from beheread.ui.library import dialogs
+
+    broken = mangas / "Casse - Tome 1.cbz"
+    broken.write_bytes(b"PK\x03\x04 telechargement interrompu")
+    store.set_folders([str(mangas)])
+    lib = window.library
+    lib.refresh()
+    scanned(qtbot, lib, 1)
+    path = str(broken)
+    qtbot.waitUntil(lambda: lib.covers.error(path) is not None, timeout=10000)
+    lib.list.grab()                       # le rendu de la case illisible ne plante pas
+    assert "incomplet" in dialogs.explain_archive_error(lib.covers.error(path))
+
+    shown = []
+
+    def fake_exec(dialog):
+        shown.append(dialog)
+        return dialogs.UnreadableDialog.RETRY
+    monkeypatch.setattr(dialogs.UnreadableDialog, "exec", fake_exec)
+    retried = []
+    monkeypatch.setattr(lib.covers, "retry", retried.append)
+    lib._show_cover_error(path)
+    assert len(shown) == 1 and retried == [path]
+
+
+def test_explain_archive_error_in_plain_words():
+    from beheread.ui.library.dialogs import explain_archive_error
+    assert "RAR" in explain_archive_error("Aucun outil de décompression RAR n'a été trouvé.")
+    assert "mot de passe" in explain_archive_error("PDF protégé par un mot de passe :\nx.pdf")
+    assert "aucune page" in explain_archive_error("Aucune image trouvée dans l'archive :\nx")
+    assert explain_archive_error("autre chose") == "Beheread n'a pas pu lire ce fichier."
+
+
+def test_failed_metadata_search_can_be_retried_from_the_panel(window, qtbot, mangas, store,
+                                                              monkeypatch):
+    from beheread.infra import metadata
+
+    path = make_cbz(mangas, "Berserk - Tome 1", seed=1)
+    calls = []
+
+    def offline(p, series, volume, cached_series, online=True, author_hint=None):
+        calls.append(p)
+        return None, False, None
+    monkeypatch.setattr(metadata, "fetch", offline)
+    monkeypatch.setattr(metadata, "fetch_series", lambda name, hint=None: (None, False))
+    store.set_ui_pref("online_metadata", True)
+    store.set_folders([str(mangas)])
+    lib = window.library
+    lib._set_details_visible(True)
+    lib.refresh()
+    scanned(qtbot, lib, 1)
+    qtbot.waitUntil(lambda: path in lib.meta._failed, timeout=10000)
+    lib.list.setCurrentItem(lib._path_to_item[path])
+    lib._update_detail()
+    assert lib.detail.notice.isVisibleTo(lib.detail)
+    assert "Nouvel essai automatique dans 5 min" in lib.detail.notice_text.text()
+    tries = len(calls)
+    lib.detail.notice_button.click()
+    qtbot.waitUntil(lambda: len(calls) > tries, timeout=10000)
