@@ -11,9 +11,10 @@ from PySide6.QtCore import QObject, QRunnable, QSize, Qt, Signal
 from PySide6.QtGui import QImage
 
 from beheread.config import THUMB_SCALE
+from beheread.core.library_model import natural_key as _natural_key
 from beheread.infra import metadata
-from beheread.infra.archive import Archive, scan_folder
-from beheread.infra.storage import Store, is_cloud_placeholder
+from beheread.infra.archive import Archive, scan_tree
+from beheread.infra.storage import Store, is_cloud_stat
 from beheread.ui.library.constants import THUMB_H, THUMB_W
 
 
@@ -135,7 +136,32 @@ class SeriesMetaWorker(QRunnable):
             self.signals.done.emit(self.series_key, series_data, ok)
 
 
-def dedupe_by_content(store: Store, paths):
+def is_cloud_entry(path, st) -> bool:
+    """Fichier cloud non telecharge, d'apres le stat du scan (sans le lire)."""
+    return is_cloud_stat(st)
+
+
+class ScanState:
+    """Resultat d'un scan, garde pour le scan incremental suivant : fichiers
+    trouves ({chemin: stat}) et dossiers parcourus."""
+
+    def __init__(self, files, dirs):
+        self.files = files
+        self.dirs = dirs
+
+
+def _norm(path) -> str:
+    return os.path.normcase(os.path.normpath(str(path)))
+
+
+def _within(path, folder) -> bool:
+    """`path` est `folder` ou se trouve dessous (comparaison sans casse sous
+    Windows, comme le systeme de fichiers)."""
+    path, folder = _norm(path), _norm(folder)
+    return path == folder or path.startswith(folder.rstrip(os.sep) + os.sep)
+
+
+def dedupe_by_content(store: Store, paths, stats=None):
     """Deux fichiers identiques (meme contenu - copie du meme tome dans
     un autre dossier source, ou doublon au meme endroit) ne doivent
     apparaitre qu'une seule fois dans la bibliotheque. La progression,
@@ -147,9 +173,10 @@ def dedupe_by_content(store: Store, paths):
     Le calcul des empreintes remplit au passage le cache de la Store."""
     kept = {}
     result = []
+    stats = stats or {}
     for p in sorted(paths):
         try:
-            key = store.key_for(p)
+            key = store.key_for(p, stats.get(p))
         except Exception:
             key = p
         if key not in kept:
@@ -160,17 +187,22 @@ def dedupe_by_content(store: Store, paths):
 
 class _ScanSignals(QObject):
     # chemins locaux (dedupliques par contenu), chemins cloud non telecharges,
-    # tous les chemins locaux (copies identiques comprises, pour la purge des caches)
-    done = Signal(list, list, list)
+    # tous les chemins locaux (copies identiques comprises, pour la purge des
+    # caches), etat du scan (ScanState : surveillance, scan incremental)
+    done = Signal(list, list, list, object)
 
 
 class ScanWorker(QRunnable):
-    """Scan recursif des dossiers sources + deduplication par empreinte de
-    contenu, hors du thread UI : sur un disque reseau ou une grosse
-    bibliotheque, ce travail (rglob + lecture de 64 Ko par fichier nouveau)
-    prend plusieurs secondes et figerait l'interface s'il tournait sur l'UI.
-    Le calcul des empreintes remplit au passage le cache de la Store, si bien
-    que la finalisation cote UI (parse des noms, overrides) reste instantanee.
+    """Scan des dossiers sources + deduplication par empreinte de contenu,
+    hors du thread UI : sur un disque reseau ou une grosse bibliotheque, ce
+    travail prend plusieurs secondes et figerait l'interface. Le calcul des
+    empreintes remplit au passage le cache de la Store, si bien que la
+    finalisation cote UI (parse des noms, overrides) reste instantanee.
+
+    Scan complet, ou incremental : avec `previous` (ScanState du scan
+    precedent) et `changed` (dossiers signales par la surveillance), seuls
+    ces dossiers (et leurs sous-dossiers) sont reparcourus ; le reste est
+    repris du scan precedent.
 
     Les fichiers cloud non telecharges (iCloud Drive/OneDrive) sont ecartes du
     resultat SANS etre lus (lire un seul octet forcerait leur telechargement
@@ -178,34 +210,64 @@ class ScanWorker(QRunnable):
     telechargement en arriere-plan, et ils apparaitront au rescan suivant une
     fois leur contenu en local."""
 
-    def __init__(self, store: Store, folders):
+    def __init__(self, store: Store, folders, previous=None, changed=None):
         super().__init__()
         self.store = store
         self.folders = list(folders)
+        self.previous = previous
+        self.changed = set(changed or ())
         self.signals = _ScanSignals()
+
+    def _collect(self):
+        """({chemin: stat}, [dossiers]) des dossiers sources."""
+        if self.previous is not None and self.changed:
+            files, dirs = dict(self.previous.files), set(self.previous.dirs)
+            changed = [d for d in self.changed
+                       if any(_within(d, f) for f in self.folders)]
+            # les plus hauts d'abord : un sous-dossier d'un dossier deja
+            # reparcouru n'est pas reparcouru une seconde fois
+            outermost = [d for d in changed
+                         if not any(o != d and _within(d, o) for o in changed)]
+            for d in outermost:
+                files = {p: st for p, st in files.items() if not _within(p, d)}
+                dirs = {x for x in dirs if not _within(x, d)}
+                found, subdirs = scan_tree(d)
+                files.update(found)
+                dirs.update(subdirs)
+            return files, sorted(dirs)
+        files, dirs = {}, []
+        for folder in self.folders:
+            try:
+                found, subdirs = scan_tree(folder)
+            except Exception:
+                logging.warning("Scan impossible du dossier %s", folder, exc_info=True)
+                continue
+            files.update(found)
+            dirs.extend(subdirs)
+        return files, dirs
+
+    def _ordered(self, files):
+        """Chemins dans l'ordre des dossiers sources, en tri naturel dans
+        chacun, sans doublon (dossiers imbriques)."""
+        seen, ordered = set(), []
+        for folder in self.folders:
+            inside = sorted((p for p in files if _within(p, folder) and p not in seen),
+                            key=_natural_key)
+            seen.update(inside)
+            ordered.extend(inside)
+        return ordered
 
     def run(self):
         # revalide les empreintes (mtime+taille) : un fichier modifie sur place
         # depuis le dernier scan doit etre re-identifie
         self.store.invalidate_key_memo()
-        seen = set()
-        paths = []
-        cloud = []
-        for folder in self.folders:
-            try:
-                found = scan_folder(folder)
-            except Exception:
-                logging.warning("Scan impossible du dossier %s", folder, exc_info=True)
-                found = []
-            for p in found:
-                if p in seen:
-                    continue
-                seen.add(p)
-                if is_cloud_placeholder(p):
-                    cloud.append(p)
-                else:
-                    paths.append(p)
-        self.signals.done.emit(dedupe_by_content(self.store, paths), cloud, paths)
+        files, dirs = self._collect()
+        paths, cloud = [], []
+        for p in self._ordered(files):
+            (cloud if is_cloud_entry(p, files[p]) else paths).append(p)
+        local = {p: files[p] for p in paths}
+        self.signals.done.emit(dedupe_by_content(self.store, paths, local), cloud, paths,
+                               ScanState(files, dirs))
 
 
 class _HydrateSignals(QObject):
@@ -286,15 +348,11 @@ class _FolderCountWorker(QRunnable):
     def run(self):
         size = 0
         try:
-            files = scan_folder(self.folder)
+            files, _dirs = scan_tree(self.folder)
             n = len(files)
-            for f in files:
-                try:
-                    # taille logique : un fichier iCloud non telecharge compte
-                    # aussi, sans etre rapatrie pour autant
-                    size += os.path.getsize(f)
-                except OSError:
-                    pass
+            # taille logique : un fichier iCloud non telecharge compte aussi,
+            # sans etre rapatrie pour autant
+            size = sum(st.st_size for _path, st in files)
         except Exception:
             logging.warning("Comptage impossible du dossier %s", self.folder, exc_info=True)
             n = -1

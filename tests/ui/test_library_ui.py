@@ -323,3 +323,30 @@ def test_folders_name_series_of_generic_file_names(window, qtbot, mangas, store)
     scanned(qtbot, lib, 4)
     assert sorted(visible_titles(lib)) == ["Berserk · Tome 1", "Berserk · Tome 2",
                                            "Vagabond · Tome 1", "Vagabond · Tome 2"]
+
+
+def test_deletion_waits_for_a_background_read_to_finish(window, qtbot, mangas, store,
+                                                         monkeypatch):
+    """Windows refuse de supprimer un fichier ouvert : si une tache
+    d'arriere-plan lit encore le tome, la suppression est retentee."""
+    from beheread import platforms
+    from beheread.ui.library import actions
+
+    path = make_cbz(mangas, "Alpha - Tome 1", seed=1)
+    store.set_folders([str(mangas)])
+    lib = window.library
+    lib.refresh()
+    scanned(qtbot, lib, 1)
+    attempts = []
+
+    def busy_then_free(p):
+        attempts.append(p)
+        if len(attempts) < 3:
+            raise PermissionError(32, "fichier utilise par un autre processus")
+        Path(p).unlink()
+
+    monkeypatch.setattr(actions, "DELETE_RETRY_S", 0)
+    monkeypatch.setattr(QMessageBox, "question", staticmethod(lambda *a, **k: QMessageBox.Yes))
+    monkeypatch.setattr(platforms, "trash_function", lambda: busy_then_free)
+    lib._delete_many([path])
+    assert len(attempts) == 3 and not Path(path).exists() and lib._entries == []

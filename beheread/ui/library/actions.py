@@ -5,6 +5,8 @@ Mixin de LibraryWidget : ces methodes partagent l'etat du widget
 responsabilite pour garder chaque fichier lisible."""
 
 import logging
+import os
+import time
 from pathlib import Path
 
 from PySide6.QtWidgets import QDialog, QInputDialog, QLineEdit, QMessageBox
@@ -21,6 +23,24 @@ from beheread.ui import theme
 from beheread.ui.library.constants import ROLE_IS_SERIES, ROLE_PATH, ROLE_SERIES_KEY
 from beheread.ui.library.dialogs import EditInfoDialog
 from beheread.ui.safe_text import plain
+
+# Windows refuse de supprimer un fichier ouvert : une tache d'arriere-plan
+# (vignette, ComicInfo.xml, empreinte) peut lire le tome un bref instant, par
+# exemple juste apres son apparition dans la bibliotheque. La suppression est
+# alors retentee quelques fois avant d'etre signalee en echec.
+DELETE_ATTEMPTS = 6
+DELETE_RETRY_S = 0.15
+
+
+def _remove_file(remove, path):
+    for attempt in range(DELETE_ATTEMPTS):
+        try:
+            remove(path)
+            return
+        except OSError:
+            if attempt == DELETE_ATTEMPTS - 1 or not os.path.exists(path):
+                raise
+            time.sleep(DELETE_RETRY_S)
 
 
 class ActionsMixin:
@@ -292,9 +312,9 @@ class ActionsMixin:
             thumb = self.store.thumb_path(p)
             try:
                 if to_trash:
-                    send2trash(str(Path(p)))
+                    _remove_file(send2trash, str(Path(p)))
                 else:
-                    Path(p).unlink()
+                    _remove_file(os.remove, str(Path(p)))
             except Exception as e:   # send2trash leve ses propres exceptions
                 logging.warning("Suppression impossible de %s", p, exc_info=True)
                 errors.append(f"{Path(p).name} : {e}")

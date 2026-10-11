@@ -74,10 +74,12 @@ Les numéros de version suivent [SemVer](https://semver.org/lang/fr/). Chaque se
 * Les couvertures, l'aperçu de la barre de défilement et la préparation du tome suivant sont plus rapides à produire.
 * Les auteurs arrivent bien plus vite au premier remplissage d'une grande bibliothèque : chaque série n'est plus cherchée qu'une fois en ligne, au lieu d'une fois par tome.
 * Une recherche d'auteur qui a échoué (réseau, service saturé) est retentée dans la session, après 5, 15 puis 60 minutes, au lieu d'attendre le prochain lancement. Beheread respecte les pauses demandées par les services en ligne.
+* L'analyse des dossiers lit chaque dossier une seule fois, et un fichier ajouté ou retiré ne fait plus relire que son dossier, plus toute la bibliothèque : nettement plus rapide sur un disque réseau ou une grande bibliothèque.
 * L'enregistrement de la progression ne dépend plus de la taille de la bibliothèque : seules les données modifiées sont écrites. La base de données est réorganisée au premier lancement (une copie de l'ancienne est gardée à côté), puis entretenue à la fermeture.
 
 ### Corrections
 
+* **Corrigé** (Windows) : supprimer un tome juste après son apparition dans la bibliothèque pouvait échouer (« fichier utilisé par un autre processus ») pendant que Beheread préparait sa couverture.
 * **Corrigé** : supprimer une copie d'un tome présent en double effaçait la progression de l'autre copie.
 * **Corrigé** : la mémoire du lecteur grossissait sans limite en feuilletant un tome dans les deux sens.
 * **Corrigé** : un tome terminé pendant un envoi à AniList pouvait ne jamais être publié.

@@ -82,12 +82,18 @@ def test_scan_worker_excludes_cloud_placeholders(store, tmp_path, monkeypatch):
     folder.mkdir()
     local = _make_manga(folder, "local.cbz", b"contenu-local")
     cloud = _make_manga(folder, "cloud.cbz", b"contenu-cloud")
-    monkeypatch.setattr(workers, "is_cloud_placeholder",
-                        lambda p: str(p).endswith("cloud.cbz"))
+    monkeypatch.setattr(workers, "is_cloud_entry",
+                        lambda p, _st: str(p).endswith("cloud.cbz"))
+
+    def _forbidden(p):
+        raise AssertionError("le contenu d'un espace reserve cloud a ete lu")
+    monkeypatch.setattr(storage, "_compute_fingerprint",
+                        lambda p, real=storage._compute_fingerprint:
+                        _forbidden(p) if p.endswith("cloud.cbz") else real(p))
 
     results = []
     worker = ScanWorker(store, [str(folder)])
-    worker.signals.done.connect(lambda paths, cloud_paths, _local:
+    worker.signals.done.connect(lambda paths, cloud_paths, _local, _state:
                                 results.append((paths, cloud_paths)))
     worker.run()
 
@@ -355,3 +361,57 @@ def test_manually_grouped_volumes_are_never_deduplicated(store, tmp_path):
     ]
     result = LibraryWidget._dedupe_by_series_volume(_FakeLibrary(store), entries)
     assert sorted(e.path for e in result) == sorted([a, b])
+
+
+def _scan(store, folders, previous=None, changed=None):
+    from beheread.ui.library.workers import ScanWorker
+    results = []
+    worker = ScanWorker(store, folders, previous=previous, changed=changed)
+    worker.signals.done.connect(lambda paths, cloud, local, state:
+                                results.append((sorted(local), state)))
+    worker.run()
+    return results[0]
+
+
+def test_incremental_scan_rereads_only_the_changed_folder(store, tmp_path, monkeypatch):
+    from beheread.ui.library import workers
+
+    root = tmp_path / "src"
+    (root / "A").mkdir(parents=True)
+    (root / "B").mkdir()
+    a1 = _make_manga(root / "A", "a1.cbz", b"contenu-a1")
+    b1 = _make_manga(root / "B", "b1.cbz", b"contenu-b1")
+    paths, state = _scan(store, [str(root)])
+    assert paths == sorted([a1, b1]) and str(root / "B") in state.dirs
+
+    scanned = []
+    real = workers.scan_tree
+    monkeypatch.setattr(workers, "scan_tree", lambda d: scanned.append(d) or real(d))
+    b2 = _make_manga(root / "B", "b2.cbz", b"contenu-b2")
+    (root / "A" / "a1.cbz").unlink()           # non signale : pas vu cette fois
+    paths, state = _scan(store, [str(root)], previous=state, changed={str(root / "B")})
+    assert scanned == [str(root / "B")]
+    assert paths == sorted([a1, b1, b2])
+
+    for f in (root / "B").iterdir():
+        f.unlink()
+    (root / "B").rmdir()                        # dossier supprime : ses tomes partent
+    paths, state = _scan(store, [str(root)], previous=state, changed={str(root / "B")})
+    assert paths == [a1] and str(root / "B") not in state.dirs
+
+
+def test_scan_tree_gives_stats_and_folders(tmp_path):
+    from beheread.infra.archive import scan_tree
+
+    (tmp_path / "s" / "t").mkdir(parents=True)
+    ten = _make_manga(tmp_path / "s", "Tome 10.cbz", b"x")
+    two = _make_manga(tmp_path / "s", "Tome 2.cbz", b"y")
+    deep = _make_manga(tmp_path / "s" / "t", "Tome 1.cbz", b"z")
+    (tmp_path / "s" / "notes.txt").write_text("rien")
+    files, dirs = scan_tree(str(tmp_path / "s"))
+    found = [p for p, _ in files]
+    assert sorted(found) == sorted([ten, two, deep])
+    assert found.index(two) < found.index(ten)      # tri naturel : 2 avant 10
+    assert all(st.st_size > 0 for _, st in files)
+    assert sorted(dirs) == sorted([str(tmp_path / "s"), str(tmp_path / "s" / "t")])
+    assert scan_tree(str(tmp_path / "absent")) == ([], [])

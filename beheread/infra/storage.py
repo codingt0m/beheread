@@ -103,6 +103,11 @@ def is_cloud_placeholder(path) -> bool:
     return platforms.is_cloud_placeholder(st)
 
 
+def is_cloud_stat(st) -> bool:
+    """Meme test, sur un stat deja obtenu (scan des dossiers)."""
+    return platforms.is_cloud_placeholder(st)
+
+
 def data_dir() -> Path:
     d = platforms.data_dir()
     d.mkdir(parents=True, exist_ok=True)
@@ -451,18 +456,21 @@ class Store:
             self._schedule("meta")
 
     # ------------------------------------------------------------ identite par contenu
-    def key_for(self, path: str) -> str:
+    def key_for(self, path: str, st=None) -> str:
         """Empreinte de contenu du fichier, mise en cache (validee par
         mtime+taille). Repli sur le chemin si le fichier est illisible.
         Memorise pour la session (voir _key_memo) : seul le premier appel apres
-        un scan touche au disque."""
-        memo = self._key_memo.get(path)
-        if memo is not None:
-            return memo
-        try:
-            st = os.stat(path)
-        except OSError:
-            return path
+        un scan touche au disque. `st` : stat deja obtenu par le scan,
+        sur lequel l'empreinte est revalidee sans appel systeme."""
+        scanned = st is not None
+        if not scanned:
+            memo = self._key_memo.get(path)
+            if memo is not None:
+                return memo
+            try:
+                st = os.stat(path)
+            except OSError:
+                return path
         cached = self._fp.get(path)
         if cached and cached.get("m") == st.st_mtime_ns and cached.get("s") == st.st_size:
             self._key_memo[path] = cached["k"]
@@ -472,7 +480,7 @@ class Store:
         # (non memorise) ; l'empreinte reelle sera calculee une fois le fichier
         # en local, et les caches indexes par chemin migreront a ce moment-la
         # (meme mecanisme que les entrees heritees, cf. _progress_entry).
-        if is_cloud_placeholder(path):
+        if is_cloud_stat(st) if scanned else is_cloud_placeholder(path):
             return path
         try:
             key = _compute_fingerprint(path)

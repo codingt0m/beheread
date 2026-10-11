@@ -10,9 +10,22 @@ import zipfile
 import pytest
 from PySide6.QtCore import QBuffer, QByteArray, QIODevice, QThreadPool
 from PySide6.QtGui import QColor, QImage
+from PySide6.QtWidgets import QMessageBox
 
 from beheread.infra import storage
 from beheread.infra.storage import Store
+
+
+@pytest.fixture(autouse=True)
+def _no_unexpected_message_box(monkeypatch):
+    """Une boite de message modale bloquerait la suite de tests (personne
+    n'est la pour la fermer) : un appel inattendu fait echouer le test sur-le-
+    champ. Les tests qui en attendent une la remplacent eux-memes."""
+    def unexpected(*args, **_kwargs):
+        raise AssertionError(f"boite de message inattendue : {args[1:3]}")
+    for name in ("warning", "critical", "information", "question"):
+        monkeypatch.setattr(QMessageBox, name, staticmethod(unexpected))
+
 
 COLORS = ["#8e3b46", "#3b5b8e", "#3b8e5b", "#8e7a3b", "#5b3b8e", "#3b8e8a"]
 

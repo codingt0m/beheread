@@ -51,10 +51,15 @@ class ScanController(QObject):
     def __init__(self, store, parent=None):
         super().__init__(parent)
         self.store = store
-        self.pool = QThreadPool.globalInstance()
+        # pool propre au scan : il ne fait pas la queue derriere les vignettes
+        self.pool = QThreadPool(self)
+        self.pool.setMaxThreadCount(1)
         self.scanning = False
         self._again = False
         self._worker = None
+        self._state = None            # ScanState du dernier scan (incremental, surveillance)
+        self._changed_dirs = set()    # dossiers signales depuis le dernier scan
+        self._full_soon = False       # un scan complet est attendu
 
         # telechargement des tomes cloud non presents en local : pool dedie et
         # limite pour ne pas saturer le reseau ni monopoliser les threads des
@@ -69,37 +74,59 @@ class ScanController(QObject):
         # surveillance : un fichier ajoute ou retire declenche un rescan
         # (debounce : plusieurs evenements rapproches = un seul scan)
         self._watcher = QFileSystemWatcher(self)
-        self._watcher.directoryChanged.connect(lambda _p: self.refresh_soon())
+        self._watcher.directoryChanged.connect(self._on_directory_changed)
         self._soon = QTimer(self)
         self._soon.setSingleShot(True)
         self._soon.setInterval(800)
-        self._soon.timeout.connect(self.refresh)
+        self._soon.timeout.connect(self._scan_soon)
 
     def refresh(self):
-        """Relance un scan (non bloquant). Coalesce les demandes rapprochees :
-        un scan deja en cours n'est pas double, il est relance a sa fin."""
+        """Relance un scan complet (non bloquant). Coalesce les demandes
+        rapprochees : un scan deja en cours n'est pas double, il est relance
+        a sa fin."""
+        self._full_soon = True
+        self._start()
+
+    def refresh_soon(self):
+        """Scan complet, apres un court delai (plusieurs demandes = un scan)."""
+        self._full_soon = True
+        self._soon.start()
+
+    def _on_directory_changed(self, path):
+        """Dossier modifie (fichier ajoute, retire, renomme) : seul ce dossier
+        sera reparcouru, apres un court delai qui regroupe les evenements."""
+        self._changed_dirs.add(os.path.normpath(path))
+        self._soon.start()
+
+    def _scan_soon(self):
+        self._start()
+
+    def _start(self):
         if self.scanning:
             self._again = True
             return
+        incremental = not self._full_soon and self._state is not None and self._changed_dirs
+        changed = self._changed_dirs if incremental else None
+        self._changed_dirs, self._full_soon = set(), False
         self.scanning = True
         self._again = False
         self.scanStarted.emit()
-        worker = ScanWorker(self.store, self.store.folders())
+        worker = ScanWorker(self.store, self.store.folders(),
+                            previous=self._state if incremental else None, changed=changed)
         worker.signals.done.connect(self._on_done)
         self._worker = worker   # garde une reference (sinon GC)
         self.pool.start(worker)
 
-    def refresh_soon(self):
-        self._soon.start()
-
-    def _on_done(self, paths, cloud_paths, local_paths):
+    def _on_done(self, paths, cloud_paths, local_paths, state=None):
         self.scanning = False
         self._worker = None
+        if state is not None:
+            self._state = state
         self.scanned.emit(paths, cloud_paths, local_paths)
         self.update_watches()
         self._queue_hydration(cloud_paths)
-        if self._again:
-            self.refresh()
+        if self._again or self._full_soon or self._changed_dirs:
+            self._start()
 
     # ----- tomes cloud -----
     def _queue_hydration(self, cloud_paths):
@@ -124,20 +151,10 @@ class ScanController(QObject):
     def update_watches(self):
         """(Re)installe la surveillance sur chaque dossier source et ses
         sous-dossiers (QFileSystemWatcher n'est pas recursif), avec un plafond
-        pour les arborescences gigantesques."""
+        pour les arborescences gigantesques. Les dossiers viennent du dernier
+        scan : aucun parcours supplementaire du disque."""
         try:
-            dirs, seen = [], set()
-            for folder in self.store.folders():
-                if not os.path.isdir(folder):
-                    continue
-                for root, _subdirs, _files in os.walk(folder):
-                    if root not in seen:
-                        seen.add(root)
-                        dirs.append(root)
-                    if len(dirs) >= MAX_WATCHED_DIRS:
-                        break
-                if len(dirs) >= MAX_WATCHED_DIRS:
-                    break
+            dirs = list(dict.fromkeys(self._state.dirs))[:MAX_WATCHED_DIRS] if self._state else []
             current = self._watcher.directories()
             if set(dirs) == set(current):
                 return   # deja a jour (appele apres CHAQUE scan)

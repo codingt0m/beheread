@@ -204,3 +204,20 @@ def test_failed_search_is_retried_later_with_growing_delays(qtbot, store, mangas
     ctrl._run_due_retries()
     qtbot.wait(100)
     assert len(calls) == 1 + len(controllers.RETRY_DELAYS)
+
+
+def test_watched_folder_change_triggers_an_incremental_scan(qtbot, store, mangas):
+    sub = mangas / "Alpha"
+    sub.mkdir()
+    make_cbz(sub, "Alpha - Tome 1", seed=1)
+    store.set_folders([str(mangas)])
+    scanner = ScanController(store)
+    results = []
+    scanner.scanned.connect(lambda paths, cloud, _local: results.append(sorted(paths)))
+    scanner.refresh()
+    qtbot.waitUntil(lambda: len(results) == 1 and not scanner.scanning, timeout=10000)
+    assert str(sub) in scanner._watcher.directories()
+    added = make_cbz(sub, "Alpha - Tome 2", seed=2)
+    scanner._on_directory_changed(str(sub))
+    qtbot.waitUntil(lambda: len(results) == 2 and not scanner.scanning, timeout=10000)
+    assert added in results[1] and len(results[1]) == 2

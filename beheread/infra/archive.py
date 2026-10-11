@@ -21,6 +21,7 @@ fourni avec le systeme. Voir README.md pour l'installation.
 """
 
 import logging
+import os
 import re
 import threading
 import zipfile
@@ -431,15 +432,45 @@ def find_next_volume(path: str):
     return next_volume(path, siblings)
 
 
+def scan_tree(folder: str):
+    """Parcourt un dossier et ses sous-dossiers en une seule passe.
+
+    Renvoie ([(chemin, stat)] des fichiers CBZ/CBR/EPUB/PDF en tri naturel,
+    [dossiers parcourus], dossier lui-meme compris). Le stat vient de la
+    liste du dossier (gratuit sous Windows, ou FindNextFile le fournit) : ni
+    l'identification des tomes ni la detection des fichiers cloud n'ont a
+    refaire un appel systeme par fichier, et les dossiers servent tels quels
+    a la surveillance. Comme Path.rglob, les jonctions Windows sont suivies,
+    pas les liens symboliques de dossier. Un sous-dossier illisible est
+    ignore sans faire echouer le reste."""
+    root = str(Path(folder))
+    if not os.path.isdir(root):
+        return [], []
+    files, dirs, stack = [], [], [root]
+    while stack:
+        d = stack.pop()
+        dirs.append(d)
+        try:
+            with os.scandir(d) as it:
+                entries = list(it)
+        except OSError:
+            logging.warning("Dossier illisible : %s", d, exc_info=True)
+            continue
+        for entry in entries:
+            try:
+                if entry.is_dir(follow_symlinks=False):
+                    stack.append(entry.path)
+                elif (os.path.splitext(entry.name)[1].lower() in SUPPORTED_EXTS
+                      and entry.is_file()):
+                    files.append((entry.path, entry.stat()))
+            except OSError:
+                continue
+    # tri naturel des seules archives retenues (pas des images, ComicInfo.xml
+    # et sous-dossiers traverses)
+    files.sort(key=lambda f: _natural_key(f[0]))
+    return files, dirs
+
+
 def scan_folder(folder: str):
     """Liste recursivement les fichiers CBZ/CBR/EPUB/PDF d'un dossier."""
-    root = Path(folder)
-    if not root.is_dir():
-        return []
-    # On filtre AVANT de trier : le tri naturel (regex par element) ne
-    # s'applique qu'aux archives retenues, pas a tous les fichiers/dossiers
-    # traverses (images, ComicInfo.xml, sous-repertoires...).
-    matches = [p for p in root.rglob("*")
-               if p.suffix.lower() in SUPPORTED_EXTS and p.is_file()]
-    matches.sort(key=lambda x: _natural_key(str(x)))
-    return [str(p) for p in matches]
+    return [path for path, _st in scan_tree(folder)[0]]
