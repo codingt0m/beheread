@@ -258,12 +258,12 @@ def test_page_cache_stays_bounded_when_going_back_and_forth(qapp, monkeypatch):
     from beheread.ui.reader.components import _PageSignals
 
     class Loader:
-        def __init__(self, _archive, index):
+        def __init__(self, _archive, index, **_options):
             self.index, self.signals = index, _PageSignals()
 
     class Pool:
-        def start(self, loader):
-            loader.signals.loaded.emit(loader.index, QImage(1, 1, QImage.Format_RGB32))
+        def start(self, loader, _priority=0):
+            loader.signals.loaded.emit(loader.index, QImage(1, 1, QImage.Format_RGB32), None)
 
     monkeypatch.setattr(page_cache, "PageLoader", Loader)
     cache = page_cache.PageCache(None, 200)
@@ -360,3 +360,28 @@ def test_archive_is_closed_when_the_reader_cannot_start(qapp, store, mangas, mon
     else:
         raise AssertionError("l'erreur d'initialisation doit remonter")
     assert closed == [path]
+
+
+def test_pages_are_analyzed_off_the_ui_thread(window, qtbot, mangas, store):
+    """Recadrage et couleur Ambilight sont calcules par le chargeur de page
+    (hors du thread UI) et relus tels quels a l'affichage."""
+    store.set_reader_pref("double_page", False)
+    reader = _open(window, qtbot, make_cbz(mangas, "Alpha - Tome 1", pages=3))
+    qtbot.waitUntil(lambda: 0 in reader.pages.analysis, timeout=10000)
+    analysis = reader.pages.analysis[0]
+    assert reader._ambient_color_for(0) == analysis.ambient
+    assert reader._content_rect(0) == analysis.content_rect
+    assert reader.pages.pool is not reader.pool   # pool propre au lecteur
+
+
+def test_zoom_is_rendered_sharp_once_the_gesture_ends(window, qtbot, mangas, store):
+    store.set_reader_pref("double_page", False)
+    reader = _open(window, qtbot, make_cbz(mangas, "Alpha - Tome 1", pages=3))
+    reader.repaint()
+    before = dict(reader._scaled_cache)
+    reader._set_zoom(1.5)
+    reader.repaint()
+    assert reader._zooming and reader._scaled_cache == before   # apercu etire, rien de recalcule
+    qtbot.waitUntil(lambda: not reader._zooming, timeout=2000)
+    reader.repaint()
+    assert any(key not in before for key in reader._scaled_cache)

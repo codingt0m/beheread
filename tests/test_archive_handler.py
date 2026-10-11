@@ -189,3 +189,33 @@ def _reset_rarfile():
     absolu seulement)."""
     archive._rarfile = archive._rar_error = None
     archive._init_rarfile()
+
+
+def test_read_image_decodes_directly_at_the_requested_height(tmp_path, qapp):
+    """Vignettes et apercus : l'image est decodee directement reduite."""
+    from PySide6.QtCore import QBuffer, QByteArray, QIODevice
+    from PySide6.QtGui import QImage
+
+    img = QImage(400, 800, QImage.Format_RGB32)
+    img.fill(0x336699)
+    data = QByteArray()
+    buf = QBuffer(data)
+    buf.open(QIODevice.WriteOnly)
+    img.save(buf, "JPEG")
+    ar = Archive(_make_cbz(tmp_path / "big.cbz", image_bytes=bytes(data)))
+    try:
+        small = ar.read_image(0, max_height=200)
+        full = ar.read_image(0)
+    finally:
+        ar.close()
+    assert (small.width(), small.height()) == (100, 200)
+    assert (full.width(), full.height()) == (400, 800)
+
+
+def test_format_is_detected_once_per_opening(tmp_path, monkeypatch):
+    path = _make_cbz(tmp_path / "a.cbz")
+    calls = []
+    real = archive._detect_format
+    monkeypatch.setattr(archive, "_detect_format", lambda p: calls.append(p) or real(p))
+    Archive(path).close()
+    assert len(calls) == 1

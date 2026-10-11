@@ -2,6 +2,7 @@
 arriere-plan, recherche et prechauffage du tome suivant."""
 
 import logging
+from typing import NamedTuple
 
 from PySide6.QtCore import (
     QObject,
@@ -15,6 +16,13 @@ from PySide6.QtWidgets import (
 )
 
 from beheread.infra.archive import Archive, ArchiveClosedError, find_next_volume
+from beheread.ui.reader.imaging import average_color, compute_content_rect, darken
+
+
+class PageAnalysis(NamedTuple):
+    """Resultat de l'analyse d'une page, faite par PageLoader."""
+    content_rect: object   # QRect de contenu (marges rognees) ou None
+    ambient: object        # QColor de fond Ambilight (moyenne assombrie)
 
 
 class _PageSlider(QSlider):
@@ -59,26 +67,42 @@ class _PageSlider(QSlider):
 
 
 class _PageSignals(QObject):
-    loaded = Signal(int, QImage)
+    # index, image (nulle si illisible), analyse (recadrage, couleur Ambilight)
+    # ou None si non demandee
+    loaded = Signal(int, QImage, object)
 
 
 class PageLoader(QRunnable):
-    def __init__(self, archive: Archive, index: int):
+    """Decode une page hors du thread UI. `analyze` : calcule aussi, dans ce
+    thread, le rectangle de contenu (recadrage des marges) et la couleur
+    moyenne (Ambilight), trop couteux pour paintEvent. `max_height` : decodage
+    directement reduit (apercu au survol de la barre)."""
+
+    def __init__(self, archive: Archive, index: int, analyze=False, max_height=0):
         super().__init__()
         self.archive = archive
         self.index = index
+        self.analyze = analyze
+        self.max_height = max_height
         self.signals = _PageSignals()
 
     def run(self):
         try:
-            img = self.archive.read_image(self.index)
+            img = self.archive.read_image(self.index, max_height=self.max_height)
         except ArchiveClosedError:
             return   # lecteur ferme entre-temps : plus personne n'attend cette page
         except Exception:
             logging.warning("Page %d illisible dans %s",
                             self.index, self.archive.path, exc_info=True)
             img = QImage()
-        self.signals.loaded.emit(self.index, img)
+        analysis = None
+        if self.analyze and not img.isNull():
+            try:
+                analysis = PageAnalysis(compute_content_rect(img), darken(average_color(img)))
+            except Exception:
+                logging.warning("Analyse de la page %d impossible dans %s",
+                                self.index, self.archive.path, exc_info=True)
+        self.signals.loaded.emit(self.index, img, analysis)
 
 
 class _NextVolumeSignals(QObject):

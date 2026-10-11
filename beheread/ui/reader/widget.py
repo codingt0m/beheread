@@ -39,6 +39,7 @@ Un fondu enchaine rapide (~130ms) adoucit chaque changement de page.
 
 from PySide6.QtCore import (
     QPoint,
+    QRectF,
     QSize,
     Qt,
     QThreadPool,
@@ -65,6 +66,7 @@ from beheread.ui.reader.constants import (
     FIT_HEIGHT,
     FIT_WIDTH,
     SLIDER_H,
+    ZOOM_SETTLE_MS,
     normalize_fit,
 )
 from beheread.ui.reader.display import DisplayMixin
@@ -146,6 +148,12 @@ class ReaderWidget(HudMixin, EndCardMixin, DisplayMixin, InputMixin,
         self._scaled_cache = {}  # (index, w, h, crop) -> QPixmap deja mis a l'echelle
         self._scaled_order = []
         self._crop_cache = {}    # index -> QRect de contenu (recadrage marges) ou None
+        # zoom en cours : apercu etire, puis rendu net a la fin du geste
+        self._zooming = False
+        self._zoom_settle = QTimer(self)
+        self._zoom_settle.setSingleShot(True)
+        self._zoom_settle.setInterval(ZOOM_SETTLE_MS)
+        self._zoom_settle.timeout.connect(self._on_zoom_settled)
 
         # Ambilight : fond teinte par la couleur moyenne (assombrie) de la
         # page courante, avec un fondu doux d'une teinte a l'autre.
@@ -504,12 +512,18 @@ class ReaderWidget(HudMixin, EndCardMixin, DisplayMixin, InputMixin,
             # on met a l'echelle en pixels physiques (dpr) puis on indique ce
             # ratio au pixmap, sinon Qt re-etire une image deja sous-echantillonnee
             # sur les ecrans HiDPI (perte de nettete visible surtout sans zoom).
-            pm = self._scaled_pixmap(i, crop, round(w * dpr), round(h * dpr), dpr)
-            painter.drawPixmap(round(x), round(y), pm)
-            frame.append((pm, round(x), round(y)))
+            tw, th = round(w * dpr), round(h * dpr)
+            pm = self._scaled_pixmap(i, crop, tw, th, dpr)
+            if pm.width() == tw and pm.height() == th:
+                painter.drawPixmap(round(x), round(y), pm)
+                frame.append((pm, round(x), round(y)))
+            else:   # apercu pendant un zoom : etire a la taille cible
+                painter.drawPixmap(QRectF(round(x), round(y), tw / dpr, th / dpr),
+                                   pm, QRectF(pm.rect()))
             x += w
-        # memorise la frame courante pour le fondu au prochain changement de page
-        self._last_frame = frame
+        # memorise la frame courante pour le fondu au prochain changement de
+        # page (pas pendant un zoom : ses pixmaps n'ont pas la bonne taille)
+        self._last_frame = frame if len(frame) == len(items) else []
 
     def resizeEvent(self, event):
         # une page plus haute que l'ecran, calee en haut (ou en bas), le reste

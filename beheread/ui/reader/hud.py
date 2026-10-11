@@ -107,10 +107,11 @@ class HudMixin:
         if img is not None and not img.isNull():
             return self._make_preview(index, img)
         if index not in self._preview_loaders and not self.pages.is_pending(index):
-            loader = PageLoader(self.archive, index)
+            # decodage directement a la taille de l'apercu (x2 : ecrans HiDPI)
+            loader = PageLoader(self.archive, index, max_height=self.PREVIEW_H * 2)
             loader.signals.loaded.connect(self._on_preview_loaded)
             self._preview_loaders[index] = loader
-            self.pool.start(loader)
+            self.pages.start_preview(loader)
         return None
 
     def _make_preview(self, index, img):
@@ -121,7 +122,7 @@ class HudMixin:
             self._preview_cache.pop(next(iter(self._preview_cache)))
         return pm
 
-    def _on_preview_loaded(self, index, image):
+    def _on_preview_loaded(self, index, image, _analysis=None):
         self._preview_loaders.pop(index, None)
         if image.isNull():
             return

@@ -33,6 +33,9 @@ class DisplayMixin:
         aucun recadrage pertinent. Calcule une fois puis mis en cache."""
         if index in self._crop_cache:
             return self._crop_cache[index]
+        analysis = self.pages.analysis.get(index)
+        if analysis is not None:   # calcule hors du thread UI (PageLoader)
+            return analysis.content_rect
         img = self.cache.get(index)
         rect = compute_content_rect(img) if img and not img.isNull() else None
         self._crop_cache[index] = rect
@@ -101,6 +104,9 @@ class DisplayMixin:
         mise en cache. None si la page n'est pas encore decodee."""
         if index in self._ambient_cache:
             return self._ambient_cache[index]
+        analysis = self.pages.analysis.get(index)
+        if analysis is not None:   # calcule hors du thread UI (PageLoader)
+            return analysis.ambient
         img = self.cache.get(index)
         if img is None or img.isNull():
             return None
@@ -180,6 +186,13 @@ class DisplayMixin:
         pm = self._scaled_cache.get(key)
         if pm is not None:
             return pm
+        if self._zooming:
+            # zoom en cours (molette, +/-) : on reutilise la derniere mise a
+            # l'echelle de cette page, etiree par le peintre ; la mise a
+            # l'echelle de qualite est faite une fois le geste termine
+            for (i, ck, _w, _h), cached in reversed(self._scaled_cache.items()):
+                if i == index and ck == crop_key:
+                    return cached
         img = self.cache[index]
         src = img.copy(crop) if crop is not None else img
         pm = QPixmap.fromImage(src).scaled(
@@ -310,6 +323,14 @@ class DisplayMixin:
 
     def _set_zoom(self, value: float):
         self.zoom = max(0.2, min(6.0, value))
-        self._clear_scaled_cache()   # la taille cible change avec le zoom
+        # pas de mise a l'echelle de qualite a chaque cran : apercu etire
+        # pendant le geste (voir _scaled_pixmap), rendu net ZOOM_SETTLE_MS apres
+        self._zooming = True
+        self._zoom_settle.start()
         self._update_hud()
+        self.update()
+
+    def _on_zoom_settled(self):
+        self._zooming = False
+        self._clear_scaled_cache()   # la taille cible a change avec le zoom
         self.update()

@@ -15,6 +15,7 @@ def normalize_fit(value) -> int:
 PRELOAD_RADIUS = 3   # pages prechargees de chaque cote
 CACHE_LIMIT = 12     # pages decodees conservees en memoire
 SCALED_CACHE_LIMIT = 8   # pixmaps mis a l'echelle conserves (evite le rescale/frame)
+ZOOM_SETTLE_MS = 150    # fin d'un geste de zoom : rendu net apres ce delai
 
 SLIDER_H = 8
 SLIDER_SIDE_MARGIN = 20

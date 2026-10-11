@@ -83,6 +83,7 @@ class SessionMixin:
         self._forget_barely_started()
         self._persist_reading_pace()
         self._record_session()
+        self.pages.shutdown()
         self.archive.close()
         self.session_ended.emit(self.path)
 

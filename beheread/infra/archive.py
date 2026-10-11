@@ -144,17 +144,18 @@ class Archive:
     def __new__(cls, path: str):
         # un PDF est servi par PdfArchive (meme interface) : les appelants
         # continuent d'ecrire simplement Archive(chemin)
-        if cls is Archive:
-            fmt = _detect_format(path)
-            if fmt == "pdf" or (fmt == "unknown" and Path(path).suffix.lower() == ".pdf"):
-                return super().__new__(PdfArchive)
-        return super().__new__(cls)
+        fmt = _detect_format(path) if cls is Archive else None
+        if fmt == "pdf" or (fmt == "unknown" and Path(path).suffix.lower() == ".pdf"):
+            return super().__new__(PdfArchive)
+        obj = super().__new__(cls)
+        obj._format = fmt   # reutilise par __init__ : la signature n'est lue qu'une fois
+        return obj
 
     def __init__(self, path: str):
         self.path = path
         self._lock = threading.Lock()
         self.closed = False
-        fmt = _detect_format(path)
+        fmt = getattr(self, "_format", None) or _detect_format(path)
         ext = Path(path).suffix.lower()
 
         if fmt == "zip" or (fmt == "unknown" and ext in (".cbz", ".zip", ".epub")):
@@ -223,11 +224,23 @@ class Archive:
         return self.read_page(0)
 
     def read_image(self, index: int, max_height: int = 0):
-        """Page decodee (QImage, nulle si illisible). `max_height` n'est
-        qu'une indication de taille utile, exploitee par le rendu PDF ; une
-        image matricielle est toujours decodee en entier."""
-        from PySide6.QtGui import QImage
-        return QImage.fromData(self.read_page(index))
+        """Page decodee (QImage, nulle si illisible). Avec `max_height`, une
+        image plus haute est decodee directement reduite (vignette, apercu) :
+        le decodeur JPEG saute alors les details inutiles, bien plus vite
+        qu'un decodage complet suivi d'une reduction."""
+        from PySide6.QtCore import QBuffer, QByteArray, QIODevice, QSize, Qt
+        from PySide6.QtGui import QImage, QImageReader
+        data = QByteArray(self.read_page(index))
+        if not max_height:
+            return QImage.fromData(data)
+        buf = QBuffer(data)
+        buf.open(QIODevice.ReadOnly)
+        reader = QImageReader(buf)
+        size = reader.size()
+        if size.isValid() and size.height() > max_height:
+            reader.setScaledSize(size.scaled(QSize(size.width(), max_height),
+                                             Qt.KeepAspectRatio))
+        return reader.read()
 
     def read_comicinfo(self):
         """Lit et parse ComicInfo.xml (standard ComicRack) a la racine de
