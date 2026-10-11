@@ -6,6 +6,7 @@ from PySide6.QtCore import QPoint, QRect, QSize, Qt
 from PySide6.QtGui import QColor, QFont, QPainter, QPainterPath, QPen, QPixmap
 from PySide6.QtWidgets import QStyle, QStyledItemDelegate
 
+from beheread.i18n import tr
 from beheread.infra.storage import Store
 from beheread.ui import theme
 from beheread.ui.library.constants import (
@@ -97,7 +98,7 @@ def _draw_unreadable(painter, rect, c, font):
     painter.setFont(f)
     painter.setPen(color)
     painter.drawText(QRect(rect.x(), rect.center().y() - 2, rect.width(), 20),
-                     Qt.AlignHCenter | Qt.AlignTop, "Illisible")
+                     Qt.AlignHCenter | Qt.AlignTop, tr("Illisible"))
     if rect.width() >= 110:
         small = QFont(font)
         small.setPointSizeF(small.pointSizeF() * 0.85)
@@ -105,7 +106,7 @@ def _draw_unreadable(painter, rect, c, font):
         painter.setPen(QColor(c["cover_text"]))
         painter.drawText(QRect(rect.x() + 8, rect.center().y() + 20, rect.width() - 16, 36),
                          Qt.AlignHCenter | Qt.AlignTop | Qt.TextWordWrap,
-                         "Archive abîmée ou incomplète")
+                         tr("Archive abîmée ou incomplète"))
 
 
 class MangaDelegate(QStyledItemDelegate):
@@ -242,9 +243,10 @@ class MangaDelegate(QStyledItemDelegate):
         painter.setPen(QPen(dim, 2))
         painter.drawRoundedRect(book, 2, 2)
         painter.drawLine(book.x() + 5, book.center().y(), book.right() - 4, book.center().y())
-        label = f"Tome {first}" if first == last else f"Tomes {first} à {last}"
-        detail = ("Non possédé" if first == last
-                  else f"{last - first + 1} tomes non possédés")
+        label = (tr("Tome {n}", n=first) if first == last
+                 else tr("Tomes {first} à {last}", first=first, last=last))
+        detail = (tr("Non possédé") if first == last
+                  else tr("{n} tomes non possédés", n=last - first + 1))
         bold = QFont(option.font)
         bold.setBold(True)
         painter.setFont(bold)
@@ -293,7 +295,7 @@ class MangaDelegate(QStyledItemDelegate):
         warning = (not index.data(ROLE_IS_SERIES)
                    and _cover_error(self.covers, index.data(ROLE_PATH)) is not None)
         if warning:
-            prog_text = "Clic droit : voir l'erreur"
+            prog_text = tr("Clic droit : voir l'erreur")
         if prog_text:
             painter.setPen(QColor(c["warning"] if warning else c["text_dim"]))
             painter.drawText(QRect(title_rect.x(), title_rect.y() + 16,
@@ -421,7 +423,7 @@ class ListDelegate(QStyledItemDelegate):
             painter.setPen(QColor(c["text_dim"]))
             painter.drawText(r.adjusted(18 + LIST_THUMB_W, 0, -10, 0),
                              Qt.AlignVCenter | Qt.AlignLeft,
-                             f"{index.data(Qt.DisplayRole)}  ·  non possédé")
+                             f"{index.data(Qt.DisplayRole)}  ·  " + tr("non possédé"))
             painter.restore()
             return
 

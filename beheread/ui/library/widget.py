@@ -36,6 +36,7 @@ from beheread.core.library_model import (
 from beheread.core.models import LibraryEntry, VolumeInfo
 from beheread.core.search import SearchIndex, known_titles
 from beheread.core.series import clean_title, normalize_name, parse_path, volume_label
+from beheread.i18n import N_, tr
 from beheread.infra.storage import Store, is_cloud_placeholder
 from beheread.ui import keys
 from beheread.ui.help_overlay import LIBRARY_SHORTCUTS, ShortcutOverlay
@@ -194,7 +195,7 @@ class LibraryWidget(ChromeMixin, DetailPanelMixin, ActionsMixin, MenusMixin,
         self.list.itemActivated.connect(self._on_activated)
         self.list.setContextMenuPolicy(Qt.CustomContextMenu)
         self.list.customContextMenuRequested.connect(self._show_context_menu)
-        self.list.setAccessibleName("Bibliothèque")
+        self.list.setAccessibleName(tr("Bibliothèque"))
         # Suppr : limite a la liste (ne doit pas agir pendant une saisie de recherche)
         for seq in keys.delete_sequences():
             del_shortcut = QShortcut(seq, self.list, self._delete_selected)
@@ -490,17 +491,17 @@ class LibraryWidget(ChromeMixin, DetailPanelMixin, ActionsMixin, MenusMixin,
         if meta and not meta.get("not_found"):
             if meta.get("authors"):
                 author_text = ", ".join(meta["authors"])
-                extra.append("Auteur : " + author_text)
+                extra.append(tr("Auteur : {author}", author=author_text))
             if meta.get("published_year"):
-                extra.append(f"Date de sortie : {meta['published_year']}"
-                            f" (source : {meta.get('source', '?')})")
+                extra.append(tr("Date de sortie : {year} (source : {source})",
+                                year=meta["published_year"], source=meta.get("source", "?")))
         if not author_text:
             # repli sur l'auteur de la serie (recherche AniList au niveau serie)
             e = self._entry_by_path.get(path)
             if e is not None:
                 author_text = self._series_author_text(normalize_name(e.series))
                 if author_text:
-                    extra.insert(0, "Auteur : " + author_text)
+                    extra.insert(0, tr("Auteur : {author}", author=author_text))
         est = self._time_estimate_text(path)
         if est:
             extra.append(est)
@@ -525,13 +526,15 @@ class LibraryWidget(ChromeMixin, DetailPanelMixin, ActionsMixin, MenusMixin,
         remaining_pages = max(0, total - read)
         minutes = pace * remaining_pages / 60.0
         if minutes < 1:
-            label = "moins d'une minute"
+            label = tr("moins d'une minute")
         elif minutes < 60:
-            label = f"~{int(round(minutes))} min"
+            label = tr("~{minutes} min", minutes=int(round(minutes)))
         else:
-            label = f"~{int(minutes // 60)} h {int(round(minutes % 60)):02d}"
-        prefix = "Temps restant" if (prog and read > 0) else "Temps de lecture"
-        return f"{prefix} : {label}"
+            label = tr("~{hours} h {minutes:02d}", hours=int(minutes // 60),
+                       minutes=int(round(minutes % 60)))
+        if prog and read > 0:
+            return tr("Temps restant : {duration}", duration=label)
+        return tr("Temps de lecture : {duration}", duration=label)
 
     def _update_item_meta(self, path, refilter=True):
         """Met a jour l'auteur/tooltip d'un seul item deja affiche, sans
@@ -740,32 +743,35 @@ class LibraryWidget(ChromeMixin, DetailPanelMixin, ActionsMixin, MenusMixin,
             return
         if not self._entries and not self.store.folders():
             self._set_empty_state(
-                "Bienvenue dans Beheread",
-                "Ajoutez un dossier contenant vos fichiers CBZ, CBR, EPUB ou PDF pour "
-                "constituer votre bibliothèque.\nVous pouvez aussi glisser-déposer "
-                "un dossier sur cette fenêtre.",
-                "Ajouter un dossier", self._add_folder_dialog)
+                tr("Bienvenue dans Beheread"),
+                tr("Ajoutez un dossier contenant vos fichiers CBZ, CBR, EPUB ou PDF pour "
+                   "constituer votre bibliothèque.\nVous pouvez aussi glisser-déposer "
+                   "un dossier sur cette fenêtre."),
+                tr("Ajouter un dossier"), self._add_folder_dialog)
         elif not self._entries and self._scanning:
-            self._set_empty_state("Analyse de vos dossiers…",
-                                  "Vos mangas apparaîtront dans un instant.")
+            self._set_empty_state(tr("Analyse de vos dossiers…"),
+                                  tr("Vos mangas apparaîtront dans un instant."))
         elif not self._entries:
             self._set_empty_state(
-                "Aucun manga trouvé",
-                "Vos dossiers sources ne contiennent aucun fichier CBZ, CBR, EPUB ou PDF.",
-                "Gérer les dossiers", self.manage_folders)
+                tr("Aucun manga trouvé"),
+                tr("Vos dossiers sources ne contiennent aucun fichier CBZ, CBR, EPUB ou PDF."),
+                tr("Gérer les dossiers"), self.manage_folders)
         elif searching:
-            text = f"Aucun manga ne correspond à « {self._search_text.strip()} »"
+            query = self._search_text.strip()
             if self._status_filter != ALL:
-                text += f" parmi les mangas « {self._status_label()} »"
-            self._set_empty_state("Aucun résultat", text + ".",
-                                  "Effacer la recherche", self.search_edit.clear)
+                text = tr("Aucun manga ne correspond à « {query} » parmi les mangas « {status} ».",
+                          query=query, status=self._status_label())
+            else:
+                text = tr("Aucun manga ne correspond à « {query} ».", query=query)
+            self._set_empty_state(tr("Aucun résultat"), text,
+                                  tr("Effacer la recherche"), self.search_edit.clear)
         elif self._status_filter != ALL:
             self._set_empty_state(
-                f"Aucun manga « {self._status_label()} »",
-                "Aucun élément ne correspond au filtre choisi.",
-                "Afficher tous les mangas", lambda: self._set_status_filter(ALL))
+                tr("Aucun manga « {status} »", status=self._status_label()),
+                tr("Aucun élément ne correspond au filtre choisi."),
+                tr("Afficher tous les mangas"), lambda: self._set_status_filter(ALL))
         else:
-            self._set_empty_state("Aucun manga à afficher", "")
+            self._set_empty_state(tr("Aucun manga à afficher"), "")
 
 
     def resizeEvent(self, event):
@@ -839,8 +845,9 @@ class LibraryWidget(ChromeMixin, DetailPanelMixin, ActionsMixin, MenusMixin,
         sm = self.store.series_meta(key) or {}
         sub = [self._series_author(vols) or self._series_author_text(key)]
         if published:
-            source = self._SOURCE_LABELS.get(sm.get("source"), "")
-            sub.append(f"{published} tomes parus" + (f" ({source})" if source else ""))
+            source = tr(self._SOURCE_LABELS.get(sm.get("source"), ""))
+            sub.append(tr("{n} tomes parus ({source})", n=published, source=source) if source
+                       else tr("{n} tomes parus", n=published))
         self.series_band.set_content(name, " · ".join(p for p in sub if p),
                                      len(owned) or len(vols), published,
                                      describe_numbers(missing), len(missing), show_missing)
@@ -864,11 +871,12 @@ class LibraryWidget(ChromeMixin, DetailPanelMixin, ActionsMixin, MenusMixin,
 
     def _add_missing_item(self, cell, series_name):
         first, last = cell
-        label = f"Tome {first}" if first == last else f"Tomes {first} à {last}"
+        label = (tr("Tome {n}", n=first) if first == last
+                 else tr("Tomes {first} à {last}", first=first, last=last))
         item = QListWidgetItem(f"{series_name} · {label}")
         item.setData(ROLE_MISSING, cell)
         item.setFlags(Qt.ItemIsEnabled)   # ni selection, ni ouverture
-        item.setToolTip(plain(f"{series_name} · {label}\nNon possédé"))
+        item.setToolTip(plain(f"{series_name} · {label}\n" + tr("Non possédé")))
         self.list.addItem(item)
         self._row_paths.append(())
         self._row_visible.append(True)
@@ -960,11 +968,11 @@ class LibraryWidget(ChromeMixin, DetailPanelMixin, ActionsMixin, MenusMixin,
         item.setData(ROLE_FRACTION, frac)
         item.setData(ROLE_FINISHED, finished)
         if finished:
-            item.setData(ROLE_PROG_TEXT, "Série terminée")
+            item.setData(ROLE_PROG_TEXT, tr("Série terminée"))
         elif read > 0:
-            item.setData(ROLE_PROG_TEXT, f"{read}/{count} tomes lus")
+            item.setData(ROLE_PROG_TEXT, tr("{read}/{count} tomes lus", read=read, count=count))
         else:
-            item.setData(ROLE_PROG_TEXT, f"{count} tomes")
+            item.setData(ROLE_PROG_TEXT, tr("{n} tomes", n=count))
 
         # auteur : depuis le cache des tomes ; la recherche est declenchee pour
         # le tome vedette et l'item s'abonne au resultat (voir _update_item_meta)
@@ -973,9 +981,9 @@ class LibraryWidget(ChromeMixin, DetailPanelMixin, ActionsMixin, MenusMixin,
         item.setData(ROLE_AUTHOR_TEXT, author)
         self._meta_subscribers.setdefault(rotated[0].path, []).append(item)
 
-        tooltip = f"{display}  ·  {count} tomes"
+        tooltip = f"{display}  ·  " + tr("{n} tomes", n=count)
         if author:
-            tooltip += f"\nAuteur : {author}"
+            tooltip += "\n" + tr("Auteur : {author}", author=author)
         item.setToolTip(plain(tooltip))
 
         self.list.addItem(item)
@@ -1038,7 +1046,8 @@ class LibraryWidget(ChromeMixin, DetailPanelMixin, ActionsMixin, MenusMixin,
             # cotes de l'en-tete (la recherche reste centree, voir _balance_header)
             self.btn_back.setText(self.btn_back.fontMetrics().elidedText(
                 name, Qt.ElideRight, 220))
-            self.btn_back.setToolTip(plain(f"{name}\nRetour à la bibliothèque   Échap"))
+            self.btn_back.setToolTip(plain(f"{name}\n" + tr("Retour à la bibliothèque")
+                                           + "   " + keys.label(N_("Échap"))))
             self.btn_back.show()
         else:
             self.btn_back.hide()
@@ -1053,7 +1062,7 @@ class LibraryWidget(ChromeMixin, DetailPanelMixin, ActionsMixin, MenusMixin,
             item.setData(ROLE_FRACTION, min(1.0, frac))
             item.setData(ROLE_FINISHED, finished)
             if total:
-                txt = "Terminé" if finished else f"Page {page + 1} / {total}"
+                txt = tr("Terminé") if finished else tr("Page {page} / {total}", page=page + 1, total=total)
                 item.setData(ROLE_PROG_TEXT, txt)
         else:
             item.setData(ROLE_FRACTION, 0.0)
@@ -1136,10 +1145,10 @@ class LibraryWidget(ChromeMixin, DetailPanelMixin, ActionsMixin, MenusMixin,
             item.setData(ROLE_PATH, info.path)
             self._apply_progress(item, info.path)
             if kind == "next":
-                item.setData(ROLE_PROG_TEXT, "À suivre")
-                item.setToolTip(plain(f"{info.title}\nProchain tome à lire"))
+                item.setData(ROLE_PROG_TEXT, tr("À suivre"))
+                item.setToolTip(plain(f"{info.title}\n" + tr("Prochain tome à lire")))
             else:
-                item.setToolTip(plain(f"{info.title}\nReprendre la lecture"))
+                item.setToolTip(plain(f"{info.title}\n" + tr("Reprendre la lecture")))
             lst.addItem(item)
         self._shelf_has_picks = bool(picks)
         self.shelf.setVisible(self._shelf_has_picks and self._search_hits is None)

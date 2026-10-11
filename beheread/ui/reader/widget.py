@@ -56,6 +56,7 @@ from PySide6.QtWidgets import (
 from beheread.core import pairing
 from beheread.core.reading_session import SessionMeter
 from beheread.core.wheel_nav import WheelNavigator
+from beheread.i18n import tr
 from beheread.infra.archive import Archive, find_next_volume
 from beheread.infra.storage import Store
 from beheread.ui import icons, theme
@@ -196,27 +197,27 @@ class ReaderWidget(HudMixin, EndCardMixin, DisplayMixin, InputMixin,
         self._build_hud()
 
         self.back_button = QPushButton(
-            " Quitter" if self.direct_mode else " Bibliothèque", self)
+            " " + (tr("Quitter") if self.direct_mode else tr("Bibliothèque")), self)
         self.back_button.setCursor(Qt.PointingHandCursor)
         self.back_button.setIconSize(QSize(16, 16))
         self.back_button.setFocusPolicy(Qt.NoFocus)
         self.back_button.setAccessibleName(
-            "Quitter" if self.direct_mode else "Retour à la bibliothèque")
+            tr("Quitter") if self.direct_mode else tr("Retour à la bibliothèque"))
         self.back_button.adjustSize()
         self.back_button.move(14, 14)
         self.back_button.clicked.connect(self.close_reader)
 
-        self.fullscreen_button = QPushButton(" Plein écran", self)
+        self.fullscreen_button = QPushButton(" " + tr("Plein écran"), self)
         self.fullscreen_button.setCursor(Qt.PointingHandCursor)
         self.fullscreen_button.setIconSize(QSize(16, 16))
         self.fullscreen_button.setFocusPolicy(Qt.NoFocus)
-        self.fullscreen_button.setAccessibleName("Plein écran")
+        self.fullscreen_button.setAccessibleName(tr("Plein écran"))
         self.fullscreen_button.adjustSize()
         self.fullscreen_button.clicked.connect(self.fullscreen_toggled.emit)
 
         self.page_slider = _PageSlider(Qt.Horizontal, self)
         self.page_slider.setFocusPolicy(Qt.NoFocus)
-        self.page_slider.setAccessibleName("Position dans le tome")
+        self.page_slider.setAccessibleName(tr("Position dans le tome"))
         self.page_slider.setCursor(Qt.PointingHandCursor)
         self.page_slider.setMinimum(0)
         self.page_slider.setMaximum(max(0, self.total - 1))
@@ -466,12 +467,12 @@ class ReaderWidget(HudMixin, EndCardMixin, DisplayMixin, InputMixin,
             img = self.cache.get(i)
             if img is None:
                 painter.setPen(QColor(theme.colors(self.store.ui_pref("theme", "dark"))["text_dim"]))
-                painter.drawText(self.rect(), Qt.AlignCenter, "Chargement…")
+                painter.drawText(self.rect(), Qt.AlignCenter, tr("Chargement…"))
                 return
             if img.isNull():
                 painter.setPen(QColor("#d06060"))
                 painter.drawText(self.rect(), Qt.AlignCenter,
-                                 f"Page {i + 1} illisible")
+                                 tr("Page {page} illisible", page=i + 1))
                 return
 
         # recadrage partage entre les deux pages (memes marges) le cas echeant

@@ -1,8 +1,11 @@
 """Constantes du lecteur (reglages d'ajustement, cache, animations, HUD)."""
 
+from beheread.i18n import N_
+
 FIT_WIDTH, FIT_HEIGHT = 1, 2
-FIT_NAMES = {FIT_HEIGHT: "Ajuster à la hauteur",
-             FIT_WIDTH: "Ajuster à la largeur"}
+# textes a traduire a l'affichage : tr(FIT_NAMES[...])
+FIT_NAMES = {FIT_HEIGHT: N_("Ajuster à la hauteur"),
+             FIT_WIDTH: N_("Ajuster à la largeur")}
 
 
 def normalize_fit(value) -> int:

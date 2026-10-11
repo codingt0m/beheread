@@ -9,6 +9,7 @@ from pathlib import Path
 
 from beheread.core.library_model import is_started
 from beheread.core.series import parse_path
+from beheread.i18n import tr
 from beheread.infra.storage import Store
 from beheread.ui.reader.constants import TIME_MIN_SAMPLES
 
@@ -49,8 +50,8 @@ class SessionMixin:
             return ""
         minutes = pace * remaining_pages / 60.0
         if minutes < 1:
-            return "moins d'une minute restante"
-        return f"~{int(round(minutes))} min restantes"
+            return tr("moins d'une minute restante")
+        return tr("~{minutes} min restantes", minutes=int(round(minutes)))
 
     @staticmethod
     def _fmt_duration(seconds):
@@ -121,10 +122,10 @@ class SessionMixin:
         if not self.direct_mode:
             return
         self.direct_mode = False
-        self.back_button.setText(" Bibliothèque")
-        self.back_button.setAccessibleName("Retour à la bibliothèque")
+        self.back_button.setText(" " + tr("Bibliothèque"))
+        self.back_button.setAccessibleName(tr("Retour à la bibliothèque"))
         self.back_button.adjustSize()
-        self.end_lib_btn.setText("Bibliothèque")
+        self.end_lib_btn.setText(tr("Bibliothèque"))
         self._place_corner_buttons()
 
     def _persist_reading_pace(self):

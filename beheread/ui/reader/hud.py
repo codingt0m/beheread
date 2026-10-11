@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
 )
 
+from beheread.i18n import tr
 from beheread.ui.reader.components import PageLoader
 from beheread.ui.reader.constants import (
     CHROME_HIDE_MS,
@@ -37,7 +38,7 @@ class HudMixin:
     def set_fullscreen(self, on: bool):
         """Etat plein ecran de la fenetre du lecteur (voir app.ReaderWindow) :
         le bouton du coin annonce ce qu'il fera."""
-        label = "Quitter le plein écran" if on else "Plein écran"
+        label = tr("Quitter le plein écran") if on else tr("Plein écran")
         self.fullscreen_button.setText(" " + label)
         self.fullscreen_button.setAccessibleName(label)
         self.fullscreen_button.adjustSize()
@@ -181,32 +182,33 @@ class HudMixin:
         # Boutons a bascule oui/non : le libelle nomme la fonction (fixe), l'etat
         # actif se lit a l'apparence (bouton gris "enfonce"), pas au texte.
         self.chip_pagemode = chip(
-            "Double page", self.toggle_double_page,
-            "Afficher deux pages côte à côte   D")
+            tr("Double page"), self.toggle_double_page,
+            tr("Afficher deux pages côte à côte") + "   D")
         self.chip_direction = chip(
-            "Manga", self.toggle_manga_mode,
-            "Lecture de droite à gauche   M")
+            tr("Manga"), self.toggle_manga_mode,
+            tr("Lecture de droite à gauche") + "   M")
         self.chip_crop = chip(
-            "Recadrage auto", self.toggle_smart_crop,
-            "Rogner les marges du scan   R")
+            tr("Recadrage auto"), self.toggle_smart_crop,
+            tr("Rogner les marges du scan") + "   R")
         # Selecteur et action ponctuelle : pas des bascules oui/non, style
         # neutre (contour). L'ajustement se lit a son icone : double fleche
         # verticale (hauteur) ou horizontale (largeur).
         self.chip_fit = chip(
             "", self.cycle_fit_mode, "", checkable=False, name="hudSel")
         self.chip_fit.setIconSize(QSize(16, 16))
-        self.chip_fit.setAccessibleName("Ajustement")
+        self.chip_fit.setAccessibleName(tr("Ajustement"))
         self.chip_offset = chip(
-            "Décalage", self._shift_parity,
-            "Décaler l'appairage des planches   S",
+            tr("Décalage"), self._shift_parity,
+            tr("Décaler l'appairage des planches") + "   S",
             checkable=False, name="hudSel")
 
     def _update_hud(self, extra=""):
         pages = self._current_indices()
         if len(pages) == 2:
-            self.hud_pos.setText(f"Pages {pages[0] + 1}-{pages[1] + 1} / {self.total}")
+            self.hud_pos.setText(tr("Pages {first}-{last} / {total}", first=pages[0] + 1,
+                                    last=pages[1] + 1, total=self.total))
         else:
-            self.hud_pos.setText(f"Page {pages[0] + 1} / {self.total}")
+            self.hud_pos.setText(tr("Page {page} / {total}", page=pages[0] + 1, total=self.total))
 
         percent = round((pages[-1] + 1) / self.total * 100) if self.total else 0
         sub = [f"{percent}%"]
@@ -227,7 +229,8 @@ class HudMixin:
 
         # selecteur d'ajustement : l'icone montre la valeur courante
         self.chip_fit.setIcon(self._fit_icons[self.fit_mode])
-        self.chip_fit.setToolTip(FIT_NAMES[self.fit_mode] + " (cliquer pour changer)   F")
+        self.chip_fit.setToolTip(tr(FIT_NAMES[self.fit_mode]) + " " + tr("(cliquer pour changer)")
+                                 + "   F")
 
         # decalage : pertinent seulement en double page. Desactive (grise) au
         # lieu de masque, pour que la barre garde une largeur stable.

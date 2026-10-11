@@ -20,6 +20,7 @@ from PySide6.QtWidgets import (
 )
 
 from beheread.core import babelio
+from beheread.i18n import tr, trn
 from beheread.infra.storage import Store
 from beheread.ui import theme
 
@@ -51,12 +52,12 @@ class EndCardMixin:
 
         row = QHBoxLayout()
         row.setSpacing(10)
-        self.end_next_btn = QPushButton("Tome suivant", self.end_card)
+        self.end_next_btn = QPushButton(tr("Tome suivant"), self.end_card)
         self.end_next_btn.setCursor(Qt.PointingHandCursor)
         self.end_next_btn.setFocusPolicy(Qt.NoFocus)
         self.end_next_btn.clicked.connect(self._on_end_next)
         self.end_lib_btn = QPushButton(
-            "Quitter" if self.direct_mode else "Bibliothèque", self.end_card)
+            tr("Quitter") if self.direct_mode else tr("Bibliothèque"), self.end_card)
         self.end_lib_btn.setCursor(Qt.PointingHandCursor)
         self.end_lib_btn.setFocusPolicy(Qt.NoFocus)
         self.end_lib_btn.clicked.connect(self.close_reader)
@@ -66,12 +67,12 @@ class EndCardMixin:
 
         # Babelio n'a pas d'API : on ouvre sa recherche dans le navigateur, et
         # c'est l'utilisateur qui marque le tome « lu » (voir core/babelio.py)
-        self.end_babelio_btn = QPushButton("Marquer comme lu sur Babelio", self.end_card)
+        self.end_babelio_btn = QPushButton(tr("Marquer comme lu sur Babelio"), self.end_card)
         self.end_babelio_btn.setObjectName("endBabelio")
         self.end_babelio_btn.setCursor(Qt.PointingHandCursor)
         self.end_babelio_btn.setFocusPolicy(Qt.NoFocus)
         self.end_babelio_btn.setToolTip(
-            "Ouvre la recherche de ce tome sur babelio.com dans votre navigateur")
+            tr("Ouvre la recherche de ce tome sur babelio.com dans votre navigateur"))
         self.end_babelio_btn.clicked.connect(self._on_end_babelio)
         v.addWidget(self.end_babelio_btn, alignment=Qt.AlignCenter)
 
@@ -112,13 +113,14 @@ class EndCardMixin:
             self.end_cover.hide()
 
         active = self._fmt_duration(self._active_seconds())
-        parts = [f"{self.total} pages", "Tome terminé"]
+        parts = [trn(self.total, "{n} page", "{n} pages"), tr("Tome terminé")]
         if self._active_seconds() > 5:
-            parts.insert(1, f"lu en {active}")
+            parts.insert(1, tr("lu en {duration}", duration=active))
         self.end_stats.setText("  ·  ".join(parts))
 
         if self._next_volume_path:
-            self.end_next_btn.setText(f"Tome suivant : {Path(self._next_volume_path).stem}")
+            self.end_next_btn.setText(tr("Tome suivant : {title}",
+                                         title=Path(self._next_volume_path).stem))
             self.end_next_btn.show()
         else:
             self.end_next_btn.hide()

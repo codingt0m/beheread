@@ -6,6 +6,7 @@ reduite ; la molette y fait defiler horizontalement."""
 from PySide6.QtCore import QSize, Qt, Signal
 from PySide6.QtWidgets import QLabel, QListWidget, QVBoxLayout, QWidget
 
+from beheread.i18n import tr
 from beheread.ui.library.constants import GRID_GAP, ROLE_PATH
 from beheread.ui.library.delegates import MangaDelegate
 
@@ -42,12 +43,12 @@ class ContinueShelf(QWidget):
         v = QVBoxLayout(self)
         v.setContentsMargins(20, 8, 20, 2)
         v.setSpacing(4)
-        self.title = QLabel("Continuer la lecture")
+        self.title = QLabel(tr("Continuer la lecture"))
         self.title.setObjectName("shelfTitle")
         v.addWidget(self.title)
 
         self.list = _ShelfList()
-        self.list.setAccessibleName("Continuer la lecture")
+        self.list.setAccessibleName(tr("Continuer la lecture"))
         self.list.setViewMode(QListWidget.IconMode)
         self.list.setFlow(QListWidget.LeftToRight)
         self.list.setWrapping(False)

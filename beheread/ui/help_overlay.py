@@ -6,6 +6,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QFrame, QGridLayout, QHBoxLayout, QLabel, QVBoxLayout
 
 from beheread import platforms
+from beheread.i18n import N_, tr
 from beheread.ui import keys, theme
 
 # (titre de section, [(touches, description)]) ; plusieurs touches separees
@@ -13,57 +14,57 @@ from beheread.ui import keys, theme
 # ecrites a la maniere de Windows et traduites a l'affichage (voir keys.py).
 
 # raccourci global de la touche boss, la ou le systeme le permet
-_GLOBAL_BOSS = ([("Ctrl + Alt + C", "Masquer / réafficher depuis n'importe où")]
+_GLOBAL_BOSS = ([("Ctrl + Alt + C", N_("Masquer / réafficher depuis n'importe où"))]
                 if platforms.GLOBAL_HOTKEY else [])
 
 READER_SHORTCUTS = [
-    ("Navigation", [
-        ("↓ / Espace / Molette", "Page suivante (fait d'abord défiler une page plus haute que l'écran)"),
-        ("↑ / Retour arrière", "Page précédente"),
-        ("→ / ←", "Page suivante / précédente (inversé en mode manga)"),
-        ("Clic gauche / droit", "Zones gauche et droite de l'écran : tourner la page"),
-        ("Pg suiv / Pg préc", "Avancer / reculer d'une seule page"),
-        ("Début / Fin", "Première / dernière page"),
-        ("Entrée", "Tome suivant (en fin de tome)"),
-        ("Barre du bas", "Clic ou glisser : aller à une page"),
+    (N_("Navigation"), [
+        ("↓ / Espace / Molette", N_("Page suivante (fait d'abord défiler une page plus haute que l'écran)")),
+        ("↑ / Retour arrière", N_("Page précédente")),
+        ("→ / ←", N_("Page suivante / précédente (inversé en mode manga)")),
+        ("Clic gauche / droit", N_("Zones gauche et droite de l'écran : tourner la page")),
+        ("Pg suiv / Pg préc", N_("Avancer / reculer d'une seule page")),
+        ("Début / Fin", N_("Première / dernière page")),
+        ("Entrée", N_("Tome suivant (en fin de tome)")),
+        ("Barre du bas", N_("Clic ou glisser : aller à une page")),
     ]),
-    ("Affichage", [
-        ("D", "Simple page / double page"),
-        ("M", "Sens de lecture manga (droite à gauche)"),
-        ("S", "Décaler l'appairage des pages doubles"),
-        ("F", "Ajustement : hauteur / largeur"),
-        ("R", "Recadrage automatique des marges"),
-        ("A", "Ambilight"),
-        ("+ / − / 0", "Zoom avant / arrière / réinitialiser"),
-        ("Ctrl + Molette", "Zoom"),
-        ("Glisser", "Déplacer une image plus grande que l'écran"),
-        ("F11", "Plein écran"),
+    (N_("Affichage"), [
+        ("D", N_("Simple page / double page")),
+        ("M", N_("Sens de lecture manga (droite à gauche)")),
+        ("S", N_("Décaler l'appairage des pages doubles")),
+        ("F", N_("Ajustement : hauteur / largeur")),
+        ("R", N_("Recadrage automatique des marges")),
+        ("A", N_("Ambilight")),
+        ("+ / − / 0", N_("Zoom avant / arrière / réinitialiser")),
+        ("Ctrl + Molette", N_("Zoom")),
+        ("Glisser", N_("Déplacer une image plus grande que l'écran")),
+        ("F11", N_("Plein écran")),
     ]),
-    ("Général", [
-        ("Échap", "Retour à la bibliothèque"),
-        ("C", "Masquer la fenêtre"),
+    (N_("Général"), [
+        ("Échap", N_("Retour à la bibliothèque")),
+        ("C", N_("Masquer la fenêtre")),
         *_GLOBAL_BOSS,
-        ("F1 / ?", "Afficher / masquer cette aide"),
+        ("F1 / ?", N_("Afficher / masquer cette aide")),
     ]),
 ]
 
 LIBRARY_SHORTCUTS = [
-    ("Bibliothèque", [
-        ("Ctrl + F", "Rechercher"),
-        ("Entrée / Double-clic", "Ouvrir le manga ou le dossier de série"),
-        ("Échap / Retour arrière", "Sortir du dossier de série"),
-        ("Suppr", "Supprimer la sélection (avec confirmation)"),
-        ("Ctrl + Clic / Maj + Clic", "Sélection multiple"),
-        ("Clic droit", "Actions sur la sélection"),
-        ("F5", "Rafraîchir"),
-        ("Glisser-déposer", "Un dossier pour l'ajouter, un fichier pour l'ouvrir"),
+    (N_("Bibliothèque"), [
+        ("Ctrl + F", N_("Rechercher")),
+        ("Entrée / Double-clic", N_("Ouvrir le manga ou le dossier de série")),
+        ("Échap / Retour arrière", N_("Sortir du dossier de série")),
+        ("Suppr", N_("Supprimer la sélection (avec confirmation)")),
+        ("Ctrl + Clic / Maj + Clic", N_("Sélection multiple")),
+        ("Clic droit", N_("Actions sur la sélection")),
+        ("F5", N_("Rafraîchir")),
+        ("Glisser-déposer", N_("Un dossier pour l'ajouter, un fichier pour l'ouvrir")),
     ]),
-    ("Général", [
-        ("Tab", "Passer d'un bouton à l'autre dans l'en-tête"),
-        ("Ctrl + ,", "Préférences"),
-        ("F11", "Plein écran"),
+    (N_("Général"), [
+        ("Tab", N_("Passer d'un bouton à l'autre dans l'en-tête")),
+        ("Ctrl + ,", N_("Préférences")),
+        ("F11", N_("Plein écran")),
         *_GLOBAL_BOSS,
-        ("F1", "Afficher / masquer cette aide"),
+        ("F1", N_("Afficher / masquer cette aide")),
     ]),
 ]
 
@@ -76,7 +77,7 @@ def sections_layout(sections, parent, vertical=False):
     for name, rows in sections:
         col = QVBoxLayout()
         col.setSpacing(8)
-        head = QLabel(name.upper(), parent)
+        head = QLabel(tr(name).upper(), parent)
         head.setObjectName("helpSection")
         col.addWidget(head)
         grid = QGridLayout()
@@ -95,7 +96,7 @@ def sections_layout(sections, parent, vertical=False):
                 keys_row.addWidget(kl)
             keys_row.addStretch(1)
             grid.addLayout(keys_row, r, 0)
-            dl = QLabel(desc, parent)
+            dl = QLabel(tr(desc), parent)
             dl.setObjectName("helpDesc")
             dl.setWordWrap(True)
             dl.setMinimumWidth(220)
@@ -138,18 +139,18 @@ class ShortcutOverlay(QFrame):
         if take_focus:
             self.setFocusPolicy(Qt.StrongFocus)
         self.setObjectName("helpCard")
-        self.setAccessibleName("Raccourcis clavier")
+        self.setAccessibleName(tr("Raccourcis clavier"))
         root = QVBoxLayout(self)
         root.setContentsMargins(28, 22, 28, 22)
         root.setSpacing(14)
 
-        title = QLabel("Raccourcis clavier", self)
+        title = QLabel(tr("Raccourcis clavier"), self)
         title.setObjectName("helpTitle")
         root.addWidget(title)
 
         root.addLayout(sections_layout(sections, self))
 
-        foot = QLabel("Échap, F1 ou un clic pour fermer", self)
+        foot = QLabel(tr("Échap, F1 ou un clic pour fermer"), self)
         foot.setObjectName("helpFoot")
         foot.setAlignment(Qt.AlignRight)
         root.addWidget(foot)

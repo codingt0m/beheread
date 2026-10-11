@@ -20,6 +20,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from beheread.i18n import tr
 from beheread.ui import theme
 from beheread.ui.flow import FlowLayout
 from beheread.ui.safe_text import plain
@@ -87,7 +88,7 @@ class DetailPanel(QFrame):
         super().__init__(parent)
         self.setObjectName("detailPanel")
         self.setFixedWidth(PANEL_W)
-        self.setAccessibleName("Informations")
+        self.setAccessibleName(tr("Informations"))
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
 
@@ -185,8 +186,8 @@ class DetailPanel(QFrame):
         self._v.addLayout(self._actions_box)
         self._v.addStretch(1)
 
-        self.placeholder = QLabel("Sélectionnez un manga ou une série pour afficher "
-                                  "ses informations.")
+        self.placeholder = QLabel(tr("Sélectionnez un manga ou une série pour afficher "
+                                     "ses informations."))
         self.placeholder.setObjectName("detailSub")
         self.placeholder.setWordWrap(True)
         self.placeholder.setAlignment(Qt.AlignCenter)
@@ -297,7 +298,8 @@ class DetailPanel(QFrame):
         self.summary.setText(text)
         self.summary.setVisible(bool(text))
         self.summary_toggle.setVisible(long)
-        self.summary_toggle.setText("Réduire" if self._summary_open else "Lire tout le résumé")
+        self.summary_toggle.setText(tr("Réduire") if self._summary_open
+                                    else tr("Lire tout le résumé"))
 
     def set_cover(self, pm):
         if pm is None or pm.isNull():

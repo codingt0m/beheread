@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from beheread.i18n import tr, trn
 from beheread.ui import theme
 
 
@@ -45,7 +46,7 @@ class SeriesBand(QWidget):
         self.bar.setObjectName("bandBar")
         self.bar.setTextVisible(False)
         self.bar.setFixedSize(220, 8)
-        self.bar.setAccessibleName("Tomes possédés")
+        self.bar.setAccessibleName(tr("Tomes possédés"))
         top.addWidget(self.bar, 0, Qt.AlignVCenter)
         self.count = QLabel()
         self.count.setObjectName("bandCount")
@@ -63,7 +64,7 @@ class SeriesBand(QWidget):
         self.missing.setTextFormat(Qt.RichText)   # seuls des numeros (voir set_content)
         self.missing.setWordWrap(True)
         nh.addWidget(self.missing, 1)
-        self.show_missing = QCheckBox("Afficher les tomes manquants dans la grille")
+        self.show_missing = QCheckBox(tr("Afficher les tomes manquants dans la grille"))
         self.show_missing.toggled.connect(self.showMissingToggled.emit)
         nh.addWidget(self.show_missing)
         v.addWidget(self.note)
@@ -80,14 +81,16 @@ class SeriesBand(QWidget):
             self.bar.setRange(0, published)
             self.bar.setValue(min(owned, published))
             self.bar.show()
-            self.count.setText(f"<b>{owned}</b> possédé{'s' if owned > 1 else ''} sur {published}")
+            self.count.setText(trn(owned, "<b>{n}</b> possédé sur {published}",
+                                   "<b>{n}</b> possédés sur {published}", published=published))
         else:
             self.bar.hide()
-            self.count.setText(f"<b>{owned}</b> tome{'s' if owned > 1 else ''}")
+            self.count.setText(trn(owned, "<b>{n}</b> tome", "<b>{n}</b> tomes"))
         self.note.setVisible(missing_count > 0)
         if missing_count:
-            word = "tome" if missing_count == 1 else "tomes"
-            self.missing.setText(f"Il vous manque {missing_count} {word} : <b>{missing_text}</b>.")
+            self.missing.setText(trn(missing_count, "Il vous manque {n} tome : <b>{numbers}</b>.",
+                                     "Il vous manque {n} tomes : <b>{numbers}</b>.",
+                                     numbers=missing_text))
         self.show_missing.blockSignals(True)
         self.show_missing.setChecked(show_missing)
         self.show_missing.blockSignals(False)

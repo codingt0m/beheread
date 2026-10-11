@@ -14,6 +14,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QKeySequence
 
 from beheread import platforms
+from beheread.i18n import N_, tr
 
 # touche ou modificateur Windows -> equivalent Mac (clavier de portable : les
 # touches Pg suiv, Debut... s'obtiennent avec fn)
@@ -39,12 +40,28 @@ def _mac_combo(combo: str) -> str:
     return mods + key if len(key) <= 2 else f"{mods} {key}".strip()
 
 
+# noms de touches et de gestes ecrits en francais dans le code, traduits a
+# l'affichage (voir label)
+KEY_WORDS = (N_("Espace"), N_("Molette"), N_("Retour arrière"), N_("Clic gauche"),
+             N_("droit"), N_("Pg suiv"), N_("Pg préc"), N_("Début"), N_("Fin"), N_("Entrée"),
+             N_("Barre du bas"), N_("Glisser"), N_("Échap"), N_("Double-clic"), N_("Suppr"),
+             N_("Clic"), N_("Maj"), N_("Clic droit"), N_("Glisser-déposer"))
+_SEPARATORS = re.compile(r"(\s*/\s*|" + _PLUS.pattern + ")")
+
+
+def _localized(keys: str) -> str:
+    """Chaque nom de touche dans la langue de l'interface (« Espace » ->
+    « Space »), separateurs inchanges."""
+    return "".join(part if _SEPARATORS.fullmatch(part) else tr(part)
+                   for part in _SEPARATORS.split(keys) if part)
+
+
 def label(keys: str) -> str:
     """Nom des touches pour l'utilisateur ; plusieurs touches separees par
     " / " sont traduites une a une."""
     if not platforms.IS_MACOS:
-        return keys
-    return " / ".join(_mac_combo(k) for k in keys.split(" / "))
+        return _localized(keys)
+    return _localized(" / ".join(_mac_combo(k) for k in keys.split(" / ")))
 
 
 def fullscreen_sequences() -> list:
