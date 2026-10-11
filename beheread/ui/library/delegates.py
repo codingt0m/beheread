@@ -17,6 +17,7 @@ from beheread.ui.library.constants import (
     ROLE_FINISHED,
     ROLE_FRACTION,
     ROLE_IS_SERIES,
+    ROLE_MISSING,
     ROLE_PATH,
     ROLE_PROG_TEXT,
     ROLE_SERIES_COUNT,
@@ -160,6 +161,10 @@ class MangaDelegate(QStyledItemDelegate):
             self._paint_series(painter, option, index, c)
             painter.restore()
             return
+        if index.data(ROLE_MISSING):
+            self._paint_missing(painter, option, index, c)
+            painter.restore()
+            return
 
         finished = bool(index.data(ROLE_FINISHED))
         if finished:
@@ -219,6 +224,45 @@ class MangaDelegate(QStyledItemDelegate):
         self._draw_caption(painter, option, index, c, cover.bottom() + 8, r)
 
         painter.restore()
+
+    def _paint_missing(self, painter, option, index, c):
+        """Case d'un tome non possede (dossier de serie ouvert) : cadre en
+        pointilles, numero, « Non possede » ; une longue suite de tomes
+        manquants tient dans une seule case."""
+        r = option.rect
+        first, last = index.data(ROLE_MISSING)
+        cover = QRect(r.x() + (r.width() - self.thumb_w) // 2, r.y() + 10,
+                      self.thumb_w, self.thumb_h)
+        dim = QColor(c["text_dim"])
+        painter.setPen(QPen(QColor(c["text_disabled"]), 2, Qt.DashLine))
+        painter.setBrush(Qt.NoBrush)
+        painter.drawRoundedRect(cover.adjusted(1, 1, -1, -1), 6, 6)
+        # petite icone de livre barre d'un trait
+        book = QRect(cover.center().x() - 9, cover.center().y() - 44, 18, 24)
+        painter.setPen(QPen(dim, 2))
+        painter.drawRoundedRect(book, 2, 2)
+        painter.drawLine(book.x() + 5, book.center().y(), book.right() - 4, book.center().y())
+        label = f"Tome {first}" if first == last else f"Tomes {first} à {last}"
+        detail = ("Non possédé" if first == last
+                  else f"{last - first + 1} tomes non possédés")
+        bold = QFont(option.font)
+        bold.setBold(True)
+        painter.setFont(bold)
+        painter.setPen(dim)
+        painter.drawText(QRect(cover.x(), cover.center().y() - 8, cover.width(), 20),
+                         Qt.AlignHCenter | Qt.AlignTop, label)
+        small = QFont(option.font)
+        small.setPointSizeF(small.pointSizeF() * 0.85)
+        painter.setFont(small)
+        painter.drawText(QRect(cover.x() + 6, cover.center().y() + 14, cover.width() - 12, 34),
+                         Qt.AlignHCenter | Qt.AlignTop | Qt.TextWordWrap, detail)
+        title_rect = QRect(r.x() + 6, cover.bottom() + 8, r.width() - 12, 18)
+        f = QFont(option.font)
+        f.setPointSizeF(f.pointSizeF() * 0.95)
+        painter.setFont(f)
+        painter.drawText(title_rect, Qt.AlignHCenter | Qt.AlignTop,
+                         painter.fontMetrics().elidedText(index.data(Qt.DisplayRole) or "",
+                                                          Qt.ElideRight, title_rect.width()))
 
     # ----- blocs communs (tome simple / dossier de serie) -----
     @staticmethod
@@ -371,6 +415,15 @@ class ListDelegate(QStyledItemDelegate):
             painter.setPen(QPen(QColor(theme.ACCENT), 2))
             painter.setBrush(Qt.NoBrush)
             painter.drawRect(r.adjusted(1, 1, -1, -1))
+
+        if index.data(ROLE_MISSING):
+            # tome non possede (dossier de serie ouvert) : libelle estompe
+            painter.setPen(QColor(c["text_dim"]))
+            painter.drawText(r.adjusted(18 + LIST_THUMB_W, 0, -10, 0),
+                             Qt.AlignVCenter | Qt.AlignLeft,
+                             f"{index.data(Qt.DisplayRole)}  ·  non possédé")
+            painter.restore()
+            return
 
         finished = bool(index.data(ROLE_FINISHED))
         if finished:

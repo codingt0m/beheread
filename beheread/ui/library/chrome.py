@@ -283,6 +283,7 @@ class ChromeMixin:
         self._style_empty_panel(c)
         self._help.apply_colors(c)
         self.shelf.apply_colors(c, theme.ACCENT)
+        self.series_band.apply_colors(c)
         self.list.set_fade_color(c['list_bg'])
         self.detail.apply_colors(c)
         self._style_toolbar(c)

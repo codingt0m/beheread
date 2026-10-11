@@ -15,6 +15,9 @@ from beheread.core.library_model import (
     READING,
     STATUS_LABELS,
     aggregate_series_info,
+    describe_numbers,
+    missing_volumes,
+    owned_numbers,
 )
 from beheread.core.series import normalize_name
 
@@ -94,12 +97,13 @@ class DetailPanelMixin:
             size = f"{os.path.getsize(path) / 1_048_576:.1f} Mo".replace(".", ",")
         except OSError:
             size = ""
+        byline = " · ".join(p for p in (info.author, str(info.year) if info.year else "") if p)
+        subtitle = "\n".join(p for p in (subtitle, byline) if p)
         rows = [
-            ("Auteur", info.author),
-            ("Année", str(info.year) if info.year else ""),
-            ("Source", self._SOURCE_LABELS.get((meta or {}).get("source"), "")),
             ("Statut", progress),
             ("Pages", str(total) if total else ""),
+            ("Série", self._series_counts_text(info.series_key) if info.series_key else ""),
+            ("Source", self._SOURCE_LABELS.get((meta or {}).get("source"), "")),
             ("Durée", estimate.split(" : ", 1)[-1] if estimate else ""),
             ("Ajouté le", self._fmt_date(info.added)),
             ("Lu le", self._fmt_date(info.last_read)),
@@ -122,8 +126,29 @@ class DetailPanelMixin:
         ]
         if info.series_key and not e.detached:
             self._add_anilist_detail(info.series_key, path, rows, actions)
+        genres, summary = self._work_details(meta, info.series_key)
         self.detail.show_content(self._cover_for_detail(path), info.title, subtitle,
-                                 rows, actions, self._metadata_notice(e))
+                                 rows, actions, self._metadata_notice(e), genres, summary)
+
+    def _work_details(self, meta, series_key):
+        """(genres, resume) de l'oeuvre : ceux de la serie, sinon du tome."""
+        series = self.store.series_meta(series_key) if series_key else None
+        for m in (series, meta):
+            if m and not m.get("not_found") and (m.get("genres") or m.get("description")):
+                return list(m.get("genres") or []), m.get("description") or ""
+        return [], ""
+
+    def _series_counts_text(self, key):
+        """« 41 tomes parus · 38 possédés » (ou « 38 tomes possédés » si le
+        nombre de tomes parus est inconnu)."""
+        grp = self._group_entries(self._entries).get(key) or []
+        owned = len(owned_numbers(e.volume for e in grp)) or len(grp)
+        if len(grp) < 2:
+            return ""
+        published = self._series_published(key)
+        if published:
+            return f"{published} tomes parus · {owned} possédé{'s' if owned > 1 else ''}"
+        return f"{owned} tomes possédés"
 
     def _metadata_notice(self, e):
         """Avertissement du panneau quand la recherche d'auteur et d'annee de
@@ -156,9 +181,14 @@ class DetailPanelMixin:
         agg = aggregate_series_info(name, infos)
         read = sum(1 for i in infos if i.status == FINISHED)
         started = any(i.status != "unread" for i in infos)
+        author = agg.author or self._series_author(vols)
+        byline = " · ".join(p for p in (author, str(agg.year) if agg.year else "") if p)
+        owned = owned_numbers(v.volume for v in vols)
+        missing = missing_volumes(owned, self._series_published(key))
         rows = [
-            ("Auteur", agg.author or self._series_author(vols)),
-            ("Année", str(agg.year) if agg.year else ""),
+            ("Tomes", self._series_counts_text(key)),
+            ("Manquants", describe_numbers(missing)),
+            ("Lus", f"{read} sur {len(vols)}"),
             ("Statut", STATUS_LABELS[agg.status]),
             ("Ajoutée le", self._fmt_date(agg.added)),
             ("Lue le", self._fmt_date(agg.last_read)),
@@ -182,9 +212,9 @@ class DetailPanelMixin:
             ("Fusionner avec une autre série…", lambda: self._merge_series(key), False),
         ]
         self._add_anilist_detail(key, fpath, rows, actions)
-        self.detail.show_content(self._cover_for_detail(fpath), name,
-                                 f"{len(vols)} tomes  ·  {read} lu" + ("s" if read > 1 else ""),
-                                 rows, actions)
+        genres, summary = self._work_details(None, key)
+        self.detail.show_content(self._cover_for_detail(fpath), name, byline,
+                                 rows, actions, None, genres, summary)
 
     def _add_anilist_detail(self, key, path, rows, actions):
         """Ligne « AniList » et actions d'association du panneau d'informations

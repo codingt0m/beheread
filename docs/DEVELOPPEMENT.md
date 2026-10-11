@@ -119,6 +119,7 @@ beheread/
   ui/
     theme.py, icons.py, help_overlay.py
     stats_view.py        Fenêtre des statistiques (assemblage du rapport)
+    flow.py              Disposition en flux (pastilles qui passent à la ligne)
     charts.py            Composants graphiques des statistiques (tuiles, histogramme, calendrier…)
     keys.py              Raccourcis propres au système et noms des touches affichés (⌘F sous macOS)
     appicon.py           Icône de l'application re-teintée dans la couleur d'accentuation
@@ -127,6 +128,7 @@ beheread/
       controllers.py     Scan des dossiers, métadonnées, cache de couvertures (threads, signaux)
       chrome.py          En-tête, barre d'outils, bandeau de consentement, état vide, glisser-déposer
       detail_panel.py    Panneau d'informations
+      series_band.py     Bandeau d'une série ouverte : tomes possédés et manquants
       actions.py         Actions sur les tomes et séries (marquer lu, renommer, supprimer, fusionner…)
       menus.py           Menus contextuels
       services.py        Préférences, statistiques, sauvegarde, AniList

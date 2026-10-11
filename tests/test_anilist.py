@@ -248,3 +248,15 @@ def test_author_hint_picks_the_right_homonym(monkeypatch):
     assert hinted["anilist_id"] == 2 and hinted["country"] == "JP"
     # un indice qui ne designe personne (editeur, team) ne change rien
     assert anilist.search_series("Monster", author_hint=["Glénat"])["anilist_id"] == 1
+
+
+
+def test_search_series_brings_genres_summary_and_volume_count(monkeypatch):
+    media = {"id": 30002, "title": {"romaji": "Berserk"}, "synonyms": [],
+             "staff": {"nodes": []}, "startDate": {"year": 1989}, "volumes": 41,
+             "genres": ["Action", "Drama", "Horror"],
+             "description": "Guts, a mercenary.<br><br>(Source: Dark Horse)"}
+    monkeypatch.setattr(anilist.urllib.request, "urlopen", _fake_urlopen({"data": {"Media": media}}))
+    r = anilist.search_series("Berserk")
+    assert r["genres"] == ["Action", "Drame", "Horreur"]
+    assert r["description"] == "Guts, a mercenary." and r["volumes"] == 41

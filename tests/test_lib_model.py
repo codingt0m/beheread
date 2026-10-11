@@ -113,3 +113,24 @@ def test_continue_reading_limit():
     items = [info(f"T{i}", READING, last_read=i + 1) for i in range(20)]
     assert len(continue_reading(items, limit=5)) == 5
 
+
+
+# ----- tomes manquants -----
+
+def test_missing_volumes_up_to_the_last_published():
+    from beheread.core.library_model import (
+        describe_numbers,
+        missing_cells,
+        missing_volumes,
+        owned_numbers,
+    )
+    owned = owned_numbers([1, 2, 3, 4, 5, 7, 8, 9, 10, 11, 13, 14.5, None, True])
+    assert owned == {1, 2, 3, 4, 5, 7, 8, 9, 10, 11, 13}    # ni decimal, ni booleen
+    missing = missing_volumes(owned, published=20)
+    assert missing == [6, 12, 14, 15, 16, 17, 18, 19, 20]
+    assert describe_numbers(missing) == "6, 12, 14 à 20"
+    assert describe_numbers([3, 4]) == "3, 4"
+    assert missing_cells(missing) == [(6, 6), (12, 12), (14, 20)]   # longue suite regroupee
+    assert missing_volumes(owned, published=None) == [6, 12]       # parus inconnus
+    assert missing_volumes(owned, published=5) == [6, 12]          # base en retard
+    assert missing_volumes(set(), published=10) == []

@@ -87,6 +87,9 @@ def test_search_series_parses_full_response(monkeypatch):
         "authors": ["Toan"],
         "published_year": 2024,
         "country": "FR",
+        "description": "",
+        "genres": [],
+        "volumes": None,
         "match_score": 1.0,
     }
 
@@ -149,3 +152,23 @@ def test_author_hint_picks_the_right_homonym(monkeypatch):
                         lambda req, timeout=None: _Resp(json.dumps(payload).encode()))
     monkeypatch.setattr(mangadex, "_throttle", lambda: None)
     assert mangadex.search_series("Monster", author_hint=["Urasawa"])["country"] == "JP"
+
+
+
+def test_search_series_prefers_the_french_summary(monkeypatch):
+    payload = {"data": [{
+        "attributes": {
+            "title": {"en": "Vagabond"}, "altTitles": [], "year": 1998,
+            "originalLanguage": "ja", "lastVolume": "37",
+            "description": {"en": "Musashi's journey.", "fr": "Le voyage de Musashi."},
+            "tags": [{"attributes": {"group": "genre", "name": {"en": "Historical"}}},
+                     {"attributes": {"group": "theme", "name": {"en": "Samurai"}}}],
+        },
+        "relationships": [{"type": "author", "attributes": {"name": "Inoue Takehiko"}}],
+    }]}
+    monkeypatch.setattr(mangadex, "_throttle", lambda: None)
+    monkeypatch.setattr(mangadex.urllib.request, "urlopen",
+                        lambda req, timeout=None: _fake_response(payload))
+    r = mangadex.search_series("Vagabond")
+    assert r["description"] == "Le voyage de Musashi."
+    assert r["genres"] == ["Historique"] and r["volumes"] == 37

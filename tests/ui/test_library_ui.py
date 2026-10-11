@@ -236,25 +236,26 @@ def test_continue_shelf_scrolls_with_the_grid(window, qtbot, mangas, store):
     lib._rebuild_list()
     qtbot.wait(20)
     host, sb = lib.list_host, lib.list.verticalScrollBar()
-    extent = lib.shelf.height()
+    top = host.header   # en-tete qui defile avec la grille (bande comprise)
+    extent = top.height()
     assert lib.shelf.isVisible() and extent > 0 and sb.maximum() > 0
-    assert lib.shelf.y() == 0 and lib.list.y() == extent
+    assert top.y() == 0 and lib.list.y() == extent
 
     # le defilement remonte d'abord la bande (et la grille avec), sans toucher la barre
     host.set_position(extent // 2)
     assert sb.value() == 0
-    assert lib.shelf.y() == -(extent // 2) and lib.list.y() == extent - extent // 2
+    assert top.y() == -(extent // 2) and lib.list.y() == extent - extent // 2
     # puis fait defiler la grille, bande entierement sortie
     host.set_position(extent + 40)
-    assert sb.value() == 40 and lib.list.y() == 0 and lib.shelf.geometry().bottom() < 0
+    assert sb.value() == 40 and lib.list.y() == 0 and top.geometry().bottom() < 0
 
     # retour en haut par la barre (ou le clavier) : la bande reapparait
     sb.setValue(0)
-    assert lib.shelf.y() == 0 and lib.list.y() == extent
+    assert top.y() == 0 and lib.list.y() == extent
     # le tri revient en haut, bande comprise
     host.set_position(extent // 2)
     lib.sort_combo.setCurrentIndex([k for k, _ in SORTS].index("read"))
-    assert host.position() == 0 and lib.shelf.y() == 0
+    assert host.position() == 0 and top.y() == 0
 
 
 def test_folder_manager_keeps_remove_button_visible_with_long_paths(qtbot):
@@ -463,3 +464,61 @@ def test_failed_metadata_search_can_be_retried_from_the_panel(window, qtbot, man
     tries = len(calls)
     lib.detail.notice_button.click()
     qtbot.waitUntil(lambda: len(calls) > tries, timeout=10000)
+
+
+def test_open_series_shows_owned_and_missing_volumes(window, qtbot, mangas, store):
+    """Dossier de serie ouvert : bandeau « 4 possedes sur 8 », tomes
+    manquants nommes, cases « non possede » dans la grille (masquables)."""
+    from beheread.ui.library.constants import ROLE_MISSING
+
+    for n in (1, 2, 4, 5):
+        make_cbz(mangas, f"Vagabond - Tome {n}", seed=n)
+    store.set_series_meta("vagabond", {"authors": ["Takehiko Inoue"], "volumes": 8,
+                                       "source": "anilist", "cascade_version": 99})
+    store.set_folders([str(mangas)])
+    lib = window.library
+    lib.refresh()
+    scanned(qtbot, lib, 4)
+    lib._set_group_series(True)
+    lib._enter_series("vagabond")
+    band = lib.series_band
+    assert band.isVisibleTo(lib) and "4</b> possédés sur 8" in band.count.text()
+    assert "3, 6 à 8" in band.missing.text()          # « 6 à 8 » : suite courte
+    missing = [lib.list.item(i).data(ROLE_MISSING) for i in range(lib.list.count())
+               if lib.list.item(i).data(ROLE_MISSING)]
+    assert missing == [(3, 3), (6, 6), (7, 7), (8, 8)]
+    titles = visible_titles(lib)
+    assert titles.index("Vagabond · Tome 3") == titles.index("Vagabond · Tome 2") + 1
+    lib._on_activated(lib.list.item(titles.index("Vagabond · Tome 3")))   # sans effet
+    band.show_missing.setChecked(False)
+    assert not any(lib.list.item(i).data(ROLE_MISSING) for i in range(lib.list.count()))
+    lib._exit_series()
+    assert not band.isVisibleTo(lib)
+
+
+def test_detail_panel_shows_genres_and_a_folded_summary(window, qtbot, mangas, store):
+    path = make_cbz(mangas, "Berserk - Tome 1", seed=1)
+    make_cbz(mangas, "Berserk - Tome 2", seed=2)
+    summary = "Guts, mercenaire solitaire. " * 20
+    store.set_series_meta("berserk", {"authors": ["Kentaro Miura"], "published_year": 1989,
+                                      "genres": ["Action", "Drame"], "description": summary,
+                                      "volumes": 41, "source": "anilist",
+                                      "cascade_version": 99})
+    store.set_folders([str(mangas)])
+    lib = window.library
+    lib._set_details_visible(True)
+    lib.refresh()
+    scanned(qtbot, lib, 2)
+    lib.list.setCurrentItem(lib._path_to_item[path])
+    lib._update_detail()
+    panel = lib.detail
+    assert "Kentaro Miura · 1989" in panel.subtitle.text()
+    assert [panel.genres.itemAt(i).widget().text() for i in range(panel.genres.count())] == [
+        "Action", "Drame"]
+    assert panel.summary.text().endswith("…") and len(panel.summary.text()) < len(summary)
+    panel.summary_toggle.click()
+    assert panel.summary.text() == summary and panel.summary_toggle.text() == "Réduire"
+    rows = {panel.form.itemAt(i, panel.form.ItemRole.LabelRole).widget().text():
+            panel.form.itemAt(i, panel.form.ItemRole.FieldRole).widget().text()
+            for i in range(panel.form.rowCount())}
+    assert rows["Série"] == "41 tomes parus · 2 possédés"

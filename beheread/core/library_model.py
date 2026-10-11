@@ -151,3 +151,69 @@ def continue_reading(infos: Iterable[VolumeInfo], dismissed: Optional[dict] = No
 
     candidates.sort(key=lambda c: -c[0])
     return [(info, kind) for _ts, info, kind in candidates[:limit]]
+
+
+# ---------------------------------------------------------------- tomes manquants
+
+# a partir de cette longueur, une suite de tomes manquants est regroupee en
+# une seule case dans la grille (« Tomes 29 a 36 »)
+MISSING_GROUP_MIN = 4
+
+
+def owned_numbers(volumes) -> set:
+    """Numeros de tomes possedes : entiers >= 1 seulement (un chapitre
+    decimal ou un numero absent ne dit rien des tomes relies)."""
+    owned = set()
+    for n in volumes:
+        if isinstance(n, bool) or not isinstance(n, (int, float)):
+            continue
+        if float(n).is_integer() and n >= 1:
+            owned.add(int(n))
+    return owned
+
+
+def missing_volumes(owned, published=None) -> list:
+    """Tomes manquants, de 1 au dernier tome paru (s'il est connu et pas
+    depasse par un tome possede), sinon au plus grand tome possede."""
+    if not owned:
+        return []
+    last = max(owned)
+    if isinstance(published, int) and published > last:
+        last = published
+    return [n for n in range(1, last + 1) if n not in owned]
+
+
+def number_runs(numbers) -> list:
+    """Suites de numeros consecutifs : [(premier, dernier)], dans l'ordre."""
+    runs: list[tuple[int, int]] = []
+    for n in sorted(numbers):
+        if runs and n == runs[-1][1] + 1:
+            runs[-1] = (runs[-1][0], n)
+        else:
+            runs.append((n, n))
+    return runs
+
+
+def describe_numbers(numbers) -> str:
+    """« 6, 12, 29 à 36 »."""
+    parts = []
+    for first, last in number_runs(numbers):
+        if first == last:
+            parts.append(str(first))
+        elif last == first + 1:
+            parts.extend((str(first), str(last)))
+        else:
+            parts.append(f"{first} à {last}")
+    return ", ".join(parts)
+
+
+def missing_cells(missing) -> list:
+    """Cases « non possede » de la grille : [(premier, dernier)], une par
+    tome, sauf les longues suites regroupees en une seule (MISSING_GROUP_MIN)."""
+    cells = []
+    for first, last in number_runs(missing):
+        if last - first + 1 >= MISSING_GROUP_MIN:
+            cells.append((first, last))
+        else:
+            cells.extend((n, n) for n in range(first, last + 1))
+    return cells

@@ -13,14 +13,19 @@ from beheread.infra.storage import Store
 
 # modules extraits (voir chacun) : constantes de rendu, delegates, dialogues et
 # taches d'arriere-plan. LibraryWidget (ci-dessous) orchestre le tout.
-from beheread.ui.library.constants import ROLE_IS_SERIES, ROLE_PATH, ROLE_SERIES_KEY
+from beheread.ui.library.constants import (
+    ROLE_IS_SERIES,
+    ROLE_MISSING,
+    ROLE_PATH,
+    ROLE_SERIES_KEY,
+)
 
 
 class MenusMixin:
     # ----- menu contextuel (clic droit), simple ou multi-selection -----
     def _show_context_menu(self, pos):
         item = self.list.itemAt(pos)
-        if item is None:
+        if item is None or item.data(ROLE_MISSING):
             return
         # dossier de serie : pas d'action par tome (il en represente plusieurs),
         # mais on permet de supprimer la serie entiere d'un coup.

@@ -42,8 +42,9 @@ from beheread.infra.archive import Archive
 # 3 : ajout de la BnF, seuil de ressemblance AniList, pays d'origine ;
 # 4 : une correspondance MangaDex approchante cede devant un titre exact a la BnF ;
 # 5 : un resultat obtenu sans AniList (injoignable) est provisoire ;
-# 6 : l'auteur glisse dans le nom de fichier departage les homonymes.
-CASCADE_VERSION = 6
+# 6 : l'auteur glisse dans le nom de fichier departage les homonymes ;
+# 7 : genres, resume et nombre de tomes parus (AniList, MangaDex).
+CASCADE_VERSION = 7
 
 # sources dont un resultat ancien est a rafraichir (les resultats AniList
 # d'avant la version 4 ont pu etre acceptes sans ressembler au titre cherche,

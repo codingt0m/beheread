@@ -28,6 +28,7 @@ import urllib.request
 
 from beheread.core import anilist_track
 from beheread.core.series import matches_author
+from beheread.core.text import clean_description, genre_fr
 from beheread.infra import net
 from beheread.infra.mangadex import title_score
 
@@ -52,6 +53,8 @@ query ($search: String) {
       countryOfOrigin
       volumes
       chapters
+      genres
+      description(asHtml: false)
     }
   }
 }
@@ -218,6 +221,8 @@ def search_series(name: str, author_hint=None):
             "authors": authors, "published_year": year,
             "country": country, "anilist_id": media.get("id"),
             "volumes": media.get("volumes"),
+            "genres": [genre_fr(g) for g in (media.get("genres") or []) if g],
+            "description": clean_description(media.get("description")),
             "match_score": round(score, 3)}
 
 

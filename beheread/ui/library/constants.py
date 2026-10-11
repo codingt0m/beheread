@@ -34,6 +34,8 @@ ROLE_SERIES_KEY = Qt.UserRole + 8
 ROLE_SERIES_COUNT = Qt.UserRole + 9
 # Qt.UserRole + 10, + 11 : anciennes 2e et 3e couvertures de la pile
 ROLE_SERIES_PATHS = Qt.UserRole + 12   # chemins des tomes dont on empile la couverture
+# case « non possede » d'un dossier de serie ouvert : (premier, dernier) numero
+ROLE_MISSING = Qt.UserRole + 13
 
 # decalage de l'empilement des couvertures d'un dossier de serie (pixels)
 STACK_PEEK = 9

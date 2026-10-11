@@ -67,6 +67,8 @@ Les numéros de version suivent [SemVer](https://semver.org/lang/fr/). Chaque se
 
 ### Bibliothèque
 
+* **Nouveau** : le panneau d'informations montre les genres et le résumé de l'œuvre (en français quand MangaDex en a un), ainsi que le nombre de tomes parus et possédés.
+* **Nouveau** : une série ouverte indique les tomes que vous n'avez pas (« Il vous manque 3 tomes : 6, 12, 29 à 36 ») et peut les montrer à leur place dans la grille.
 * **Nouveau** : le journal de lecture s'exporte en CSV (Préférences > Données), pour Excel, LibreOffice ou Google Sheets.
 * **Nouveau** : les mots qui désignent les pages de crédits des équipes de traduction se règlent dans Préférences > Données.
 * **Nouveau** : un tome illisible (fichier incomplet ou abîmé, outil RAR manquant) est signalé sur sa vignette ; « Voir l'erreur… » dans le menu contextuel explique le problème et permet de réessayer ou de montrer le fichier.

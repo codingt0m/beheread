@@ -24,8 +24,12 @@ from beheread.core.library_model import (
     STATUS_FILTERS,
     aggregate_series_info,
     continue_reading,
+    describe_numbers,
     is_started,
     matches_status,
+    missing_cells,
+    missing_volumes,
+    owned_numbers,
     sort_key,
     volume_status,
 )
@@ -45,6 +49,7 @@ from beheread.ui.library.constants import (
     ROLE_FINISHED,
     ROLE_FRACTION,
     ROLE_IS_SERIES,
+    ROLE_MISSING,
     ROLE_PATH,
     ROLE_PROG_TEXT,
     ROLE_SERIES_COUNT,
@@ -62,6 +67,7 @@ from beheread.ui.library.delegates import ListDelegate, MangaDelegate
 from beheread.ui.library.detail import DetailPanel
 from beheread.ui.library.detail_panel import DetailPanelMixin
 from beheread.ui.library.menus import MenusMixin
+from beheread.ui.library.series_band import SeriesBand
 from beheread.ui.library.services import ServicesMixin
 from beheread.ui.library.shelf import ContinueShelf
 from beheread.ui.library.views import ScrollingHeaderHost, SmoothListWidget
@@ -172,6 +178,10 @@ class LibraryWidget(ChromeMixin, DetailPanelMixin, ActionsMixin, MenusMixin,
         self.shelf.activated.connect(self.mangaActivated.emit)
         self.shelf.contextMenuRequested.connect(self._show_shelf_menu)
         self.shelf.hide()
+        # bandeau d'un dossier de serie ouvert (tomes possedes, manquants)
+        self.series_band = SeriesBand()
+        self.series_band.showMissingToggled.connect(self._set_show_missing)
+        self.series_band.hide()
 
         self.list = SmoothListWidget()
         self.list.setSelectionMode(QListWidget.ExtendedSelection)
@@ -190,7 +200,15 @@ class LibraryWidget(ChromeMixin, DetailPanelMixin, ActionsMixin, MenusMixin,
             del_shortcut.setContext(Qt.WidgetShortcut)
         self.list.currentItemChanged.connect(lambda *_: self._update_detail())
         # la bande « Continuer » defile avec la grille au lieu de rester fixe
-        self.list_host = ScrollingHeaderHost(self.shelf, self.list)
+        # en-tete qui defile avec la grille : bandeau de serie ou bande
+        # « Continuer la lecture » (jamais les deux a la fois)
+        top = QWidget()
+        top_layout = QVBoxLayout(top)
+        top_layout.setContentsMargins(0, 0, 0, 0)
+        top_layout.setSpacing(0)
+        top_layout.addWidget(self.series_band)
+        top_layout.addWidget(self.shelf)
+        self.list_host = ScrollingHeaderHost(top, self.list)
         content.addWidget(self.list_host, 1)
 
         self.grid_delegate = MangaDelegate(self.store, self.list, covers=self.covers)
@@ -322,6 +340,8 @@ class LibraryWidget(ChromeMixin, DetailPanelMixin, ActionsMixin, MenusMixin,
                 if lst.isRowHidden(row) or not lst.visualRect(model.index(row, 0)).intersects(area):
                     continue
                 item = lst.item(row)
+                if item.data(ROLE_MISSING):
+                    continue
                 if item.data(ROLE_IS_SERIES):
                     paths = (item.data(ROLE_SERIES_PATHS) or [])[:3]
                 else:
@@ -564,6 +584,7 @@ class LibraryWidget(ChromeMixin, DetailPanelMixin, ActionsMixin, MenusMixin,
 
         self._series_display_name = self._compute_display_names(self._entries)
         self._info = {e.path: self._entry_info(e) for e in self._entries}
+        self.series_band.hide()   # remontre par _rebuild_series_contents
         self._search_index_dirty = True
 
         # la recherche ne change pas la structure de la vue : comme le filtre
@@ -683,6 +704,13 @@ class LibraryWidget(ChromeMixin, DetailPanelMixin, ActionsMixin, MenusMixin,
         hits = self._search_hits
         count = 0
         for i, paths in enumerate(self._row_paths):
+            if not paths:   # case « non possede » : seulement hors recherche
+                n = 0
+                visible = hits is None
+                if visible != self._row_visible[i]:
+                    self.list.setRowHidden(i, not visible)
+                    self._row_visible[i] = visible
+                continue
             if hits is None:
                 n = len(paths)
             elif len(paths) == 1:
@@ -789,17 +817,64 @@ class LibraryWidget(ChromeMixin, DetailPanelMixin, ActionsMixin, MenusMixin,
                 self._add_series_item(*payload)
 
     def _rebuild_series_contents(self, entries):
-        """Contenu d'un dossier de serie ouvert : ses tomes, tries par numero."""
-        grp = self._group_entries(entries).get(self._current_series)
+        """Contenu d'un dossier de serie ouvert : son bandeau (tomes possedes
+        et manquants), puis ses tomes tries par numero, les tomes manquants
+        intercales a leur place si on le demande."""
+        key = self._current_series
+        grp = self._group_entries(entries).get(key)
         if not grp:
             # la serie a disparu (fichiers retires) : on remonte au niveau racine
             self._current_series = None
             self._rebuild_series_folders(entries)
             return
+        vols = sorted(grp, key=self._volume_sort_key)
+        name = self._series_display_name.get(key, grp[0].series)
+        # seuls des tomes relies se comptent (pas des chapitres ni des cycles)
+        kinds = {e.kind for e in vols if e.volume is not None}
+        owned = owned_numbers(e.volume for e in vols) if kinds <= {"volume", "bare"} else set()
+        published = self._series_published(key)
+        missing = missing_volumes(owned, published)
+        show_missing = bool(self.store.library_pref("show_missing", True))
+        sm = self.store.series_meta(key) or {}
+        sub = [self._series_author(vols) or self._series_author_text(key)]
+        if published:
+            source = self._SOURCE_LABELS.get(sm.get("source"), "")
+            sub.append(f"{published} tomes parus" + (f" ({source})" if source else ""))
+        self.series_band.set_content(name, " · ".join(p for p in sub if p),
+                                     len(owned) or len(vols), published,
+                                     describe_numbers(missing), len(missing), show_missing)
+        self.series_band.show()
+        cells = (missing_cells(missing)
+                 if show_missing and self._status_filter == ALL else [])
         # dans une serie, l'ordre des tomes reste l'ordre de lecture (numero)
-        for e in sorted(grp, key=self._volume_sort_key):
+        for e in vols:
+            while cells and e.volume is not None and cells[0][0] < e.volume:
+                self._add_missing_item(cells.pop(0), name)
             if matches_status(self._info[e.path].status, self._status_filter):
                 self._add_item(e)
+        for cell in cells:
+            self._add_missing_item(cell, name)
+
+    def _series_published(self, key):
+        """Nombre de tomes parus de la serie (base en ligne), ou None."""
+        sm = self.store.series_meta(key)
+        volumes = (sm or {}).get("volumes") if not (sm or {}).get("not_found") else None
+        return volumes if isinstance(volumes, int) and volumes > 0 else None
+
+    def _add_missing_item(self, cell, series_name):
+        first, last = cell
+        label = f"Tome {first}" if first == last else f"Tomes {first} à {last}"
+        item = QListWidgetItem(f"{series_name} · {label}")
+        item.setData(ROLE_MISSING, cell)
+        item.setFlags(Qt.ItemIsEnabled)   # ni selection, ni ouverture
+        item.setToolTip(plain(f"{series_name} · {label}\nNon possédé"))
+        self.list.addItem(item)
+        self._row_paths.append(())
+        self._row_visible.append(True)
+
+    def _set_show_missing(self, show):
+        self.store.set_library_pref("show_missing", bool(show))
+        self._rebuild_list()
 
     def _volume_sort_key(self, e):
         return (e.volume if e.volume is not None else -1, e.title.casefold())
@@ -999,7 +1074,8 @@ class LibraryWidget(ChromeMixin, DetailPanelMixin, ActionsMixin, MenusMixin,
         if item.data(ROLE_IS_SERIES):
             self._enter_series(item.data(ROLE_SERIES_KEY))
             return
-        self.mangaActivated.emit(item.data(ROLE_PATH))
+        if item.data(ROLE_PATH):   # pas une case « non possede »
+            self.mangaActivated.emit(item.data(ROLE_PATH))
 
     def _series_paths(self, key):
         """Chemins de tous les tomes du dossier de serie `key` (memes membres

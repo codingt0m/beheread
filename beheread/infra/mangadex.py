@@ -24,6 +24,7 @@ import urllib.parse
 import urllib.request
 
 from beheread.core.series import matches_author
+from beheread.core.text import clean_description, genre_fr
 from beheread.infra import net
 
 BASE_URL = "https://api.mangadex.org/manga"
@@ -218,11 +219,21 @@ def search_series(name: str, author_hint=None):
     except (TypeError, ValueError):
         year = None
 
+    descriptions = attr.get("description") if isinstance(attr.get("description"), dict) else {}
+    genres = [genre_fr(((t.get("attributes") or {}).get("name") or {}).get("en"))
+              for t in (attr.get("tags") or [])
+              if isinstance(t, dict) and (t.get("attributes") or {}).get("group") == "genre"]
+    last_volume = str(attr.get("lastVolume") or "")
     return {
         "title": _display_title(attr, name),
         "titles": _search_titles(attr),
         "authors": _main_author(match.get("relationships")),
         "published_year": year,
         "country": _country_of(attr.get("originalLanguage")),
+        # resume en francais quand MangaDex en a un, sinon en anglais
+        "description": clean_description(descriptions.get("fr") or descriptions.get("en")),
+        "genres": [g for g in genres if g],
+        # dernier tome d'une serie terminee : nombre de tomes parus
+        "volumes": int(last_volume) if last_volume.isdigit() else None,
         "match_score": round(best_score, 3),
     }

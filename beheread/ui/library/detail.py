@@ -10,6 +10,7 @@ from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
     QFormLayout,
     QFrame,
+    QHBoxLayout,
     QLabel,
     QLayout,
     QPushButton,
@@ -20,10 +21,13 @@ from PySide6.QtWidgets import (
 )
 
 from beheread.ui import theme
+from beheread.ui.flow import FlowLayout
 from beheread.ui.safe_text import plain
 
 PANEL_W = 300
-COVER_W = 190
+COVER_W = 96
+# resume affiche replie : ses premiers caracteres, « Lire tout le resume » deplie
+SUMMARY_PREVIEW = 240
 TITLE_MAX_CHARS = 90
 
 # separateurs courants des noms de fichiers : apres eux, un espace de largeur
@@ -105,10 +109,15 @@ class DetailPanel(QFrame):
         self._v.setContentsMargins(20, 20, 20, 20)
         self._v.setSpacing(10)
 
+        # en-tete : petite couverture a gauche ; titre, auteur et annee,
+        # genres a droite
+        header = QHBoxLayout()
+        header.setSpacing(14)
         self.cover = QLabel()
-        self.cover.setAlignment(Qt.AlignCenter)
-        self._v.addWidget(self.cover)
-
+        self.cover.setAlignment(Qt.AlignTop | Qt.AlignHCenter)
+        header.addWidget(self.cover, 0, Qt.AlignTop)
+        names = QVBoxLayout()
+        names.setSpacing(6)
         # titres, auteurs... viennent de sources non fiables : jamais lus
         # comme du HTML (voir beheread/ui/safe_text.py)
         self.title = QLabel()
@@ -116,13 +125,33 @@ class DetailPanel(QFrame):
         self.title.setTextFormat(Qt.PlainText)
         self.title.setWordWrap(True)
         self.title.setTextInteractionFlags(Qt.TextSelectableByMouse)
-        self._v.addWidget(self.title)
-
+        names.addWidget(self.title)
         self.subtitle = QLabel()
         self.subtitle.setObjectName("detailSub")
         self.subtitle.setTextFormat(Qt.PlainText)
         self.subtitle.setWordWrap(True)
-        self._v.addWidget(self.subtitle)
+        names.addWidget(self.subtitle)
+        self.genres_host = QWidget()
+        self.genres = FlowLayout(self.genres_host, spacing=6)
+        names.addWidget(self.genres_host)
+        names.addStretch(1)
+        header.addLayout(names, 1)
+        self._v.addLayout(header)
+
+        # resume (base en ligne), replie par defaut
+        self.summary = QLabel()
+        self.summary.setObjectName("detailSummary")
+        self.summary.setTextFormat(Qt.PlainText)
+        self.summary.setWordWrap(True)
+        self.summary.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        self._v.addWidget(self.summary)
+        self.summary_toggle = QPushButton()
+        self.summary_toggle.setObjectName("detailLink")
+        self.summary_toggle.setCursor(Qt.PointingHandCursor)
+        self.summary_toggle.clicked.connect(self._toggle_summary)
+        self._v.addWidget(self.summary_toggle, 0, Qt.AlignLeft)
+        self._summary_full = ""
+        self._summary_open = False
 
         self.form = QFormLayout()
         self.form.setHorizontalSpacing(12)
@@ -172,6 +201,8 @@ class DetailPanel(QFrame):
     def _set_visible_content(self, visible):
         for w in (self.cover, self.title, self.subtitle):
             w.setVisible(visible)
+        self._set_genres(())
+        self._set_summary("")
         self._clear_form()
         self._clear_actions()
         self._set_notice(None)
@@ -201,11 +232,12 @@ class DetailPanel(QFrame):
                 w.deleteLater()
 
     def show_content(self, cover: QPixmap, title: str, subtitle: str, rows, actions,
-                     notice=None):
+                     notice=None, genres=(), summary=""):
         """rows : [(libelle, valeur)] (valeurs vides ignorees) ;
         actions : [(libelle, fonction, principale)] ;
         notice : (texte, libelle du bouton, fonction) d'un avertissement
-        (recherche en echec), affiche apres les informations."""
+        (recherche en echec), affiche apres les informations ;
+        genres, summary : genres et resume de l'oeuvre (base en ligne)."""
         self.placeholder.hide()
         self._set_visible_content(True)
         self.set_cover(cover)
@@ -213,6 +245,8 @@ class DetailPanel(QFrame):
         self.title.setToolTip(plain(title) if len(title) > TITLE_MAX_CHARS else "")
         self.subtitle.setText(breakable(subtitle))
         self.subtitle.setVisible(bool(subtitle))
+        self._set_genres(genres)
+        self._set_summary(summary)
         for label, value in rows:
             if not value:
                 continue
@@ -232,6 +266,38 @@ class DetailPanel(QFrame):
             b.setCursor(Qt.PointingHandCursor)
             b.clicked.connect(fn)
             self._actions_box.addWidget(b)
+
+    def _set_genres(self, genres):
+        while self.genres.count():
+            w = self.genres.takeAt(0).widget()
+            if w is not None:
+                w.deleteLater()
+        for genre in list(genres)[:6]:
+            chip = QLabel(genre)
+            chip.setObjectName("detailGenre")
+            chip.setTextFormat(Qt.PlainText)   # base en ligne : non fiable
+            self.genres.addWidget(chip)
+        self.genres_host.setVisible(bool(genres))
+
+    def _set_summary(self, text):
+        self._summary_full = text or ""
+        self._summary_open = False
+        self._show_summary()
+
+    def _toggle_summary(self):
+        self._summary_open = not self._summary_open
+        self._show_summary()
+
+    def _show_summary(self):
+        text = self._summary_full
+        long = len(text) > SUMMARY_PREVIEW
+        if long and not self._summary_open:
+            cut = text[:SUMMARY_PREVIEW].rsplit(" ", 1)[0].rstrip(" ,;:.")
+            text = cut + "…"
+        self.summary.setText(text)
+        self.summary.setVisible(bool(text))
+        self.summary_toggle.setVisible(long)
+        self.summary_toggle.setText("Réduire" if self._summary_open else "Lire tout le résumé")
 
     def set_cover(self, pm):
         if pm is None or pm.isNull():
@@ -253,6 +319,16 @@ class DetailPanel(QFrame):
             #detailSub {{ color: {c['text_dim']}; font-size: 13px; }}
             #detailKey {{ color: {c['text_dim']}; font-size: 12px; }}
             #detailVal {{ color: {c['text']}; font-size: 12px; }}
+            #detailSummary {{ color: {c['text']}; font-size: 12px; }}
+            #detailGenre {{
+                color: {c['text']}; background: {c['button']}; border-radius: 9px;
+                padding: 2px 8px; font-size: 11px;
+            }}
+            QPushButton#detailLink {{
+                color: {theme.ACCENT}; background: transparent; border: none;
+                padding: 0; font-size: 12px; text-align: left;
+            }}
+            QPushButton#detailLink:hover {{ text-decoration: underline; }}
             QPushButton#detailPrimary {{
                 color: {theme.ON_ACCENT}; background: {theme.ACCENT}; border: none;
                 border-radius: 8px; padding: 8px 14px; font-size: 13px; font-weight: 700;
