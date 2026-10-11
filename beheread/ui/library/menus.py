@@ -60,6 +60,7 @@ class MenusMixin:
         act_reload_meta = menu.addAction(
             "Recharger les métadonnées" if n == 1 else f"Recharger les métadonnées ({n})")
         act_edit = menu.addAction("Modifier les informations…") if n == 1 else None
+        act_cover = menu.addAction("Choisir la couverture…") if n == 1 else None
         act_move = menu.addAction(
             "Déplacer vers une série…" if n == 1 else f"Déplacer {n} mangas vers une série…")
         act_rename = menu.addAction("Renommer le fichier…") if n == 1 else None
@@ -111,6 +112,8 @@ class MenusMixin:
             self._reload_meta([it.data(ROLE_PATH) for it in items])
         elif act_edit is not None and chosen == act_edit:
             self._edit_volume_info(items[0].data(ROLE_PATH))
+        elif act_cover is not None and chosen == act_cover:
+            self._choose_cover(items[0].data(ROLE_PATH))
         elif chosen == act_move:
             self._move_to_series(paths)
         elif act_rename is not None and chosen == act_rename:

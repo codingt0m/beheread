@@ -42,11 +42,12 @@ class ThumbWorker(QRunnable):
     reellement affichable sur les ecrans presents - pour ne pas garder en
     memoire des couvertures 3x trop grandes sur un ecran a 100%."""
 
-    def __init__(self, manga_path: str, cache_path: Path, display_size: QSize):
+    def __init__(self, manga_path: str, cache_path: Path, display_size: QSize, cover=None):
         super().__init__()
         self.manga_path = manga_path
         self.cache_path = cache_path
         self.display_size = display_size
+        self.cover = cover or {}   # couverture choisie (Store.custom_cover)
         self.signals = _ThumbSignals()
 
     def run(self):
@@ -59,7 +60,12 @@ class ThumbWorker(QRunnable):
                     return
             ar = Archive(self.manga_path)
             try:
-                img = ar.read_image(0, max_height=THUMB_H * THUMB_SCALE)
+                page = self.cover.get("page", 0)
+                if self.cover.get("image"):
+                    img = QImage(self.cover["image"])
+                else:
+                    img = ar.read_image(page if page < len(ar) else 0,
+                                        max_height=THUMB_H * THUMB_SCALE)
                 self.signals.count.emit(self.manga_path, len(ar))
             finally:
                 ar.close()
@@ -305,6 +311,43 @@ class HydrateWorker(QRunnable):
 
 
 # ---------------------------------------------------------- appel ponctuel
+
+class _PagesSignals(QObject):
+    page = Signal(int, QImage)   # index, page reduite
+
+
+class PagesWorker(QRunnable):
+    """Pages reduites d'un tome, une a une (choix de la couverture), hors du
+    thread UI ; `cancel()` arrete le parcours (fenetre fermee)."""
+
+    def __init__(self, path: str, height: int):
+        super().__init__()
+        self.path = path
+        self.height = height
+        self.cancelled = False
+        self.signals = _PagesSignals()
+
+    def cancel(self):
+        self.cancelled = True
+
+    def run(self):
+        try:
+            ar = Archive(self.path)
+        except Exception:
+            logging.warning("Pages illisibles pour %s", self.path, exc_info=True)
+            return
+        try:
+            for i in range(len(ar)):
+                if self.cancelled:
+                    return
+                try:
+                    img = ar.read_image(i, max_height=self.height)
+                except Exception:
+                    img = QImage()
+                self.signals.page.emit(i, img)
+        finally:
+            ar.close()
+
 
 class _CallSignals(QObject):
     done = Signal(object, object)   # resultat, exception (ou None)

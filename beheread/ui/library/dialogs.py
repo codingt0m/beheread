@@ -6,7 +6,7 @@ import html
 from pathlib import Path
 
 from PySide6.QtCore import QSize, Qt, QThreadPool, QTimer, QUrl
-from PySide6.QtGui import QColor, QDesktopServices, QIcon
+from PySide6.QtGui import QColor, QDesktopServices, QIcon, QImage, QPixmap
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -21,6 +21,8 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QListWidget,
+    QListWidgetItem,
     QMessageBox,
     QPushButton,
     QScrollArea,
@@ -43,7 +45,7 @@ from beheread.ui.help_overlay import (
     sections_css,
     sections_layout,
 )
-from beheread.ui.library.workers import CallWorker, _FolderCountWorker
+from beheread.ui.library.workers import CallWorker, PagesWorker, _FolderCountWorker
 from beheread.ui.reader.constants import FIT_NAMES, normalize_fit
 from beheread.ui.safe_text import plain
 
@@ -1103,3 +1105,128 @@ class UnreadableDialog(QDialog):
     def _finish(self, choice):
         self.choice = choice
         self.done(choice)
+
+
+# ---------------------------------------------------------------- couverture
+
+class CoverDialog(QDialog):
+    """Choix de la couverture d'un tome : une de ses pages (chargees en
+    arriere-plan), ou une image de l'ordinateur. `choice` apres acceptation :
+    ("page", index) ou ("image", QImage)."""
+
+    THUMB = QSize(90, 128)
+
+    def __init__(self, title, path, current_page, colors, parent=None):
+        super().__init__(parent)
+        self.choice = None
+        self.setWindowTitle("Choisir la couverture")
+        self.setMinimumSize(660, 520)
+        self.setStyleSheet(_dialog_css(colors) + f"""
+            QListWidget {{ background: {colors['panel']}; border: 1px solid {colors['border']};
+                           border-radius: 6px; color: {colors['text_dim']}; }}
+            QListWidget::item:selected {{ background: transparent; color: {colors['text']};
+                                          border: 2px solid {theme.ACCENT}; border-radius: 4px; }}""")
+        root = QVBoxLayout(self)
+        root.setContentsMargins(22, 18, 22, 16)
+        root.setSpacing(10)
+        heading = QLabel(f"Couverture de « {title} »")
+        heading.setTextFormat(Qt.PlainText)   # nom de fichier : non fiable
+        heading.setWordWrap(True)
+        heading.setStyleSheet("font-size: 15px; font-weight: 700;")
+        root.addWidget(heading)
+        root.addWidget(self._hint("Choisissez une page du tome, ou une image de votre "
+                                  "ordinateur. Le fichier du tome n'est pas modifié."))
+        self.pages = QListWidget()
+        self.pages.setViewMode(QListWidget.IconMode)
+        self.pages.setIconSize(self.THUMB)
+        self.pages.setGridSize(QSize(self.THUMB.width() + 18, self.THUMB.height() + 30))
+        self.pages.setMovement(QListWidget.Static)
+        self.pages.setResizeMode(QListWidget.Adjust)
+        self.pages.setUniformItemSizes(True)
+        self.pages.setAccessibleName("Pages du tome")
+        self.pages.currentRowChanged.connect(self._on_page_selected)
+        self.pages.itemDoubleClicked.connect(lambda _it: self._use_page())
+        root.addWidget(self.pages, 1)
+        root.addWidget(self._hint("Faites défiler pour voir les pages suivantes."))
+        row = QHBoxLayout()
+        image = QPushButton("Image de l'ordinateur…")
+        image.clicked.connect(self._pick_image)
+        reset = QPushButton("Revenir à la première page")
+        reset.clicked.connect(self._reset)
+        cancel = QPushButton("Annuler")
+        cancel.clicked.connect(self.reject)
+        self.use = QPushButton("Utiliser cette page")
+        self.use.setObjectName("primary")
+        self.use.setDefault(True)
+        self.use.setEnabled(False)
+        self.use.clicked.connect(self._use_page)
+        row.addWidget(image)
+        row.addWidget(reset)
+        row.addStretch(1)
+        row.addWidget(cancel)
+        row.addWidget(self.use)
+        root.addLayout(row)
+
+        self._current = current_page
+        self._pool = QThreadPool(self)
+        self._pool.setMaxThreadCount(1)
+        self._loader = PagesWorker(path, self.THUMB.height() * 2)
+        self._loader.signals.page.connect(self._on_page)
+        self._pool.start(self._loader)
+
+    @staticmethod
+    def _hint(text):
+        label = QLabel(text)
+        label.setObjectName("hint")
+        label.setWordWrap(True)
+        return label
+
+    def _on_page(self, index, image):
+        item = QListWidgetItem(str(index + 1))
+        item.setTextAlignment(Qt.AlignHCenter)
+        if not image.isNull():
+            pm = QPixmap.fromImage(image).scaled(self.THUMB * self.devicePixelRatioF(),
+                                                 Qt.KeepAspectRatio, Qt.SmoothTransformation)
+            pm.setDevicePixelRatio(self.devicePixelRatioF())
+            icon = QIcon(pm)
+            icon.addPixmap(pm, QIcon.Selected)   # page choisie : bordure, sans teinte
+            item.setIcon(icon)
+        self.pages.addItem(item)
+        if index == self._current:
+            self.pages.setCurrentItem(item)
+
+    def _on_page_selected(self, row):
+        self.use.setEnabled(row >= 0)
+        self.use.setText(f"Utiliser la page {row + 1}" if row >= 0 else "Utiliser cette page")
+
+    def _use_page(self):
+        if self.pages.currentRow() >= 0:
+            self.choice = ("page", self.pages.currentRow())
+            self.accept()
+
+    def _reset(self):
+        self.choice = ("page", 0)
+        self.accept()
+
+    def _pick_image(self):
+        path, _ = QFileDialog.getOpenFileName(self, "Image de couverture", str(Path.home()),
+                                              "Images (*.jpg *.jpeg *.png *.webp *.bmp *.gif)")
+        if not path:
+            return
+        image = QImage(path)
+        if image.isNull():
+            QMessageBox.warning(self, "Image illisible",
+                                "Cette image n'a pas pu être lue. Choisissez un fichier JPEG, "
+                                "PNG ou WebP.")
+            return
+        limit = 268 * config.THUMB_SCALE * 2   # largement assez net pour une vignette
+        if image.height() > limit:
+            image = image.scaledToHeight(limit, Qt.SmoothTransformation)
+        self.choice = ("image", image)
+        self.accept()
+
+    def done(self, result):
+        self._loader.cancel()
+        self._pool.clear()
+        self._pool.waitForDone(2000)
+        super().done(result)

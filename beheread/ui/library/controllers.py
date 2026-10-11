@@ -433,7 +433,8 @@ class CoverCache(QObject):
 
     def _request(self, path):
         self._pending.add(path)
-        worker = ThumbWorker(path, self.store.thumb_path(path), self.display_size)
+        worker = ThumbWorker(path, self.store.thumb_path(path), self.display_size,
+                             self.store.custom_cover(path))
         worker.signals.done.connect(self._on_done)
         worker.signals.failed.connect(self._on_failed)
         worker.signals.count.connect(self.store.set_page_count)

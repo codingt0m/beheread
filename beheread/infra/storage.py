@@ -141,6 +141,7 @@ class Store:
         self.dir = data_dir()
         self.thumb_dir = self.dir / "thumbnails"
         self.thumb_dir.mkdir(exist_ok=True)
+        self.cover_dir = self.dir / "covers"      # images choisies comme couverture
 
         # base SQLite : un depot (table cle -> JSON) par type de donnee
         self.db = Database(self.dir / DB_NAME)
@@ -575,6 +576,11 @@ class Store:
             shared = any(v.get("k") == key for v in self._fp.values())
         if shared:
             return
+        # couverture choisie : image copiee supprimee avec le tome
+        choice = self.settings.get("covers", {}).pop(key, None)
+        if isinstance(choice, dict) and choice.get("image"):
+            (self.cover_dir / Path(choice["image"]).name).unlink(missing_ok=True)
+            self._schedule("settings")
         # cle de contenu ET eventuelle entree heritee indexee par chemin
         for name, data in (("progress", self.progress), ("added", self._added),
                            ("meta", self.meta_cache.get("volume", {}))):
@@ -1046,6 +1052,42 @@ class Store:
         except Exception:
             logging.warning("Ecriture de l'instantane de bibliotheque impossible",
                             exc_info=True)
+
+    # ------------------------------------------------------------ couverture choisie
+    # Une page du tome, ou une image de l'ordinateur copiee dans le dossier
+    # des donnees (le fichier du tome n'est jamais modifie). Indexee par
+    # empreinte de contenu, comme la progression.
+    def custom_cover(self, path: str):
+        """{"page": n} ou {"image": chemin absolu}, ou None (premiere page)."""
+        choice = self.settings.get("covers", {}).get(self.key_for(path))
+        if not isinstance(choice, dict):
+            return None
+        if isinstance(choice.get("page"), int) and choice["page"] >= 0:
+            return {"page": choice["page"]}
+        image = choice.get("image")
+        if isinstance(image, str) and (self.cover_dir / Path(image).name).is_file():
+            return {"image": str(self.cover_dir / Path(image).name)}
+        return None
+
+    def set_custom_cover(self, path: str, page=None, image=None):
+        """Retient la couverture choisie (une page, ou une QImage a copier) ;
+        sans rien, revient a la premiere page. La vignette en cache est
+        effacee : elle sera regeneree."""
+        key = self.key_for(path)
+        covers = self.settings.setdefault("covers", {})
+        old = covers.pop(key, None)
+        stored = self.cover_dir / (hashlib.sha1(key.encode("utf-8", "replace")).hexdigest() + ".jpg")
+        if image is not None:
+            self.cover_dir.mkdir(exist_ok=True)
+            if not image.save(str(stored), "JPEG", 90):
+                raise OSError(f"Image impossible a enregistrer : {stored}")
+            covers[key] = {"image": stored.name}
+        elif page:
+            covers[key] = {"page": int(page)}
+        if (image is None and isinstance(old, dict) and old.get("image")):
+            stored.unlink(missing_ok=True)
+        self.thumb_path(path).unlink(missing_ok=True)
+        self._schedule("settings")
 
     def thumb_path(self, path: str) -> Path:
         """Chemin de la vignette en cache (JPEG : ~5x plus leger et plus rapide

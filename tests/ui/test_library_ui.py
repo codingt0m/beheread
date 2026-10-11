@@ -522,3 +522,60 @@ def test_detail_panel_shows_genres_and_a_folded_summary(window, qtbot, mangas, s
             panel.form.itemAt(i, panel.form.ItemRole.FieldRole).widget().text()
             for i in range(panel.form.rowCount())}
     assert rows["Série"] == "41 tomes parus · 2 possédés"
+
+
+def test_volume_cover_can_be_another_page_or_an_image(window, qtbot, mangas, store,
+                                                      monkeypatch):
+    """« Choisir la couverture » : une page du tome (la fenetre liste les
+    pages), une image de l'ordinateur (copiee dans les donnees), ou retour
+    a la premiere page. La vignette est regeneree a chaque fois."""
+    from PySide6.QtGui import QColor, QImage
+
+    from beheread.ui.library import actions, dialogs
+
+    path = make_cbz(mangas, "Alpha - Tome 1", pages=5, seed=1)
+    store.set_folders([str(mangas)])
+    lib = window.library
+    lib.refresh()
+    scanned(qtbot, lib, 1)
+    qtbot.waitUntil(lambda: lib.covers.get(path) is not None, timeout=10000)
+
+    dlg = dialogs.CoverDialog("Alpha · Tome 1", path, 0, {**_colors()}, lib)
+    qtbot.addWidget(dlg)
+    qtbot.waitUntil(lambda: dlg.pages.count() == 5, timeout=10000)
+    dlg.pages.setCurrentRow(2)
+    assert dlg.use.text() == "Utiliser la page 3"
+    dlg._use_page()
+    assert dlg.choice == ("page", 2)
+
+    def chosen(choice):
+        class Fake:
+            def __init__(self, *_a, **_k):
+                self.choice = choice
+
+            def exec(self):
+                return dialogs.QDialog.Accepted
+        return Fake
+
+    before = lib.covers.get(path).toImage().pixel(10, 10)
+    monkeypatch.setattr(actions, "CoverDialog", chosen(("page", 2)))
+    lib._choose_cover(path)
+    assert store.custom_cover(path) == {"page": 2}
+    qtbot.waitUntil(lambda: lib.covers.get(path) is not None
+                    and lib.covers.get(path).toImage().pixel(10, 10) != before, timeout=10000)
+
+    image = QImage(60, 90, QImage.Format_RGB32)
+    image.fill(QColor("#123456"))
+    monkeypatch.setattr(actions, "CoverDialog", chosen(("image", image)))
+    lib._choose_cover(path)
+    stored = store.custom_cover(path)["image"]
+    assert (store.dir / "covers").is_dir() and stored.endswith(".jpg")
+
+    monkeypatch.setattr(actions, "CoverDialog", chosen(("page", 0)))
+    lib._choose_cover(path)
+    assert store.custom_cover(path) is None and not any((store.dir / "covers").iterdir())
+
+
+def _colors():
+    from beheread.ui import theme
+    return theme.colors("dark")
