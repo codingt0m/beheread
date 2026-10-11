@@ -92,6 +92,11 @@ class _TrackWorker(QRunnable):
             except anilist.AniListError as e:
                 res["error"] = str(e)
                 logging.warning("Suivi AniList en echec pour %s : %s", job["series_key"], e)
+            except Exception as e:
+                # reponse inattendue : echec de ce travail seulement. Sans
+                # signal `done`, le suivi resterait bloque jusqu'au redemarrage
+                res["error"] = str(e)
+                logging.exception("Suivi AniList en echec pour %s", job["series_key"])
             results.append(res)
         self.signals.done.emit(results)
 

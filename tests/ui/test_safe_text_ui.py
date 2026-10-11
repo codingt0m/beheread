@@ -59,7 +59,22 @@ def _login_dialog(qtbot, store, monkeypatch, answer):
     dlg = dialogs.AniListLoginDialog(store)
     qtbot.addWidget(dlg)
     dlg._on_token("jeton")
+    # verification du compte hors du thread UI : on attend sa reponse
+    qtbot.waitUntil(lambda: dlg._viewer_call is None)
     return asked, saved
+
+
+def test_anilist_login_failure_reason_is_never_rendered_as_html(qtbot, store, monkeypatch,
+                                                                  tmp_path):
+    """La raison d'un echec vient de l'adresse de la page locale, qu'un autre
+    site peut ouvrir avec n'importe quel texte."""
+    monkeypatch.setattr(dialogs.LocalAuthReceiver, "start", lambda self: None)
+    monkeypatch.setattr(dialogs.QDesktopServices, "openUrl", lambda url: True)
+    dlg = dialogs.AniListLoginDialog(store)
+    qtbot.addWidget(dlg)
+    dlg._on_failed(_evil(tmp_path))
+    assert "<img" in dlg.message.text()
+    assert dlg.message.sizeHint().height() < IMAGE_H
 
 
 def test_anilist_login_is_dropped_unless_the_account_is_confirmed(qtbot, store, monkeypatch):

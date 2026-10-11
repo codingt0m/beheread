@@ -9,7 +9,19 @@ Les numéros de version suivent [SemVer](https://semver.org/lang/fr/). Chaque se
 * **Corrigé** (Windows) : ouvrir un CBR téléchargé pouvait lancer un faux `unrar.exe` placé dans le même dossier. Beheread ne lance plus que les outils de décompression trouvés à leur emplacement connu, et jamais un programme du dossier du fichier ouvert.
 * **Corrigé** : un titre ou un auteur piégé (ComicInfo.xml d'une archive, base de données en ligne) pouvait être interprété comme du HTML et faire charger une image distante, ce qui pouvait exposer des informations de connexion Windows. Ces textes sont désormais toujours affichés tels quels.
 * **Corrigé** : à la connexion AniList, Beheread affiche le nom du compte et demande confirmation avant de l'enregistrer : un autre site ouvert dans le navigateur ne peut plus y substituer son propre compte.
-* Les métadonnées XML (ComicInfo.xml, BnF) sont contrôlées quel que soit leur encodage, et la publication des versions est mieux cloisonnée.
+* **Corrigé** : pendant la connexion à AniList, un autre site ouvert dans le navigateur pouvait faire afficher un message piégé par la fenêtre de connexion. Ce message est désormais toujours affiché tel quel.
+* **Corrigé** : une sauvegarde abîmée ou modifiée ne peut plus rendre la bibliothèque inutilisable : les valeurs inattendues qu'elle contient sont ignorées à l'import.
+* **Corrigé** (Windows) : sur un PC partagé, un autre compte ne peut plus intercepter les fichiers que vous ouvrez par double-clic quand Beheread est déjà lancé.
+* Les métadonnées XML (ComicInfo.xml, BnF) sont contrôlées quel que soit leur encodage, et la publication des versions est mieux cloisonnée : les dépendances de l'application sont figées et vérifiées par empreinte.
+
+### Fiabilité
+
+* **Corrigé** : une modification faite juste avant de quitter Beheread (progression, réglage) pouvait ne pas être enregistrée, ou être remplacée par une valeur plus ancienne.
+* **Corrigé** : double-cliquer un fichier pendant que Beheread était occupé pouvait lancer une seconde copie de l'application, qui écrasait une partie des réglages de la première. Beheread demande désormais de patienter.
+* **Corrigé** : la vérification du compte AniList et l'association manuelle d'une série ne figent plus l'interface pendant la requête.
+* **Corrigé** : une réponse inattendue d'une base en ligne pouvait suspendre le suivi AniList ou la recherche d'auteur jusqu'au redémarrage.
+* **Corrigé** : un tome qui n'avait pas pu s'ouvrir restait verrouillé (impossible à renommer ou supprimer) jusqu'à la fermeture de Beheread.
+* La recherche du tome suivant ne parcourt plus que le dossier du tome, et non ses sous-dossiers (lent depuis un dossier de téléchargements ou la racine d'un disque).
 
 ### Version macOS (nouveau)
 

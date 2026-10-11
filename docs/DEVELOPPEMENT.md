@@ -143,6 +143,7 @@ beheread.spec            Configuration PyInstaller (Windows et macOS)
 pyproject.toml           Configuration de ruff et de pytest
 requirements.txt         Dépendances de l'application
 requirements-dev.txt     + tests, vérification du code, construction de l'exe
+requirements-dev.lock    Les mêmes, figées avec empreintes (CI et release)
 CHANGELOG.md             Notes de version
 .github/workflows/ci.yml        Tests Windows et macOS, build et captures macOS à chaque push
 .github/workflows/release.yml   Publication d'une version (tag vX.Y.Z)

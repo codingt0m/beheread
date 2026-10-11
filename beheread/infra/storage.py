@@ -269,42 +269,45 @@ class Store:
     def _flush(self) -> bool:
         """Ecrit tout ce qui est en attente. Renvoie False si une partie n'a pas
         pu etre serialisee et reste donc en attente (nouvel essai programme)."""
-        # Le calcul des lignes modifiees (serialisation JSON) se fait SOUS le
-        # verrou, puis la base est ecrite en dehors (l'io ne bloque pas les
-        # setters). Les setters, eux, mutent les dicts sans verrou (thread UI,
-        # ScanWorker) : un json.dumps concurrent peut lever "dictionary changed
-        # size during iteration". Le depot est alors remis en attente et
-        # retente, au lieu d'etre abandonne en silence.
+        # _io_lock est pris AVANT de prelever les depots en attente : deux
+        # flush concurrents (thread de sauvegarde, flush() du thread UI)
+        # s'executent l'un apres l'autre - une serialisation ancienne ne peut
+        # plus etre ecrite apres une plus recente - et close() attend la fin
+        # d'un flush en cours au lieu d'en perdre les modifications.
+        # Le calcul des lignes modifiees (serialisation JSON) se fait sous
+        # _save_lock, puis la base est ecrite en dehors (l'io ne bloque pas les
+        # setters, qui ne prennent que _save_lock). Les setters mutent les
+        # dicts sans verrou (thread UI, ScanWorker) : un json.dumps concurrent
+        # peut lever "dictionary changed size during iteration". Le depot est
+        # alors remis en attente et retente, au lieu d'etre abandonne en silence.
         retry = False
-        with self._save_lock:
-            dirty, self._dirty = self._dirty, set()
-            changes = []
-            for name in dirty:
-                for repo_name in DIRTY_TO_REPOS[name]:
-                    repo = self._repos[repo_name]
-                    try:
-                        upserts, deletes = repo.pending_changes()
-                    except RuntimeError:
-                        logging.info("Modification concurrente de %s pendant la "
-                                     "serialisation, nouvel essai", repo.table)
-                        self._dirty.add(name)
-                        retry = True
-                        continue
-                    except Exception:
-                        logging.error("Serialisation impossible de %s, "
-                                      "sauvegarde perdue pour ce cycle", repo.table,
-                                      exc_info=True)
-                        continue
-                    if upserts or deletes:
-                        changes.append((repo, upserts, deletes))
-            if retry and self._deadline is None:
-                self._deadline = time.monotonic() + SAVE_DELAY
-        if retry:
-            self._wake.set()
-        if changes:
-            with self._io_lock:
-                if self._closed:
-                    return True
+        with self._io_lock:
+            if self._closed:
+                return True
+            with self._save_lock:
+                dirty, self._dirty = self._dirty, set()
+                changes = []
+                for name in dirty:
+                    for repo_name in DIRTY_TO_REPOS[name]:
+                        repo = self._repos[repo_name]
+                        try:
+                            upserts, deletes = repo.pending_changes()
+                        except RuntimeError:
+                            logging.info("Modification concurrente de %s pendant la "
+                                         "serialisation, nouvel essai", repo.table)
+                            self._dirty.add(name)
+                            retry = True
+                            continue
+                        except Exception:
+                            logging.error("Serialisation impossible de %s, "
+                                          "sauvegarde perdue pour ce cycle", repo.table,
+                                          exc_info=True)
+                            continue
+                        if upserts or deletes:
+                            changes.append((repo, upserts, deletes))
+                if retry and self._deadline is None:
+                    self._deadline = time.monotonic() + SAVE_DELAY
+            if changes:
                 try:
                     with self.db.transaction() as cur:
                         for repo, upserts, deletes in changes:
@@ -318,6 +321,8 @@ class Store:
                     return False
                 for repo, upserts, deletes in changes:
                     repo.mark_written(upserts, deletes)
+        if retry:
+            self._wake.set()
         return not retry
 
     def flush(self):

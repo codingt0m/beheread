@@ -430,7 +430,16 @@ def main():
         if send_to_primary(request, instance.name):
             logging.info("Beheread deja ouvert : demande transmise (%s)", request)
             return
-        logging.warning("Instance principale injoignable : lancement autonome")
+        # Le verrou est tenu par un processus VIVANT (un verrou orphelin est
+        # repris par acquire) qui est simplement occupe. Ouvrir la base ici
+        # ferait cohabiter deux copies en memoire des reglages, la derniere
+        # ecrite ecrasant l'autre ligne par ligne.
+        logging.warning("Instance principale occupee : lancement annule")
+        QMessageBox.information(
+            None, APP_NAME,
+            "Beheread est déjà ouvert mais ne répond pas pour le moment.\n\n"
+            "Patientez quelques secondes puis réessayez.")
+        return
 
     try:
         store = Store()

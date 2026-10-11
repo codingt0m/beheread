@@ -333,3 +333,30 @@ def test_end_card_opens_the_volume_on_babelio(window, qtbot, mangas, store, monk
     page = Path(opened[0].toLocalFile()).read_text(encoding="utf-8")
     assert 'action="https://www.babelio.com/recherche.php"' in page
     assert 'name="Recherche" value="alpha tome 2"' in page
+
+
+def test_archive_is_closed_when_the_reader_cannot_start(qapp, store, mangas, monkeypatch):
+    """Sans fermeture, le fichier resterait verrouille sous Windows (ni
+    renommage ni suppression depuis la bibliotheque)."""
+    from beheread.ui.reader import widget as reader_widget
+
+    path = make_cbz(mangas, "Berserk - Tome 1")
+    closed = []
+    real_close = reader_widget.Archive.close
+
+    def close(self):
+        closed.append(self.path)
+        real_close(self)
+
+    def broken_setup(self):
+        raise ValueError("preference abimee")
+
+    monkeypatch.setattr(reader_widget.Archive, "close", close)
+    monkeypatch.setattr(reader_widget.ReaderWidget, "_setup", broken_setup)
+    try:
+        reader_widget.ReaderWidget(path, store)
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("l'erreur d'initialisation doit remonter")
+    assert closed == [path]

@@ -309,3 +309,13 @@ def test_accented_names_group_whatever_their_unicode_form():
     assert nfc != nfd
     assert series_key(nfc) == series_key(nfd)
     assert normalize_name(parse_series(nfc)[0]) == normalize_name(parse_series(nfd)[0])
+
+
+def test_find_next_volume_stays_in_the_volume_folder(tmp_path):
+    """Les sous-dossiers ne sont pas parcourus : un tome ouvert depuis la
+    racine d'un disque ne declenche pas le parcours de tout le disque."""
+    (tmp_path / "Naruto Tome 1.cbz").write_bytes(b"PK\x03\x04dummy")
+    sub = tmp_path / "ailleurs"
+    sub.mkdir()
+    (sub / "Naruto Tome 2.cbz").write_bytes(b"PK\x03\x04dummy")
+    assert find_next_volume(str(tmp_path / "Naruto Tome 1.cbz")) is None

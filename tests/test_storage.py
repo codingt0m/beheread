@@ -474,3 +474,60 @@ def test_anilist_token_is_never_stored_in_clear(store):
     assert store.anilist_token() == "super-secret-token"
     store.set_anilist_login(None, None)
     assert store.anilist_token() is None
+
+
+class _SaverLateForDisk:
+    """Remplace Store._io_lock : le thread nomme « saver » est retenu avant
+    d'obtenir le verrou d'ecriture, le temps que le reste du test se deroule
+    (fenetre de concurrence reelle entre deux flush)."""
+
+    def __init__(self, lock):
+        import threading
+        self.lock = lock
+        self.waiting, self.release = threading.Event(), threading.Event()
+
+    def __enter__(self):
+        import threading
+        if threading.current_thread().name == "saver" and not self.release.is_set():
+            self.waiting.set()
+            self.release.wait(5)
+        self.lock.acquire()
+        return self
+
+    def __exit__(self, *_exc):
+        self.lock.release()
+
+
+def test_close_never_drops_a_save_in_progress(store):
+    """close() pendant une ecriture differee deja commencee : ses
+    modifications ne doivent pas etre perdues."""
+    import threading
+
+    path = "C:/absent.cbz"
+    store.set_progress(path, 7, 40, False)   # programme une ecriture
+    gate = store._io_lock = _SaverLateForDisk(store._io_lock)
+    saver = threading.Thread(target=store._flush, name="saver")
+    saver.start()
+    assert gate.waiting.wait(5)
+    store.close()
+    gate.release.set()
+    saver.join(5)
+    assert _db_row(store, "progress", store.key_for(path))["page"] == 7
+
+
+def test_concurrent_flushes_never_write_an_older_value(store):
+    """Un flush ne peut pas ecrire une valeur serialisee avant celle qu'un
+    flush plus recent vient d'ecrire (la base resterait sur l'ancienne)."""
+    import threading
+
+    path = "C:/absent.cbz"
+    store.set_progress(path, 1, 40, False)
+    gate = store._io_lock = _SaverLateForDisk(store._io_lock)
+    saver = threading.Thread(target=store._flush, name="saver")
+    saver.start()
+    assert gate.waiting.wait(5)
+    store.set_progress(path, 2, 40, False)   # valeur plus recente...
+    store.flush()                            # ...ecrite par le thread UI
+    gate.release.set()
+    saver.join(5)
+    assert _db_row(store, "progress", store.key_for(path))["page"] == 2

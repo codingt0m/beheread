@@ -16,6 +16,7 @@ valables d'un PC a l'autre pour un meme fichier, quel que soit son chemin) :
 """
 
 import json
+import math
 import os
 import time
 from pathlib import Path
@@ -28,6 +29,13 @@ VERSION = 1
 # sources, propres a chaque PC, n'en font pas partie.
 BACKUP_SETTINGS = ("series_overrides", "series_names", "volume_direction",
                    "series_direction", "added", "pages")
+
+# type attendu des valeurs de chaque reglage repris (voir Store) : une
+# sauvegarde est un fichier quelconque choisi par l'utilisateur, une valeur
+# d'un autre type casserait durablement la bibliotheque une fois enregistree
+_SETTING_TYPES = {"series_overrides": str, "series_names": str,
+                  "volume_direction": bool, "series_direction": bool,
+                  "added": (int, float), "pages": int}
 
 
 def _content_keys(d):
@@ -60,14 +68,35 @@ def is_valid(data) -> bool:
             and isinstance(data.get("progress", {}), dict))
 
 
+def _number(value):
+    """Nombre fini (int/float, hors bool), ou None."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    return value if math.isfinite(value) else None
+
+
+def _clean_progress(entry):
+    """Entree de progression importee, normalisee ; None si inexploitable."""
+    page, total = _number(entry.get("page", 0)), _number(entry.get("total", 0))
+    ts = _number(entry.get("ts", 0))
+    if page is None or total is None or ts is None or page < 0 or total < 0:
+        return None
+    return {"page": int(page), "total": int(total),
+            "finished": bool(entry.get("finished", False)), "ts": float(ts)}
+
+
 def merge_progress(local: dict, remote: dict) -> list:
     """Integre la progression importee (en place). Renvoie les empreintes
-    modifiees."""
+    modifiees. Les entrees mal formees sont ignorees."""
     changed = []
     for key, rv in _content_keys(remote).items():
+        clean = _clean_progress(rv)
+        if clean is None:
+            continue
         lv = local.get(key)
-        if lv is None or float(rv.get("ts", 0) or 0) > float(lv.get("ts", 0) or 0):
-            local[key] = dict(rv)
+        local_ts = _number(lv.get("ts", 0)) if isinstance(lv, dict) else None
+        if lv is None or clean["ts"] > (local_ts or 0):
+            local[key] = clean
             changed.append(key)
     return changed
 
@@ -92,8 +121,9 @@ def journal_sections_to_import(known: dict, remote: dict, local_device: str) -> 
 
 def merge_dismissed(local: dict, remote: dict) -> bool:
     changed = False
-    for key, ts in (remote or {}).items():
-        if isinstance(ts, (int, float)) and ts > local.get(key, 0):
+    for key, ts in (remote if isinstance(remote, dict) else {}).items():
+        ts = _number(ts)
+        if isinstance(key, str) and ts is not None and ts > (_number(local.get(key)) or 0):
             local[key] = ts
             changed = True
     return changed
@@ -102,21 +132,28 @@ def merge_dismissed(local: dict, remote: dict) -> bool:
 def merge_extras(settings: dict, meta_cache: dict, data: dict) -> int:
     """Reprend les reglages par tome/serie absents localement et les
     metadonnees manuelles (sans ecraser une saisie locale). Renvoie le nombre
-    d'elements ajoutes."""
+    d'elements ajoutes. Les valeurs d'un type inattendu sont ignorees."""
     added = 0
-    for name, values in (data.get("settings") or {}).items():
-        if name not in BACKUP_SETTINGS or not isinstance(values, dict):
+    extras = data.get("settings")
+    for name, values in (extras if isinstance(extras, dict) else {}).items():
+        if name not in _SETTING_TYPES or not isinstance(values, dict):
             continue
+        expected = _SETTING_TYPES[name]
         target = settings.setdefault(name, {})
         for k, v in values.items():
-            if k not in target:
-                target[k] = v
-                added += 1
-    for section, values in (data.get("meta_manual") or {}).items():
+            if (not isinstance(k, str) or not isinstance(v, expected)
+                    or (expected is not bool and isinstance(v, bool)) or k in target):
+                continue
+            target[k] = v
+            added += 1
+    manual = data.get("meta_manual")
+    for section, values in (manual if isinstance(manual, dict) else {}).items():
         if section not in ("volume", "series") or not isinstance(values, dict):
             continue
         target = meta_cache.setdefault(section, {})
         for k, v in values.items():
+            if not (isinstance(v, dict) and v.get("source") == "manual"):
+                continue
             cur = target.get(k)
             if not (isinstance(cur, dict) and cur.get("source") == "manual"):
                 target[k] = v

@@ -12,7 +12,9 @@
 # PyInstaller, Inno Setup) et n'ont donc qu'un acces en LECTURE au depot, sans
 # jeton conserve par le checkout. Seuls les petits jobs release et
 # release-macos, qui ne font que publier les fichiers deja construits, ont le
-# droit d'ecrire. Les actions sont epinglees par SHA (version en commentaire).
+# droit d'ecrire. Les actions sont epinglees par SHA (version en commentaire)
+# et les dependances Python figees avec leurs empreintes (requirements-dev.lock,
+# installe avec --require-hashes).
 #
 # Lancement manuel (onglet Actions > Release > Run workflow) : essai a blanc,
 # les fichiers sont joints a l'execution comme artefacts, sans creer de release.
@@ -41,10 +43,10 @@ jobs:
         with:
           python-version: '3.13'
           cache: pip
-          cache-dependency-path: requirements-dev.txt
+          cache-dependency-path: requirements-dev.lock
 
       - name: Dependances
-        run: python -m pip install -r requirements-dev.txt
+        run: python -m pip install --require-hashes -r requirements-dev.lock
 
       - name: Inno Setup
         shell: pwsh
@@ -144,10 +146,10 @@ jobs:
         with:
           python-version: '3.13'
           cache: pip
-          cache-dependency-path: requirements-dev.txt
+          cache-dependency-path: requirements-dev.lock
 
       - name: Dependances
-        run: python -m pip install -r requirements-dev.txt
+        run: python -m pip install --require-hashes -r requirements-dev.lock
 
       - name: Build (verification, tests, application, image disque)
         run: bash packaging/macos/build.sh

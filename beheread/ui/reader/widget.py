@@ -96,6 +96,17 @@ class ReaderWidget(HudMixin, EndCardMixin, DisplayMixin, InputMixin,
         self.path = path
         self._released = False   # voir release()
         self.archive = Archive(path)          # peut lever ArchiveError
+        try:
+            self._setup()
+        except BaseException:
+            # sans cela, le fichier resterait ouvert (et verrouille sous
+            # Windows : ni renommage ni suppression depuis la bibliotheque)
+            self.archive.close()
+            raise
+
+    def _setup(self):
+        """Suite de __init__, une fois l'archive ouverte."""
+        store, path = self.store, self.path
         self.total = len(self.archive)
         store.set_page_count(path, self.total)   # sert aux estimations de la bibliotheque
 

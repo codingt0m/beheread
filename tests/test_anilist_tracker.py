@@ -83,3 +83,22 @@ def test_skipped_oneshot_leaves_the_queue_with_a_reason(qapp, store):  # noqa: F
                        "title": "Long", "summary": "œuvre en plusieurs tomes : rien publié"}])
     assert "errance" not in pending
     assert "plusieurs tomes" in tracker.series_state("errance")[0]
+
+
+def test_unexpected_error_still_reports_the_batch(qapp, monkeypatch):
+    """Une reponse inattendue d'AniList ne doit pas laisser le suivi bloque :
+    le signal de fin part toujours, le travail est compte en erreur."""
+    from beheread.infra import anilist
+    from beheread.services.anilist_tracker import _TrackWorker
+
+    def broken(token, media_id):
+        raise AttributeError("'NoneType' object has no attribute 'get'")
+
+    monkeypatch.setattr(anilist, "media_entry", broken)
+    worker = _TrackWorker("jeton", [{"series_key": "errance", "name": "Errance",
+                                     "desired": {"volumes": 2}, "media_id": 5}])
+    results = []
+    worker.signals.done.connect(results.append)
+    worker.run()
+    assert len(results) == 1
+    assert results[0][0]["status"] == "error"

@@ -7,7 +7,7 @@ responsabilite pour garder chaque fichier lisible."""
 import time
 from pathlib import Path
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QThreadPool
 from PySide6.QtWidgets import (
     QApplication,
     QDialog,
@@ -25,6 +25,7 @@ from beheread.ui import theme
 # modules extraits (voir chacun) : constantes de rendu, delegates, dialogues et
 # taches d'arriere-plan. LibraryWidget (ci-dessous) orchestre le tout.
 from beheread.ui.library.dialogs import PreferencesDialog
+from beheread.ui.library.workers import CallWorker
 from beheread.ui.safe_text import plain
 from beheread.ui.stats_view import StatsDialog
 
@@ -121,16 +122,22 @@ class ServicesMixin:
             QMessageBox.warning(self, "Associer à AniList",
                                 "Reconnectez votre compte AniList dans les préférences.")
             return
+        # verification hors du thread UI : l'interface ne gele pas pendant la
+        # requete (une seconde instance, lancee pendant ce temps, attend une
+        # reponse de celle-ci)
         QApplication.setOverrideCursor(Qt.WaitCursor)
-        try:
-            media = anilist.media_entry(token, media_id)
-        except anilist.AniListError as e:
-            media, error = None, str(e)
-        else:
-            error = "Aucune œuvre manga ne porte ce numéro sur AniList."
-        finally:
-            QApplication.restoreOverrideCursor()
+        call = CallWorker(lambda: anilist.media_entry(token, media_id))
+        call.signals.done.connect(
+            lambda media, err: self._on_anilist_media(key, path, media_id, media, err))
+        self._anilist_call = call   # garde une reference (sinon GC)
+        QThreadPool.globalInstance().start(call)
+
+    def _on_anilist_media(self, key, path, media_id, media, err):
+        self._anilist_call = None
+        QApplication.restoreOverrideCursor()
         if media is None:
+            error = (str(err) if err is not None
+                     else "Aucune œuvre manga ne porte ce numéro sur AniList.")
             QMessageBox.warning(self, "Associer à AniList", plain(error))
             return
         self.tracker.associate(key, media_id, media.get("title"))

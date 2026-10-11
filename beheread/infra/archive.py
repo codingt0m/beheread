@@ -405,9 +405,17 @@ class PdfArchive(Archive):
 
 
 def find_next_volume(path: str):
-    """Tome suivant de la meme serie dans le dossier de `path`, ou None."""
+    """Tome suivant de la meme serie dans le dossier de `path`, ou None. Les
+    sous-dossiers ne sont pas parcourus : un tome ouvert depuis un dossier de
+    telechargements ou la racine d'un disque ne declenche pas le parcours de
+    toute l'arborescence."""
     from beheread.core.series import next_volume
-    return next_volume(path, scan_folder(str(Path(path).parent)))
+    try:
+        siblings = [str(p) for p in Path(path).parent.iterdir()
+                    if p.suffix.lower() in SUPPORTED_EXTS and p.is_file()]
+    except OSError:
+        return None
+    return next_volume(path, siblings)
 
 
 def scan_folder(folder: str):

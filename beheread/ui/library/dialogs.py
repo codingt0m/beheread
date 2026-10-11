@@ -42,7 +42,7 @@ from beheread.ui.help_overlay import (
     sections_css,
     sections_layout,
 )
-from beheread.ui.library.workers import _FolderCountWorker
+from beheread.ui.library.workers import CallWorker, _FolderCountWorker
 from beheread.ui.reader.constants import FIT_NAMES, normalize_fit
 from beheread.ui.safe_text import plain
 
@@ -806,6 +806,8 @@ class AniListLoginDialog(QDialog):
         v.setContentsMargins(22, 18, 22, 16)
         self.message = QLabel("Autorisez Beheread dans la page AniList qui vient de s'ouvrir "
                               "dans votre navigateur…")
+        # raison d'echec transmise par le navigateur : non fiable (voir ui/safe_text.py)
+        self.message.setTextFormat(Qt.PlainText)
         self.message.setWordWrap(True)
         v.addWidget(self.message)
         row = QHBoxLayout()
@@ -823,6 +825,8 @@ class AniListLoginDialog(QDialog):
                                           config.ANILIST_REDIRECT_PATH, self)
         self.receiver.tokenReceived.connect(self._on_token)
         self.receiver.failed.connect(self._on_failed)
+        self._viewer_call = None   # verification du compte en cours (CallWorker)
+        self._finished = False     # fenetre fermee (voir done)
         self._timeout = QTimer(self)
         self._timeout.setSingleShot(True)
         self._timeout.timeout.connect(lambda: self._on_failed("Délai dépassé."))
@@ -844,14 +848,19 @@ class AniListLoginDialog(QDialog):
     def _on_token(self, token):
         self._timeout.stop()
         self.message.setText("Vérification du compte…")
-        QApplication.setOverrideCursor(Qt.WaitCursor)
-        try:
-            user = anilist.viewer(token)
-        except anilist.AniListError as e:
-            QApplication.restoreOverrideCursor()
-            self._fail_hard(f"AniList n'a pas validé la connexion :\n{e}")
+        # requete hors du thread UI : l'interface ne gele pas pendant l'attente
+        self._viewer_call = CallWorker(lambda: anilist.viewer(token))
+        self._viewer_call.signals.done.connect(
+            lambda user, err: self._on_viewer(token, user, err))
+        QThreadPool.globalInstance().start(self._viewer_call)
+
+    def _on_viewer(self, token, user, err):
+        self._viewer_call = None
+        if self._finished:
+            return   # fenetre fermee pendant la verification
+        if err is not None:
+            self._fail_hard(f"AniList n'a pas validé la connexion :\n{err}")
             return
-        QApplication.restoreOverrideCursor()
         # confirmation explicite du compte : pendant l'attente, n'importe quel
         # site ouvert dans le navigateur peut ouvrir la page locale avec SON
         # jeton (la page le transmet alors elle-meme, avec la bonne origine) ;
@@ -880,6 +889,7 @@ class AniListLoginDialog(QDialog):
         self.reopen.hide()
 
     def done(self, result):
+        self._finished = True
         self.receiver.stop()
         self._timeout.stop()
         super().done(result)

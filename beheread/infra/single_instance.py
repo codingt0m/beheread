@@ -20,28 +20,59 @@ import getpass
 import hashlib
 import json
 import logging
+import re
+import secrets
 import time
+from pathlib import Path
 
 from PySide6.QtCore import QLockFile, QObject, Signal
 from PySide6.QtNetwork import QLocalServer, QLocalSocket
 
 from beheread import platforms
 
+NAME_FILE = "instance.name"
+_NAME = re.compile(r"beheread-[0-9a-f]{24}")
 CONNECT_TIMEOUT_MS = 500
 CONNECT_ATTEMPTS = 6        # ~3 s : l'instance principale peut etre en plein demarrage
 ACK_TIMEOUT_MS = 3000
 ACK = b"ok\n"              # accuse de reception renvoye par l'instance principale
 
 
-def default_server_name() -> str:
-    """Nom du canal, propre a l'utilisateur Windows (deux sessions sur la
-    meme machine ne doivent pas se parler)."""
+def default_server_name(folder=None) -> str:
+    """Nom du canal : aleatoire, tire au premier lancement et range dans le
+    dossier de donnees de l'utilisateur (`folder`), lisible de lui seul. Un
+    nom calculable (empreinte du nom d'utilisateur) permettait a un autre
+    compte de la machine de creer le canal avant Beheread : les pipes nommes
+    de Windows sont globaux, et il aurait recu les chemins des fichiers ouverts
+    (et pu repondre « ok » a leur place)."""
+    if folder is None:
+        from beheread.infra.storage import data_dir
+        folder = data_dir()
+    path = Path(folder) / NAME_FILE
+    for _attempt in range(2):
+        try:
+            name = path.read_text(encoding="ascii").strip()
+        except (OSError, ValueError):
+            name = ""
+        if _NAME.fullmatch(name):
+            return name
+        name = "beheread-" + secrets.token_hex(12)
+        try:
+            # creation exclusive : deux premiers lancements simultanes
+            # finissent par lire le meme nom
+            with open(path, "x", encoding="ascii") as f:
+                f.write(name)
+            return name
+        except FileExistsError:
+            continue   # ecrit entre-temps par l'autre lancement : on le relit
+        except OSError:
+            break
+    logging.warning("Nom du canal d'instance non enregistre, repli sur un nom derive")
     try:
         user = getpass.getuser()
     except Exception:
         user = "user"
-    digest = hashlib.sha1(user.encode("utf-8", "replace")).hexdigest()[:12]
-    return f"beheread-{digest}"
+    return "beheread-" + hashlib.sha1(user.encode("utf-8", "replace")).hexdigest()[:24]
 
 
 def encode(message: dict) -> bytes:
@@ -108,7 +139,8 @@ class SingleInstance(QObject):
 
     def __init__(self, lock_path, name: str = None, parent=None):
         super().__init__(parent)
-        self.name = name or default_server_name()
+        # nom range a cote du verrou (dossier de donnees de l'utilisateur)
+        self.name = name or default_server_name(Path(lock_path).parent)
         self._lock = QLockFile(str(lock_path))
         # 0 : un verrou n'est jamais perime par son age (l'application reste
         # ouverte des heures), seulement si son processus n'existe plus

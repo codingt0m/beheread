@@ -87,3 +87,20 @@ def test_send_fails_cleanly_without_primary(qapp, monkeypatch):
     monkeypatch.setattr(single_instance, "CONNECT_ATTEMPTS", 1)
     monkeypatch.setattr(single_instance, "CONNECT_TIMEOUT_MS", 50)
     assert send_to_primary({"activate": True}, f"beheread-absent-{uuid.uuid4().hex}") is False
+
+
+def test_server_name_is_random_and_kept_in_the_data_folder(tmp_path):
+    """Nom imprevisible pour un autre compte de la machine (les pipes nommes
+    de Windows sont globaux), mais stable d'un lancement a l'autre."""
+    name = single_instance.default_server_name(tmp_path)
+    assert single_instance._NAME.fullmatch(name)
+    assert (tmp_path / single_instance.NAME_FILE).read_text(encoding="ascii") == name
+    assert single_instance.default_server_name(tmp_path) == name
+    other = tmp_path / "autre"
+    other.mkdir()
+    assert single_instance.default_server_name(other) != name
+
+
+def test_unreadable_server_name_falls_back_to_a_valid_one(tmp_path):
+    (tmp_path / single_instance.NAME_FILE).write_text("beheread-; rm -rf", encoding="ascii")
+    assert single_instance._NAME.fullmatch(single_instance.default_server_name(tmp_path))

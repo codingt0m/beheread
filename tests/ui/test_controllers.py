@@ -147,3 +147,24 @@ def test_provisional_result_is_not_retried_in_the_same_session(qtbot, store, man
     assert ctrl.cached_or_fetch(entry)["authors"] == ["Inoue"]
     qtbot.wait(100)
     assert calls == [path]
+
+
+def test_metadata_worker_failure_does_not_leave_the_volume_pending(qtbot, store, mangas,
+                                                                    monkeypatch):
+    """Une exception imprevue dans la cascade : le tome n'est pas laisse « en
+    cours » pour toute la session (il serait ignore jusqu'au redemarrage)."""
+    path = make_cbz(mangas, "Berserk - Tome 1", seed=1)
+
+    def broken(*_a, **_k):
+        raise KeyError("name")
+
+    monkeypatch.setattr(metadata, "fetch", broken)
+    monkeypatch.setattr(metadata, "fetch_series", broken)
+    ctrl = MetadataController(store, online=lambda: True)
+    updated = []
+    ctrl.volumeUpdated.connect(updated.append)
+    entry = LibraryEntry(path=path, title="Berserk - Tome 1", series="Berserk", volume=1)
+    ctrl.cached_or_fetch(entry)
+    qtbot.waitUntil(lambda: bool(updated) and not ctrl._series_pending, timeout=10000)
+    assert path not in ctrl._pending and path in ctrl._failed
+    assert store.volume_meta(path) is None   # rien de faux mis en cache

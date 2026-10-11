@@ -98,10 +98,15 @@ class MetaWorker(QRunnable):
         self.signals = _MetaSignals()
 
     def run(self):
-        data, ok, series_data = metadata.fetch(
-            self.path, self.series_name, self.volume, self.cached_series,
-            online=self.online, author_hint=self.author_hint)
-        self.signals.done.emit(self.path, data, series_data, ok)
+        data, ok, series_data = None, False, None
+        try:
+            data, ok, series_data = metadata.fetch(
+                self.path, self.series_name, self.volume, self.cached_series,
+                online=self.online, author_hint=self.author_hint)
+        except Exception:
+            logging.exception("Metadonnees impossibles pour %s", self.path)
+        finally:   # sans ce signal, le tome resterait « en cours » toute la session
+            self.signals.done.emit(self.path, data, series_data, ok)
 
 
 class _SeriesMetaSignals(QObject):
@@ -121,8 +126,13 @@ class SeriesMetaWorker(QRunnable):
         self.signals = _SeriesMetaSignals()
 
     def run(self):
-        series_data, ok = metadata.fetch_series(self.series_name, self.author_hint)
-        self.signals.done.emit(self.series_key, series_data, ok)
+        series_data, ok = None, False
+        try:
+            series_data, ok = metadata.fetch_series(self.series_name, self.author_hint)
+        except Exception:
+            logging.exception("Metadonnees de serie impossibles pour %s", self.series_key)
+        finally:
+            self.signals.done.emit(self.series_key, series_data, ok)
 
 
 def dedupe_by_content(store: Store, paths):
@@ -228,6 +238,31 @@ class HydrateWorker(QRunnable):
             logging.warning("Telechargement cloud impossible pour %s",
                             self.path, exc_info=True)
         self.signals.done.emit(self.path, ok)
+
+
+# ---------------------------------------------------------- appel ponctuel
+
+class _CallSignals(QObject):
+    done = Signal(object, object)   # resultat, exception (ou None)
+
+
+class CallWorker(QRunnable):
+    """Execute fn() hors du thread UI (requete reseau ponctuelle) ; le
+    resultat, ou l'exception levee, revient par le signal `done`. L'appelant
+    garde une reference a l'instance jusqu'a la reponse."""
+
+    def __init__(self, fn):
+        super().__init__()
+        self.fn = fn
+        self.signals = _CallSignals()
+
+    def run(self):
+        try:
+            result = self.fn()
+        except Exception as e:
+            self.signals.done.emit(None, e)
+            return
+        self.signals.done.emit(result, None)
 
 
 # ---------------------------------------------------------- gestion des dossiers

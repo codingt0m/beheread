@@ -22,6 +22,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from PySide6.QtCore import QObject, Signal
 
 MAX_BODY = 16 * 1024
+MAX_ERROR_CHARS = 200   # message d'erreur transmis par la page (non fiable)
 
 _PAGE = """<!doctype html>
 <html lang="fr"><head><meta charset="utf-8"><title>Beheread · AniList</title>
@@ -67,6 +68,7 @@ class LocalAuthReceiver(QObject):
         self._server = None
         self._thread = None
         self._done = False
+        self._deliver_lock = threading.Lock()
 
     @property
     def origin(self):
@@ -126,14 +128,18 @@ class LocalAuthReceiver(QObject):
         self._thread.start()
 
     def _deliver(self, data):
-        if self._done:
-            return
-        self._done = True
+        # ThreadingHTTPServer : un thread par requete, d'ou le verrou
+        with self._deliver_lock:
+            if self._done:
+                return
+            self._done = True
         token = data.get("token")
         if isinstance(token, str) and token.strip():
             self.tokenReceived.emit(token.strip())
         else:
-            self.failed.emit(str(data.get("error") or "Connexion annulée."))
+            # texte venu du navigateur (adresse de la page) : borne, et affiche
+            # en texte brut par la fenetre de connexion
+            self.failed.emit(str(data.get("error") or "Connexion annulée.")[:MAX_ERROR_CHARS])
 
     def stop(self):
         server, self._server = self._server, None
