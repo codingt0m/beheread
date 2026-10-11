@@ -219,3 +219,88 @@ def test_format_is_detected_once_per_opening(tmp_path, monkeypatch):
     monkeypatch.setattr(archive, "_detect_format", lambda p: calls.append(p) or real(p))
     Archive(path).close()
     assert len(calls) == 1
+
+
+def test_solid_rar_is_extracted_once_for_reading(monkeypatch):
+    """RAR solide ouvert dans le lecteur : toutes les pages sont extraites en
+    une passe, puis lues depuis le disque ; le dossier part a la fermeture."""
+    import time as _time
+
+    ar = _open_rar_or_skip(RAR5)
+    try:
+        expected = [ar.read_page(i) for i in range(len(ar))]
+        monkeypatch.setattr(ar._ar, "is_solid", lambda: True)
+        ar.prepare_reading()
+        deadline = _time.monotonic() + 20
+        while not (ar._solid_ready or ar._solid_failed) and _time.monotonic() < deadline:
+            _time.sleep(0.02)
+        assert ar._solid_ready
+        monkeypatch.setattr(ar._ar, "read", lambda name: pytest.fail("lu dans l'archive"))
+        assert [ar.read_page(i) for i in range(len(ar))] == expected
+        folder = ar._solid_dir
+    finally:
+        ar.close()
+    assert not folder.exists()
+
+
+def test_non_solid_archives_are_not_extracted(tmp_path):
+    ar = Archive(_make_cbz(tmp_path / "a.cbz"))
+    try:
+        ar.prepare_reading()
+        assert ar._solid_dir is None
+    finally:
+        ar.close()
+
+
+def _make_fixed_layout_epub(path, spine_images):
+    """EPUB a mise en page fixe : une page XHTML par image, dans l'ordre du
+    spine ; les noms d'images ne disent rien de cet ordre."""
+    items, refs = [], []
+    with zipfile.ZipFile(path, "w") as zf:
+        zf.writestr("mimetype", "application/epub+zip")
+        zf.writestr("META-INF/container.xml",
+                    '<?xml version="1.0"?><container xmlns="urn:oasis:names:tc:opendocument:'
+                    'xmlns:container"><rootfiles><rootfile full-path="OEBPS/content.opf"/>'
+                    '</rootfiles></container>')
+        for i, image in enumerate(spine_images):
+            zf.writestr(f"OEBPS/images/{image}", f"image-{image}".encode())
+            zf.writestr(f"OEBPS/text/p{i}.xhtml",
+                        f'<html><body>&nbsp;<svg><image xlink:href="../images/{image}"/></svg>'
+                        f"</body></html>")
+            items.append(f'<item id="p{i}" href="text/p{i}.xhtml" '
+                         f'media-type="application/xhtml+xml"/>')
+            refs.append(f'<itemref idref="p{i}"/>')
+        zf.writestr("OEBPS/images/hors-spine.jpg", b"orpheline")
+        zf.writestr("OEBPS/content.opf",
+                    '<?xml version="1.0"?><package xmlns="http://www.idpf.org/2007/opf">'
+                    f'<manifest>{"".join(items)}</manifest><spine>{"".join(refs)}</spine>'
+                    '</package>')
+    return str(path)
+
+
+def test_epub_pages_follow_the_spine(tmp_path):
+    order = ["f3a9.jpg", "07b1.jpg", "c2d4.jpg"]       # noms sans ordre
+    ar = Archive(_make_fixed_layout_epub(tmp_path / "livre.epub", order))
+    try:
+        assert ar.pages == [f"OEBPS/images/{n}" for n in order] + ["OEBPS/images/hors-spine.jpg"]
+        assert ar.read_page(0) == b"image-f3a9.jpg"
+    finally:
+        ar.close()
+
+
+@pytest.mark.parametrize("names, expected", [
+    (["001.jpg", "002.jpg", "zzz-credits.jpg"], ["001.jpg", "002.jpg"]),
+    (["001.jpg", "credits_team.png", "002.jpg", "zz_recrutement.jpg"], ["001.jpg", "002.jpg"]),
+    (["001.jpg", "Accredited.jpg"], ["001.jpg", "Accredited.jpg"]),   # mot entier seulement
+    (["credits.jpg"], ["credits.jpg"]),                               # jamais un tome vide
+])
+def test_scanlation_extra_images_are_not_pages(tmp_path, names, expected):
+    path = tmp_path / "t.cbz"
+    with zipfile.ZipFile(path, "w") as zf:
+        for n in names:
+            zf.writestr(n, b"img")
+    ar = Archive(str(path))
+    try:
+        assert ar.pages == expected
+    finally:
+        ar.close()

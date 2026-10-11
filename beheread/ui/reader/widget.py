@@ -113,6 +113,7 @@ class ReaderWidget(HudMixin, EndCardMixin, DisplayMixin, InputMixin,
         """Suite de __init__, une fois l'archive ouverte."""
         store, path = self.store, self.path
         self.total = len(self.archive)
+        self.archive.prepare_reading()           # RAR solide : extraction en une passe
         store.set_page_count(path, self.total)   # sert aux estimations de la bibliotheque
 
         self.page = 0

@@ -79,6 +79,12 @@ Les numéros de version suivent [SemVer](https://semver.org/lang/fr/). Chaque se
 * L'analyse des dossiers lit chaque dossier une seule fois, et un fichier ajouté ou retiré ne fait plus relire que son dossier, plus toute la bibliothèque : nettement plus rapide sur un disque réseau ou une grande bibliothèque.
 * L'enregistrement de la progression ne dépend plus de la taille de la bibliothèque : seules les données modifiées sont écrites. La base de données est réorganisée au premier lancement (une copie de l'ancienne est gardée à côté), puis entretenue à la fermeture.
 
+### Lecture des fichiers
+
+* Les CBR compressés en mode « solide » se lisent aussi vite à la fin qu'au début : leurs pages sont extraites une fois, en arrière-plan, au lieu d'être décompressées à nouveau à chaque page.
+* Les EPUB suivent l'ordre de lecture déclaré par le livre, même quand le nom de leurs images ne dit rien de cet ordre.
+* Les pages ajoutées par les équipes de traduction en fin de scan (« zzz-credits », pages de recrutement) ne sont plus comptées comme des pages du tome.
+
 ### Corrections
 
 * **Corrigé** (Windows) : supprimer un tome juste après son apparition dans la bibliothèque pouvait échouer (« fichier utilisé par un autre processus ») pendant que Beheread préparait sa couverture.

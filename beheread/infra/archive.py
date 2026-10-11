@@ -23,7 +23,12 @@ fourni avec le systeme. Voir README.md pour l'installation.
 import logging
 import os
 import re
+import shutil
+import subprocess
+import sys
+import tempfile
 import threading
+import time
 import zipfile
 from pathlib import Path
 
@@ -52,6 +57,17 @@ MAX_COMICINFO_BYTES = 4 * 1024 * 1024
 
 _rarfile = None
 _rar_error = None
+_rar_tools = {}   # sorte d'outil RAR -> chemin absolu retenu (voir _init_rarfile)
+
+# RAR « solide » : un fichier ne se decompresse qu'apres tout ce qui le
+# precede. Lu page par page (un appel a l'outil par page), chaque page coute
+# de plus en plus cher. Pour la lecture, toutes les pages sont extraites en
+# une passe, en arriere-plan, dans un dossier temporaire supprime a la
+# fermeture (voir Archive.prepare_reading).
+SOLID_PREFIX = "beheread-rar-"
+SOLID_MAX_BYTES = 4 * 1024 * 1024 * 1024   # au-dela : lecture page par page
+SOLID_TIMEOUT = 600                        # secondes, extraction complete
+SOLID_STALE_AGE = 24 * 3600                # dossiers laisses par un arret brutal
 
 # sorte d'outil (beheread.platforms.rar_tools) -> reglage de rarfile
 _RAR_TOOL_ATTRS = (("unrar", "UNRAR_TOOL"), ("sevenzip", "SEVENZIP_TOOL"),
@@ -84,6 +100,7 @@ def _init_rarfile():
                 if cand.is_absolute() and cand.exists():
                     setattr(rarfile, attr, str(cand))
                     found.add(kind)
+                    _rar_tools[kind] = str(cand)
                     break
             except OSError:
                 pass
@@ -111,6 +128,80 @@ def _natural_key(name: str):
     """Tri naturel : page2 avant page10."""
     parts = re.split(r"(\d+)", name.lower())
     return [int(p) if p.isdigit() else p for p in parts]
+
+
+# images ajoutees aux scans qui ne sont pas des pages du tome : pages de
+# credits ou de recrutement des equipes de traduction, conventionnellement
+# nommees pour se ranger a la fin (« zzz-credits.jpg »). Motifs prudents,
+# compares au nom du fichier (sans dossier ni extension, en minuscules).
+EXTRA_IMAGE_PATTERNS = [
+    re.compile(r"^z{2,}[\W_]"),
+    re.compile(r"(?:^|[\W_])(?:credits?|recrutement|recruitment)(?:[\W_]|$)"),
+]
+
+
+def _without_extras(names):
+    """Pages sans les images parasites (EXTRA_IMAGE_PATTERNS). Jamais au
+    point de vider le tome : sans aucune page restante, tout est garde."""
+    kept = [n for n in names
+            if not any(p.search(Path(n).stem.lower()) for p in EXTRA_IMAGE_PATTERNS)]
+    return kept or names
+
+
+def _epub_spine_images(ar, images):
+    """Images citees par les pages du spine d'un EPUB, dans l'ordre ; [] si
+    l'archive n'est pas un EPUB lisible."""
+    import posixpath
+    from urllib.parse import unquote
+
+    def read_text(name):
+        info = ar.getinfo(name)
+        if (getattr(info, "file_size", 0) or 0) > MAX_COMICINFO_BYTES:
+            return None
+        return ar.read(name)
+
+    names = set(ar.namelist())
+    if "META-INF/container.xml" not in names:
+        return []
+    container = safe_xml.fromstring(read_text("META-INF/container.xml"))
+    rootfile = next((el.get("full-path") for el in container.iter()
+                     if el.tag.endswith("rootfile") and el.get("full-path")), None)
+    if not rootfile or rootfile not in names:
+        return []
+    opf = safe_xml.fromstring(read_text(rootfile))
+    base = posixpath.dirname(rootfile)
+    manifest = {el.get("id"): el.get("href") for el in opf.iter()
+                if el.tag.endswith("item") and el.get("id") and el.get("href")}
+    order, seen = [], set()
+
+    def add(href, relative_to):
+        target = posixpath.normpath(posixpath.join(relative_to, unquote(href.split("#")[0])))
+        if target in images and target not in seen:
+            seen.add(target)
+            order.append(target)
+
+    for el in opf.iter():
+        if not el.tag.endswith("itemref") or el.get("idref") not in manifest:
+            continue
+        href = manifest[el.get("idref")]
+        page = posixpath.normpath(posixpath.join(base, unquote(href.split("#")[0])))
+        if page in images:              # image citee directement par le spine
+            add(href, base)
+            continue
+        if page not in names:
+            continue
+        raw = read_text(page)
+        if raw is None:
+            continue
+        # balises img / image (SVG) d'une page XHTML : lues par motif, une
+        # page de BD contenant souvent des entites HTML qu'un parseur XML
+        # strict refuse
+        for ref in _EPUB_IMAGE_REF.findall(raw.decode("utf-8", "replace")):
+            add(ref, posixpath.dirname(page))
+    return order
+
+
+_EPUB_IMAGE_REF = re.compile(r"""(?:src|xlink:href|href)\s*=\s*["']([^"']+)["']""", re.I)
 
 
 def _detect_format(path: str) -> str:
@@ -156,6 +247,9 @@ class Archive:
         self.path = path
         self._lock = threading.Lock()
         self.closed = False
+        self._solid_dir = None      # RAR solide : dossier d'extraction (prepare_reading)
+        self._solid_ready = False
+        self._solid_failed = False
         fmt = getattr(self, "_format", None) or _detect_format(path)
         ext = Path(path).suffix.lower()
 
@@ -190,13 +284,34 @@ class Archive:
                 continue
             names.append(n)
         names.sort(key=_natural_key)
+        names = _without_extras(names)
         if not names:
             self.close()
             raise ArchiveError(f"Aucune image trouvée dans l'archive :\n{path}")
+        if fmt == "zip" or ext == ".epub":
+            names = self._epub_order(names)
         self.pages = names
 
     def __len__(self):
         return len(self.pages)
+
+    def _epub_order(self, names):
+        """EPUB : pages dans l'ordre de lecture declare par le livre (spine
+        du fichier OPF : chaque page XHTML et les images qu'elle affiche),
+        et non dans l'ordre des noms de fichiers - certains EPUB nomment
+        leurs images sans ordre (empreintes, numeros sans zeros). Les images
+        que le spine ne cite pas suivent, dans l'ordre des noms. Archive sans
+        OPF exploitable : ordre des noms, inchange."""
+        try:
+            spine = _epub_spine_images(self._ar, set(names))
+        except Exception:
+            logging.warning("Ordre de lecture EPUB illisible, ordre des noms : %s",
+                            self.path, exc_info=True)
+            return names
+        if not spine:
+            return names
+        cited = set(spine)
+        return spine + [n for n in names if n not in cited]
 
     def _guard_size(self, name: str, limit: int):
         """Refuse une entree dont la taille decompressee annoncee depasse
@@ -215,11 +330,79 @@ class Archive:
     def read_page(self, index: int) -> bytes:
         name = self.pages[index]
         self._guard_size(name, MAX_PAGE_BYTES)
+        extracted = self._extracted_file(name)
+        if extracted is not None:
+            try:
+                return extracted.read_bytes()
+            except OSError:
+                logging.warning("Page extraite illisible, lecture dans l'archive : %s",
+                                extracted, exc_info=True)
         with self._lock:
             if self.closed:
                 # lecteur ferme pendant un prechargement : cas normal, pas une erreur
                 raise ArchiveClosedError(self.path)
             return self._ar.read(name)
+
+    # ------------------------------------------------------------ RAR solide
+    def prepare_reading(self):
+        """Ouverture dans le lecteur : un RAR solide est extrait en une passe,
+        en arriere-plan (voir SOLID_PREFIX). En attendant, les pages sont
+        lues dans l'archive comme avant ; les premieres, au debut du flux,
+        restent rapides. Sans effet sur les autres formats et pour les
+        vignettes, qui ne lisent que la premiere page."""
+        if self._solid_dir is not None or not self._is_solid_rar():
+            return
+        total = 0
+        for name in self.pages:
+            try:
+                total += getattr(self._ar.getinfo(name), "file_size", 0) or 0
+            except Exception:
+                return
+        if total > SOLID_MAX_BYTES or not _rar_tools:
+            return
+        self._solid_dir = Path(tempfile.mkdtemp(prefix=SOLID_PREFIX))
+        threading.Thread(target=self._extract_all, name="beheread-rar-solide",
+                         daemon=True).start()
+
+    def _is_solid_rar(self) -> bool:
+        if _rarfile is None or not isinstance(self._ar, _rarfile.RarFile):
+            return False
+        try:
+            return bool(self._ar.is_solid())
+        except Exception:
+            return False
+
+    def _extract_all(self):
+        dest = self._solid_dir
+        _purge_stale_extractions(keep=dest)
+        try:
+            subprocess.run(_solid_command(self.path, str(dest)), stdin=subprocess.DEVNULL,
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                           timeout=SOLID_TIMEOUT, check=True, creationflags=_NO_WINDOW)
+        except (OSError, subprocess.SubprocessError):
+            logging.warning("Extraction du RAR solide impossible, lecture page par page : %s",
+                            self.path, exc_info=True)
+            with self._lock:
+                self._solid_failed = True
+            shutil.rmtree(dest, ignore_errors=True)
+            return
+        with self._lock:
+            if self.closed:   # lecteur ferme pendant l'extraction
+                shutil.rmtree(dest, ignore_errors=True)
+                return
+            self._solid_ready = True
+
+    def _extracted_file(self, name):
+        """Fichier extrait de la page `name`, ou None (pas encore pret, pas
+        un RAR solide, ou chemin suspect)."""
+        with self._lock:
+            if not self._solid_ready or self._solid_failed or self.closed:
+                return None
+            root = self._solid_dir
+        path = (root / name).resolve()
+        if root.resolve() not in path.parents or not path.is_file():
+            return None   # chemin hors du dossier d'extraction, ou absent
+        return path
 
     def read_first_page(self) -> bytes:
         return self.read_page(0)
@@ -331,6 +514,44 @@ class Archive:
                 self._ar.close()
             except Exception:
                 logging.debug("Fermeture d'archive en echec : %s", self.path, exc_info=True)
+            # extraction terminee (ou echouee) : dossier supprime ici ; en
+            # cours, le thread d'extraction le supprimera a sa fin
+            if self._solid_dir is not None and (self._solid_ready or self._solid_failed):
+                shutil.rmtree(self._solid_dir, ignore_errors=True)
+
+
+_NO_WINDOW = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
+
+
+def _solid_command(archive_path, dest):
+    """Commande d'extraction complete avec l'outil RAR retenu (chemin absolu,
+    voir _init_rarfile), ou None. Mot de passe factice : une archive chiffree
+    echoue au lieu d'attendre une saisie (elle est alors lue page par page,
+    avec le message d'erreur habituel)."""
+    if "unrar" in _rar_tools:
+        return [_rar_tools["unrar"], "x", "-y", "-inul", "-p-", "-o+", archive_path,
+                dest + os.sep]
+    if "sevenzip" in _rar_tools:
+        return [_rar_tools["sevenzip"], "x", "-y", "-bd", "-pbeheread", f"-o{dest}",
+                archive_path]
+    if "bsdtar" in _rar_tools:
+        return [_rar_tools["bsdtar"], "-x", "-f", archive_path, "-C", dest]
+    return None
+
+
+def _purge_stale_extractions(keep=None):
+    """Supprime les dossiers d'extraction laisses par un arret brutal."""
+    now = time.time()
+    try:
+        candidates = list(Path(tempfile.gettempdir()).glob(SOLID_PREFIX + "*"))
+    except OSError:
+        return
+    for d in candidates:
+        try:
+            if d != keep and d.is_dir() and now - d.stat().st_mtime > SOLID_STALE_AGE:
+                shutil.rmtree(d, ignore_errors=True)
+        except OSError:
+            continue
 
 
 class PdfArchive(Archive):
@@ -406,6 +627,9 @@ class PdfArchive(Archive):
 
     def read_comicinfo(self):
         return None   # pas de ComicInfo.xml dans un PDF
+
+    def prepare_reading(self):
+        pass   # pages rendues a la demande
 
     def close(self):
         with self._lock:
