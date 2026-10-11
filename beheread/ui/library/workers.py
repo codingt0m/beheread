@@ -4,6 +4,7 @@ dossiers et comptage. Regroupees hors du widget principal, dont elles sont
 independantes (elles ne communiquent que par signaux)."""
 
 import logging
+import os
 from pathlib import Path
 
 from PySide6.QtCore import QObject, QRunnable, QSize, Qt, Signal
@@ -232,12 +233,15 @@ class HydrateWorker(QRunnable):
 # ---------------------------------------------------------- gestion des dossiers
 
 class _CountSignals(QObject):
-    done = Signal(str, int)      # dossier, nombre de mangas trouves
+    # dossier, nombre de mangas trouves, taille totale en octets (object :
+    # un int de signal Qt est sur 32 bits, trop court au-dela de 2 Go)
+    done = Signal(str, int, object)
 
 
 class _FolderCountWorker(QRunnable):
-    """Compte les fichiers CBZ/CBR d'un dossier hors du thread UI, pour
-    afficher le nombre de mangas sans figer le panneau a l'ouverture."""
+    """Compte les fichiers CBZ/CBR d'un dossier et additionne leur taille hors
+    du thread UI, pour afficher le nombre de mangas et la place qu'ils
+    occupent sans figer le panneau a l'ouverture."""
 
     def __init__(self, folder: str):
         super().__init__()
@@ -245,9 +249,18 @@ class _FolderCountWorker(QRunnable):
         self.signals = _CountSignals()
 
     def run(self):
+        size = 0
         try:
-            n = len(scan_folder(self.folder))
+            files = scan_folder(self.folder)
+            n = len(files)
+            for f in files:
+                try:
+                    # taille logique : un fichier iCloud non telecharge compte
+                    # aussi, sans etre rapatrie pour autant
+                    size += os.path.getsize(f)
+                except OSError:
+                    pass
         except Exception:
             logging.warning("Comptage impossible du dossier %s", self.folder, exc_info=True)
             n = -1
-        self.signals.done.emit(self.folder, n)
+        self.signals.done.emit(self.folder, n, size)

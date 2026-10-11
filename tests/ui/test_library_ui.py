@@ -276,6 +276,23 @@ def test_folder_manager_keeps_remove_button_visible_with_long_paths(qtbot):
     assert dlg.result_folders() == ["C:\\Mangas"]
 
 
+def test_folder_manager_shows_count_and_size(qtbot, mangas):
+    """Chaque dossier affiche son nombre de mangas et la place qu'ils occupent."""
+    from beheread.ui import theme
+    from beheread.ui.library.dialogs import FolderManagerDialog, format_size
+    assert format_size(850 * 1024 ** 2) == "850 Mo"
+    assert format_size(int(12.4 * 1024 ** 3)) == "12,4 Go"
+    assert format_size(3 * 1024 ** 4) == "3,0 To"
+    a = make_cbz(mangas, "Alpha", seed=1)
+    b = make_cbz(mangas, "Beta", seed=2)
+    total = Path(a).stat().st_size + Path(b).stat().st_size
+    dlg = FolderManagerDialog([str(mangas)], theme.colors("dark"))
+    qtbot.addWidget(dlg)
+    _, count_lbl = dlg._rows[str(mangas)]
+    qtbot.waitUntil(lambda: count_lbl.text() != "…")
+    assert count_lbl.text() == f"2 mangas · {format_size(total)}"
+
+
 def test_oneshots_are_described_for_anilist(window, qtbot, mangas, store):
     """Un fichier sans numero, seul de sa serie, est un one-shot pour le suivi
     AniList ; une serie numerotee garde ses numeros de tome."""

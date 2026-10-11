@@ -67,6 +67,16 @@ class _ElidedPathLabel(QLabel):
         self.setText(self.fontMetrics().elidedText(self._full, Qt.ElideMiddle, self.width()))
 
 
+def format_size(size):
+    """Taille lisible a la francaise : « 850 Mo », « 12,4 Go »."""
+    for unit, factor in (("To", 1024 ** 4), ("Go", 1024 ** 3), ("Mo", 1024 ** 2)):
+        if size >= factor:
+            value = size / factor
+            text = f"{value:.1f}" if value < 100 else f"{value:.0f}"
+            return f"{text.replace('.', ',')} {unit}"
+    return f"{size // 1024} Ko"
+
+
 class FolderManagerDialog(QDialog):
     """Panneau facon Plex : liste des dossiers sources avec leur nombre de
     mangas, ajout par navigation et retrait individuel. Rien n'est ecrit tant
@@ -188,7 +198,7 @@ class FolderManagerDialog(QDialog):
         self._count_workers.append(worker)
         self._pool.start(worker)
 
-    def _on_count(self, folder, n):
+    def _on_count(self, folder, n, size=0):
         entry = self._rows.get(folder)
         if not entry:
             return
@@ -198,7 +208,8 @@ class FolderManagerDialog(QDialog):
         elif n == 0:
             count_lbl.setText("aucun manga")
         else:
-            count_lbl.setText(f"{n} manga" + ("s" if n > 1 else ""))
+            count_lbl.setText(f"{n} manga" + ("s" if n > 1 else "")
+                              + f" · {format_size(size)}")
 
     def _remove_row(self, folder):
         entry = self._rows.pop(folder, None)

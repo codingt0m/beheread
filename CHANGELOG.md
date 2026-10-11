@@ -51,12 +51,17 @@ Les numéros de version suivent [SemVer](https://semver.org/lang/fr/). Chaque se
 
 * **Nouveau** : les one-shots (« Errance ») sont publiés « 1 tome lu, terminée » une fois lus, quand l'œuvre AniList existe en un seul tome. Leur association automatique exige un titre quasi identique.
 
+### Bibliothèque
+
+* **Nouveau** : le panneau « Dossiers de la bibliothèque » indique la place occupée par les mangas de chaque dossier (« 283 mangas · 12,4 Go »).
+
 ### Corrections
 
 * **Corrigé** : supprimer une copie d'un tome présent en double effaçait la progression de l'autre copie.
 * **Corrigé** : la mémoire du lecteur grossissait sans limite en feuilletant un tome dans les deux sens.
 * **Corrigé** : un tome terminé pendant un envoi à AniList pouvait ne jamais être publié.
 * **Corrigé** : une requête refusée par AniList déconnectait le compte.
+* **Corrigé** (Windows) : sur un écran à 200 %, les cases à cocher de l'installateur (tâches, « Lancer Beheread ») étaient rognées.
 
 ## [1.1.0] - 2026-10-03
 

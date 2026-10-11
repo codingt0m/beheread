@@ -137,12 +137,14 @@ begin
   end;
 end;
 
-{ Page des taches : a 200 % (et avec le style des controles de Windows), la
-  case a cocher etait rognee a gauche et collee a son libelle. Un ecart
-  explicite entre la case et le texte la fait dessiner en entier. }
+{ Pages des taches et de fin (« Lancer Beheread ») : a 200 % (et avec le
+  style des controles de Windows), la case a cocher etait rognee a gauche et
+  collee a son libelle. Un ecart explicite entre la case et le texte la fait
+  dessiner en entier. }
 procedure InitializeWizard();
 begin
   WizardForm.TasksList.Offset := ScaleX(6);
+  WizardForm.RunList.Offset := ScaleX(6);
 end;
 
 procedure CurStepChanged(CurStep: TSetupStep);
