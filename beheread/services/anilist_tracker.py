@@ -24,6 +24,7 @@ from PySide6.QtCore import QObject, QRunnable, QThreadPool, QTimer, Signal
 
 from beheread.core import anilist_track
 from beheread.infra import anilist
+from beheread.services.tracking import Tracker
 
 RETRY_MS = 10 * 60 * 1000
 
@@ -101,9 +102,8 @@ class _TrackWorker(QRunnable):
         self.signals.done.emit(results)
 
 
-class AniListTracker(QObject):
-    statusChanged = Signal(str)
-    seriesUpdated = Signal(str)    # cle de serie dont l'etat de suivi a change
+class AniListTracker(Tracker):
+    NAME = "AniList"
 
     def __init__(self, store, series_resolver, parent=None):
         """series_resolver(path) -> (cle de serie, nom, [(numero, nature,

@@ -257,7 +257,7 @@ class Archive:
             try:
                 self._ar = zipfile.ZipFile(path)
             except zipfile.BadZipFile as e:
-                raise ArchiveError(f"Archive ZIP invalide :\n{path}\n{e}")
+                raise ArchiveError(f"Archive ZIP invalide :\n{path}\n{e}") from e
         elif fmt == "rar" or (fmt == "unknown" and ext in (".cbr", ".rar")):
             _init_rarfile()
             if _rar_error:
@@ -269,9 +269,9 @@ class Archive:
                     "Aucun outil de décompression RAR n'a été trouvé.\n\n"
                     f"{platforms.RAR_HELP}\n"
                     "Voir le README, section « Lire les fichiers CBR ».\n\n"
-                    f"Détail : {e}")
+                    f"Détail : {e}") from e
             except Exception as e:
-                raise ArchiveError(f"Impossible d'ouvrir l'archive RAR :\n{path}\n{e}")
+                raise ArchiveError(f"Impossible d'ouvrir l'archive RAR :\n{path}\n{e}") from e
         else:
             raise ArchiveError(f"Format d'archive non reconnu :\n{path}")
 
@@ -566,9 +566,9 @@ class PdfArchive(Archive):
         self.closed = False
         try:
             from PySide6.QtPdf import QPdfDocument
-        except ImportError:
+        except ImportError as e:
             raise ArchiveError("La lecture des PDF nécessite le module QtPdf "
-                               "(PySide6-Addons), introuvable.")
+                               "(PySide6-Addons), introuvable.") from e
         self._doc = QPdfDocument()
         err = self._doc.load(path)
         if err != QPdfDocument.Error.None_:

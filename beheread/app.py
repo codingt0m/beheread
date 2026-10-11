@@ -24,6 +24,7 @@ from beheread.infra.database import DatabaseTooNew
 from beheread.infra.single_instance import SingleInstance, send_to_primary
 from beheread.infra.storage import Store, data_dir
 from beheread.services.anilist_tracker import AniListTracker
+from beheread.services.tracking import TrackerSet
 from beheread.ui import appicon, keys, theme
 from beheread.ui.library.widget import LibraryWidget
 from beheread.ui.reader.widget import ReaderWidget
@@ -113,10 +114,13 @@ class MainWindow(QMainWindow):
         self.library.preferencesChanged.connect(self.apply_preferences)
 
         # suivi AniList
+        # services de suivi de lecture (voir services/tracking.py) : AniList,
+        # dont les ecrans (connexion, association) sont fournis a la bibliotheque
         self.tracker = AniListTracker(store, self.library.series_volumes_for, self)
+        self.trackers = TrackerSet([self.tracker])
         self.library.set_services(tracker=self.tracker)
-        self.library.volumesFinished.connect(self.tracker.on_volumes_finished)
-        QTimer.singleShot(3000, self.tracker.flush_pending)   # envois restes en attente
+        self.library.volumesFinished.connect(self.trackers.on_volumes_finished)
+        QTimer.singleShot(3000, self.trackers.flush_pending)   # envois restes en attente
         self.setCentralWidget(self.library)
         if perso is not None:
             perso.install(self)
@@ -194,7 +198,7 @@ class MainWindow(QMainWindow):
         self._session_paths.add(path)
         reader.closed.connect(self.close_reader)
         reader.next_volume_requested.connect(self.open_manga)
-        reader.session_ended.connect(self.tracker.on_session_end)
+        reader.session_ended.connect(self.trackers.on_session_end)
 
         first_open = self.reader_window is None
         if first_open:

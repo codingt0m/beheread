@@ -8,8 +8,19 @@ target-version = "py310"
 
 [tool.ruff.lint]
 # F : noms indefinis, imports et variables inutiles ; E9 : erreurs de syntaxe ;
-# I : ordre des imports. Les regles de style ne sont pas adoptees par le projet.
-select = ["F", "E9", "I"]
+# I : ordre des imports ; B (bugbear) : pieges reels (variable de boucle
+# capturee par une fonction, zip qui tronque en silence, exception relancee
+# sans sa cause). Les regles de style ne sont pas adoptees par le projet.
+select = ["F", "E9", "I", "B"]
+
+[tool.mypy]
+# Verification des types de la logique pure (core/ : sans Qt, ni disque, ni
+# reseau) : python -m mypy. Les modules hors de core/ ne sont lus que pour
+# leurs signatures.
+files = ["beheread/core"]
+python_version = "3.10"
+ignore_missing_imports = true
+follow_imports = "silent"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

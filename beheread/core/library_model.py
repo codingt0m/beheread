@@ -130,7 +130,7 @@ def continue_reading(infos: Iterable[VolumeInfo], dismissed: Optional[dict] = No
             if visible(info, info.last_read):
                 candidates.append((info.last_read, info, "reading"))
 
-    groups = {}
+    groups: dict[str, list[VolumeInfo]] = {}
     for info in infos:
         if info.series_key:
             groups.setdefault(info.series_key, []).append(info)

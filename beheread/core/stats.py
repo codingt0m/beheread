@@ -163,7 +163,7 @@ def calendar_start(p: Period) -> _dt.date:
 def calendar_weeks(days) -> list:
     """Semaines (lundi -> dimanche) couvrant les jours donnes (Bucket, dans
     l'ordre) : listes de 7 cases, None pour les jours hors periode."""
-    weeks = []
+    weeks: list[list] = []
     for b in days:
         weekday = b.start.weekday()
         if not weeks or weekday == 0:
@@ -215,6 +215,25 @@ def streaks(days, today: _dt.date) -> tuple:
     return current, best
 
 
+def streaks_from_runs(runs, today: _dt.date) -> tuple:
+    """Meme resultat que streaks, a partir des series de jours deja
+    regroupees [(premier jour, dernier jour, nombre de jours)] (voir
+    ReadingLog.reading_runs) : la serie en cours est celle qui contient
+    aujourd'hui, ou a defaut hier."""
+    best, ends = 0, {}
+    for first, last, length in runs:
+        try:
+            start, end = _dt.date.fromisoformat(first), _dt.date.fromisoformat(last)
+        except (TypeError, ValueError):
+            continue
+        best = max(best, int(length))
+        for anchor in (today, today - _DAY):
+            if start <= anchor <= end:
+                ends[anchor] = (anchor - start).days + 1
+    current = ends.get(today) or ends.get(today - _DAY, 0)
+    return current, best
+
+
 @dataclass(frozen=True)
 class SeriesRank:
     name: str
@@ -233,7 +252,7 @@ def top_series(volume_rows, resolve=None, n: int = 6) -> list:
     noms ACTUELS, meme si la serie a ete renommee ou regroupee depuis. Pour
     un tome inconnu (fichier supprime, autre PC), on se rabat sur le nom de
     serie note au moment de la lecture."""
-    groups = {}
+    groups: dict = {}
     for volume, title, series, pages, seconds, finished in volume_rows:
         if not (pages or seconds):
             continue
@@ -277,7 +296,7 @@ def build_report(log, key: str, today: _dt.date, resolve=None, top: int = 6) -> 
     agregee bornee a la periode."""
     first = log.first_day()
     p = period(key, today, first)
-    current, best = streaks(log.active_days(), today)
+    current, best = streaks_from_runs(log.reading_runs(), today)
     return Report(
         period=p,
         totals=log.totals(p.start, p.end),
@@ -342,7 +361,7 @@ def journal_rows(device: str, section):
 def journal_section(name: str, updated: float, rows) -> dict:
     """Section d'appareil au format d'echange, a partir de ses lignes
     [(jour, tome, pages, secondes, seances, fins, titre, serie)]."""
-    days = {}
+    days: dict[str, dict] = {}
     for day, volume, pages, seconds, sessions, finished, title, series in rows:
         days.setdefault(day, {})[volume] = {
             "pages": pages, "seconds": seconds, "sessions": sessions, "finished": finished,

@@ -47,6 +47,10 @@ from beheread.infra.database import Database, JsonTable
 from beheread.infra.reading_log import ReadingLog
 
 SAVE_DELAY = 0.6          # secondes d'inactivite avant une ecriture differee
+# taille maximale d'un fichier importe comme sauvegarde : tres au-dessus d'une
+# vraie sauvegarde (quelques Mo pour des milliers de tomes et des annees de
+# journal de lecture)
+MAX_BACKUP_BYTES = 64 * 1024 * 1024
 DB_NAME = "beheread.db"
 
 # depot -> table SQLite (voir database.py)
@@ -818,6 +822,10 @@ class Store:
     def import_backup(self, path) -> dict:
         """Fusionne une sauvegarde (voir backup.py). Leve ValueError si le
         fichier n'en est pas une. Renvoie {"progress": n, "extras": m}."""
+        # un fichier quelconque choisi par l'utilisateur : rien n'est charge
+        # en memoire au-dela de ce qu'une vraie sauvegarde peut peser
+        if os.path.getsize(path) > MAX_BACKUP_BYTES:
+            raise ValueError("Ce fichier est trop volumineux pour être une sauvegarde Beheread.")
         with open(path, encoding="utf-8") as f:
             data = json.load(f)
         if not backup_model.is_valid(data):

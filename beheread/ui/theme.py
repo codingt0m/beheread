@@ -153,10 +153,10 @@ def distance(a, b, vision=None) -> float:
     for value in (a, b):
         rgb = tuple(_linear(x) for x in _rgb(value))
         if vision:
-            rgb = tuple(max(0.0, min(1.0, sum(k * x for k, x in zip(row, rgb))))
+            rgb = tuple(max(0.0, min(1.0, sum(k * x for k, x in zip(row, rgb, strict=True))))
                         for row in _CVD[vision])
         labs.append(_oklab(*rgb))
-    return 100 * sum((x - y) ** 2 for x, y in zip(*labs)) ** 0.5
+    return 100 * sum((x - y) ** 2 for x, y in zip(*labs, strict=True)) ** 0.5
 
 
 def separation(a, b, cvd=True) -> float:

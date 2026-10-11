@@ -28,9 +28,9 @@ class SessionMeter:
         self.min_dwell = min_dwell
         self.pause_cap = pause_cap
         self.active_seconds = 0.0
-        self.pages = set()                        # indices des pages lues
-        self.samples = deque(maxlen=PACE_WINDOW)  # secondes par page
-        self._since = now                         # debut d'affichage de la vue (None : a l'arret)
+        self.pages: set[int] = set()              # indices des pages lues
+        self.samples: deque[float] = deque(maxlen=PACE_WINDOW)  # secondes par page
+        self._since: float | None = now           # debut d'affichage de la vue (None : a l'arret)
 
     def leave(self, now: float, shown, forward: bool = True, resume: bool = True):
         """La vue affichant les pages `shown` est quittee. `forward` : en

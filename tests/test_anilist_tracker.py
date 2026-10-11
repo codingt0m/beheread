@@ -102,3 +102,32 @@ def test_unexpected_error_still_reports_the_batch(qapp, monkeypatch):
     worker.run()
     assert len(results) == 1
     assert results[0][0]["status"] == "error"
+
+
+def test_reading_events_reach_every_tracker(qapp, store):  # noqa: F811
+    """L'application ne parle qu'a l'interface commune : chaque service de
+    suivi recoit les fins de tome et de seance."""
+    from beheread.services.tracking import Tracker, TrackerSet
+
+    class Recorder(Tracker):
+        def __init__(self):
+            super().__init__()
+            self.events = []
+
+        def on_volumes_finished(self, paths):
+            self.events.append(("fin", tuple(paths)))
+
+        def on_session_end(self, path):
+            self.events.append(("seance", path))
+
+        def flush_pending(self):
+            self.events.append(("envoi",))
+
+    anilist = AniListTracker(store, lambda _p: None)
+    assert isinstance(anilist, Tracker) and anilist.NAME == "AniList"
+    a, b = Recorder(), Recorder()
+    trackers = TrackerSet([a, b])
+    trackers.on_volumes_finished(["t1"])
+    trackers.on_session_end("t1")
+    trackers.flush_pending()
+    assert a.events == b.events == [("fin", ("t1",)), ("seance", "t1"), ("envoi",)]

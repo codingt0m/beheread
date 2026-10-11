@@ -1,7 +1,8 @@
 # Verification continue de Beheread sous Windows et macOS.
 #
 # A chaque push sur main (et sur chaque pull request) :
-# * verification du code (ruff) et tests (pytest), sur les deux systemes ;
+# * verification du code (ruff), des types (mypy) et tests (pytest), sur les
+#   deux systemes ;
 # * construction de l'application macOS (.dmg) et captures d'ecran de
 #   l'interface sur un vrai macOS, jointes a l'execution comme artefacts
 #   (onglet Actions) : de quoi verifier le rendu et faire tester l'application
@@ -43,6 +44,9 @@ jobs:
 
       - name: Verification du code
         run: python -m ruff check .
+
+      - name: Verification des types
+        run: python -m mypy
 
       - name: Tests
         run: python -m pytest -q

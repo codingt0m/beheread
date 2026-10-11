@@ -235,10 +235,9 @@ def _first_marker(text: str):
     (« Area 51 - Tome 2 »). Face a un marqueur explicite plus loin, il ne
     l'emporte que s'il est encadre de tirets (« Blake et Mortimer - 01 - Le
     Secret de l'Espadon T1 », ou le « T1 » appartient au titre de l'album)."""
-    explicit = [m and (m.start(), pattern, m)
+    explicit = [(m.start(), pattern, m)
                 for pattern in _VOLUME_PATTERNS[:2]
-                for m in [pattern.search(text)]]
-    explicit = [e for e in explicit if e]
+                for m in [pattern.search(text)] if m]
     first_explicit = min(explicit, key=lambda e: e[0]) if explicit else None
 
     titled = _TITLED_NUMBER.search(text)

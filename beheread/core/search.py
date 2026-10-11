@@ -132,7 +132,7 @@ class SearchIndex:
     """Index inverse mot -> documents. Les documents sont identifies par une
     chaine (le chemin du tome) et decrits par une liste de textes (champs)."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         self._texts: Dict[str, tuple] = {}            # id -> textes indexes
         self._docs: Dict[str, FrozenSet[str]] = {}    # id -> mots
         self._postings: Dict[str, Set[str]] = {}      # mot -> ids
@@ -207,7 +207,7 @@ class SearchIndex:
             # ("berserk chainsaw") - une faute de frappe n'y est pour rien
             return SearchResult(frozenset(result))
         fuzzy = []
-        for t, ids in zip(tokens, per_token):
+        for t, ids in zip(tokens, per_token, strict=True):
             if not ids:
                 ids = self._ids(self._fuzzy_words(t))
                 if not ids:
@@ -231,7 +231,7 @@ class SearchIndex:
         if token.isdigit():
             words = {token} if token in self._postings else set()
         else:
-            base = self._postings.keys()
+            base: Iterable[str] = self._postings.keys()
             best = 0
             for prev, prev_words in self._strict.items():
                 if len(prev) > best and not prev.isdigit() and prev in token:

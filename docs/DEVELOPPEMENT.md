@@ -24,7 +24,7 @@ La construction se fait sur le système visé : la version Windows sur un PC Win
 build.bat
 ```
 
-enchaîne la vérification du code (ruff), les tests, la construction de l'exécutable par PyInstaller (`beheread.spec`) et la compilation de l'installateur par Inno Setup (`installer\beheread.iss`, à installer une fois : `winget install JRSoftware.InnoSetup`). Résultats, dans `dist\` :
+enchaîne la vérification du code (ruff) et des types (mypy), les tests, la construction de l'exécutable par PyInstaller (`beheread.spec`) et la compilation de l'installateur par Inno Setup (`installer\beheread.iss`, à installer une fois : `winget install JRSoftware.InnoSetup`). Résultats, dans `dist\` :
 * `Beheread\` : l'application en mode dossier (`Beheread.exe` + ses bibliothèques). Ce mode démarre immédiatement (rien à extraire à chaque lancement, contrairement à un exe unique) et déclenche beaucoup moins de faux positifs antivirus ;
 * `Beheread-Setup-<version>.exe` : l'installateur ;
 * `Beheread-<version>-windows-x64.zip` : le même dossier, pour un usage sans installation ;
@@ -52,7 +52,7 @@ Limites : l'application n'est signée qu'« ad hoc », sans compte Apple Develop
 ## Intégration continue
 
 `.github/workflows/ci.yml` s'exécute à chaque push sur `main` :
-* `ruff` et `pytest` sous **Windows et macOS** (runners GitHub) ;
+* `ruff`, `mypy` et `pytest` sous **Windows et macOS** (runners GitHub) ;
 * sous macOS, construction complète (`packaging/macos/build.sh`) et captures d'écran de l'interface (`tools/screenshots.py`, sur une fausse bibliothèque, avec les vraies polices du système). Le `.dmg` et les captures sont joints à l'exécution comme artefacts (onglet *Actions*, 14 jours) : de quoi vérifier le rendu, ou faire tester une version, sans Mac sous la main ni release.
 
 `python tools/screenshots.py <dossier>` produit les mêmes captures en local, sur le système courant.
@@ -114,9 +114,12 @@ beheread/
     single_instance.py   Instance unique (verrou + canal local)
     applogging.py        Journal beheread.log
   services/
+    tracking.py          Interface commune des services de suivi, diffusion des événements de lecture
     anilist_tracker.py   Suivi AniList : file d'attente, envois en fin de séance
   ui/
-    theme.py, icons.py, help_overlay.py, stats_view.py
+    theme.py, icons.py, help_overlay.py
+    stats_view.py        Fenêtre des statistiques (assemblage du rapport)
+    charts.py            Composants graphiques des statistiques (tuiles, histogramme, calendrier…)
     keys.py              Raccourcis propres au système et noms des touches affichés (⌘F sous macOS)
     appicon.py           Icône de l'application re-teintée dans la couleur d'accentuation
     library/             Bibliothèque
@@ -142,7 +145,7 @@ build_and_install.bat    build.bat puis installation et lancement sur ce PC
 packaging/macos/         macOS : build.sh (application, image disque), icon.icns
 tools/screenshots.py     Captures d'écran de l'interface sur une fausse bibliothèque
 beheread.spec            Configuration PyInstaller (Windows et macOS)
-pyproject.toml           Configuration de ruff et de pytest
+pyproject.toml           Configuration de ruff, de mypy et de pytest
 requirements.txt         Dépendances de l'application
 requirements-dev.txt     + tests, vérification du code, construction de l'exe
 requirements-dev.lock    Les mêmes, figées avec empreintes (CI et release)
@@ -157,9 +160,10 @@ CHANGELOG.md             Notes de version
 pip install -r requirements-dev.txt
 pytest
 ruff check .
+mypy
 ```
 
-La suite couvre la logique pure (séries, appairage, molette, statistiques, règles AniList…), la persistance (SQLite, import des anciens JSON, sauvegarde), les clients réseau (réseau simulé, aucun appel réel) et l'interface avec **pytest-qt** (`tests/ui/` : état vide, glisser-déposer, filtres et tris, « Continuer la lecture », gestion des séries, suppression, lecteur, molette, PDF, instance unique). Les tests d'interface tournent sans fenêtre (plateforme « offscreen »), sans réseau et sans enregistrer de raccourci global. Les tests propres à un système (DPAPI, Trousseau, Corbeille du Finder, RAR par `bsdtar`) sont ignorés ailleurs ; la CI exécute la suite sous Windows et sous macOS. `ruff check .` vérifie le code avec les règles retenues dans `pyproject.toml` : noms indéfinis, imports inutiles, erreurs de syntaxe, ordre des imports.
+La suite couvre la logique pure (séries, appairage, molette, statistiques, règles AniList…), la persistance (SQLite, import des anciens JSON, sauvegarde), les clients réseau (réseau simulé, aucun appel réel) et l'interface avec **pytest-qt** (`tests/ui/` : état vide, glisser-déposer, filtres et tris, « Continuer la lecture », gestion des séries, suppression, lecteur, molette, PDF, instance unique). Les tests d'interface tournent sans fenêtre (plateforme « offscreen »), sans réseau et sans enregistrer de raccourci global. Les tests propres à un système (DPAPI, Trousseau, Corbeille du Finder, RAR par `bsdtar`) sont ignorés ailleurs ; la CI exécute la suite sous Windows et sous macOS. `ruff check .` vérifie le code avec les règles retenues dans `pyproject.toml` : noms indéfinis, imports inutiles, erreurs de syntaxe, ordre des imports et pièges courants (bugbear). `mypy` vérifie les types de la logique pure (`beheread/core/`).
 
 ## Performances
 

@@ -148,6 +148,18 @@ class ReadingLog:
                WHERE finished > 0 AND day BETWEEN ? AND ?
                ORDER BY day DESC, volume LIMIT ?""", (_iso(start), _iso(end), int(limit)))
 
+    def reading_runs(self):
+        """Series de jours consecutifs de lecture (au moins une page lue),
+        sur tout l'historique : [(premier jour, dernier jour, nombre de
+        jours)] du plus ancien au plus recent. Regroupees par SQLite (un jour
+        moins son rang est constant le long d'une serie) : une ligne par
+        serie au lieu d'une par jour."""
+        return self._query(
+            """SELECT MIN(day), MAX(day), COUNT(*) FROM (
+                   SELECT day, julianday(day) - ROW_NUMBER() OVER (ORDER BY day) AS run
+                   FROM (SELECT DISTINCT day FROM reading_log WHERE pages > 0))
+               GROUP BY run ORDER BY MIN(day)""")
+
     def active_days(self):
         """Jours (« AAAA-MM-JJ ») ou au moins une page a ete lue, pour les
         series de jours consecutifs (sur tout l'historique)."""

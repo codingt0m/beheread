@@ -104,3 +104,18 @@ def test_dismissed_entries_must_be_timestamps():
                                           "c1:c": 30, "c1:d": True}) is True
     assert local == {"c1:a": 10, "c1:c": 30}
     assert backup.merge_dismissed(local, ["pas un dict"]) is False
+
+
+def test_oversized_file_is_refused_before_being_read(tmp_path, monkeypatch):
+    import pytest
+
+    from beheread.infra import storage
+    monkeypatch.setattr(storage, "data_dir", lambda: tmp_path / "data")
+    (tmp_path / "data").mkdir()
+    store = storage.Store()
+    big = tmp_path / "enorme.json"
+    big.write_bytes(b" " * 2048)
+    monkeypatch.setattr(storage, "MAX_BACKUP_BYTES", 1024)
+    with pytest.raises(ValueError, match="trop volumineux"):
+        store.import_backup(big)
+    store.close()

@@ -153,3 +153,19 @@ def test_schema_v1_journal_is_migrated_and_database_backed_up(tmp_path):
     backup.close()
 
     Database(path).close()   # reouverture : ni nouvelle migration ni nouvelle copie
+
+
+def test_streaks_computed_by_sqlite_match_the_day_by_day_count(log):
+    """Series de jours regroupees par SQLite : meme serie en cours et meme
+    record que le calcul jour par jour, sur un historique irregulier."""
+    import random
+    rng = random.Random(4)
+    offsets = sorted({rng.randrange(0, 120) for _ in range(70)} | {0, 1, 2, 5})
+    for off in offsets:
+        _add(log, _day(off), f"k{off}", rng.randint(1, 30), 60)
+    _add(log, _day(3), "fin-seule", 0, 0, finished=True)   # sans page : pas un jour lu
+    for today in (TODAY, TODAY + dt.timedelta(days=1), TODAY + dt.timedelta(days=2),
+                  _day(10)):
+        assert (stats.streaks_from_runs(log.reading_runs(), today)
+                == stats.streaks(log.active_days(), today))
+    assert stats.streaks_from_runs([], TODAY) == (0, 0)

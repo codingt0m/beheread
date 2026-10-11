@@ -512,7 +512,7 @@ class ReaderWidget(HudMixin, EndCardMixin, DisplayMixin, InputMixin,
 
         dpr = self.devicePixelRatioF()
         frame = []
-        for (i, crop, _sw, _sh), w in zip(items, widths):
+        for (i, crop, _sw, _sh), w in zip(items, widths, strict=True):
             # on met a l'echelle en pixels physiques (dpr) puis on indique ce
             # ratio au pixmap, sinon Qt re-etire une image deja sous-echantillonnee
             # sur les ecrans HiDPI (perte de nettete visible surtout sans zoom).

@@ -258,7 +258,7 @@ def test_failed_search_is_retried_later_with_growing_delays(qtbot, store, mangas
         assert len(calls) == tries               # pas avant l'echeance
         clock[0] += 1
         ctrl._run_due_retries()
-        qtbot.waitUntil(lambda: len(calls) == tries + 1 and path in ctrl._failed,
+        qtbot.waitUntil(lambda tries=tries: len(calls) == tries + 1 and path in ctrl._failed,
                         timeout=10000)
     clock[0] += 10 * 3600
     ctrl._run_due_retries()

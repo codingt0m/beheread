@@ -22,6 +22,11 @@ if errorlevel 1 (
     echo Verification du code en echec : build annule.
     exit /b 1
 )
+python -m mypy
+if errorlevel 1 (
+    echo Verification des types en echec : build annule.
+    exit /b 1
+)
 python -m pytest -q
 if errorlevel 1 (
     echo Tests en echec : build annule.

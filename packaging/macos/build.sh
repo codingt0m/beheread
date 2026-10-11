@@ -15,6 +15,7 @@ DMG="Beheread-$VERSION-macos.dmg"
 
 echo "=== Beheread $VERSION : verification du code et tests ==="
 python3 -m ruff check .
+python3 -m mypy
 python3 -m pytest -q
 
 echo "=== Application (dist/Beheread.app) ==="

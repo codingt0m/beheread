@@ -202,7 +202,7 @@ def test_detail_panel_keeps_its_width_with_long_names(window, qtbot, mangas, sto
     buttons = sorted((b for b in panel.findChildren(ElidedButton) if b.isVisible()),
                      key=lambda b: b.y())
     assert labels_bottom < buttons[0].y()
-    assert all(b2.y() >= b1.y() + b1.height() for b1, b2 in zip(buttons, buttons[1:]))
+    assert all(b2.y() >= b1.y() + b1.height() for b1, b2 in zip(buttons, buttons[1:], strict=False))
 
 
 def test_grid_top_fades_only_once_scrolled(window, qtbot, mangas, store):
