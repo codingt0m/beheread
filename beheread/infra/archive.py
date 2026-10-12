@@ -254,6 +254,11 @@ class Archive:
     PDF). Thread-safe pour la lecture."""
 
     def __new__(cls, path: str):
+        # tome d'un serveur de lecture : RemoteArchive (meme interface, voir
+        # beheread.infra.servers)
+        if cls is Archive and isinstance(path, str) and path.startswith("beheread-server:"):
+            from beheread.infra import servers
+            return servers.registry.open(path)
         # un PDF est servi par PdfArchive (meme interface) : les appelants
         # continuent d'ecrire simplement Archive(chemin)
         fmt = _detect_format(path) if cls is Archive else None
@@ -664,6 +669,8 @@ def find_next_volume(path: str):
     telechargements ou la racine d'un disque ne declenche pas le parcours de
     toute l'arborescence."""
     from beheread.core.series import next_volume
+    if path.startswith("beheread-server:"):
+        return None   # tome d'un serveur : voir LibraryWidget.next_volume
     try:
         siblings = [str(p) for p in Path(path).parent.iterdir()
                     if p.suffix.lower() in SUPPORTED_EXTS and p.is_file()]

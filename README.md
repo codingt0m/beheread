@@ -26,7 +26,7 @@ Captures d'écran : déposer les images dans docs/images/ puis retirer ce commen
 * **Suivi AniList** (optionnel) : votre liste AniList se met à jour toute seule pendant que vous lisez.
 * **Sauvegarde** : export et import de la progression, pour changer d'ordinateur, y compris entre Windows et Mac.
 
-Toutes vos données restent **sur votre ordinateur**. Seules les fonctions optionnelles (métadonnées, suivi AniList, vérification des mises à jour) utilisent le réseau, et uniquement si vous les activez. L'application fonctionne normalement sans connexion.
+Toutes vos données restent **sur votre ordinateur**. Seules les fonctions optionnelles (métadonnées, suivi AniList, vérification des mises à jour, serveurs de lecture Komga, Kavita ou OPDS) utilisent le réseau, et uniquement si vous les activez. L'application fonctionne normalement sans connexion.
 
 ## Installation
 

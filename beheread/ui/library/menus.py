@@ -54,20 +54,23 @@ class MenusMixin:
         # non) sans perdre la page courante - propose seulement si au moins un
         # tome selectionne est effectivement marque termine.
         paths = [it.data(ROLE_PATH) for it in items]
+        # tome d'un serveur de lecture : pas de fichier sur ce disque
+        remote = any(self._is_remote(p) for p in paths)
         act_unread = None
         if any((self.store.get_progress(p) or (0, 0, False))[2] for p in paths):
             act_unread = menu.addAction(
                 tr("Marquer comme non lu") if n == 1 else tr("Marquer {n} mangas comme non lus", n=n))
         menu.addSeparator()
-        act_reload_meta = menu.addAction(
+        act_reload_meta = None if remote else menu.addAction(
             tr("Recharger les métadonnées") if n == 1
             else tr("Recharger les métadonnées ({n})", n=n))
         act_edit = menu.addAction(tr("Modifier les informations…")) if n == 1 else None
         act_cover = menu.addAction(tr("Choisir la couverture…")) if n == 1 else None
         act_move = menu.addAction(
             tr("Déplacer vers une série…") if n == 1 else tr("Déplacer {n} mangas vers une série…", n=n))
-        act_rename = menu.addAction(tr("Renommer le fichier…")) if n == 1 else None
-        act_explorer = menu.addAction(tr(platforms.REVEAL_LABEL)) if n == 1 else None
+        act_rename = menu.addAction(tr("Renommer le fichier…")) if n == 1 and not remote else None
+        act_explorer = (menu.addAction(tr(platforms.REVEAL_LABEL))
+                        if n == 1 and not remote else None)
         act_error = None
         if n == 1 and self.covers.error(paths[0]) is not None:
             act_error = menu.addAction(tr("Voir l'erreur…"))
@@ -83,9 +86,11 @@ class MenusMixin:
                 menu.addSeparator()
             act_restore = menu.addAction(tr("Rétablir le regroupement automatique"))
 
-        menu.addSeparator()
-        act_delete = menu.addAction(
-            tr("Supprimer le manga…") if n == 1 else tr("Supprimer {n} mangas…", n=n))
+        act_delete = None
+        if not remote:
+            menu.addSeparator()
+            act_delete = menu.addAction(
+                tr("Supprimer le manga…") if n == 1 else tr("Supprimer {n} mangas…", n=n))
 
         chosen = menu.exec(self.list.viewport().mapToGlobal(pos))
         if chosen is None:
@@ -111,7 +116,7 @@ class MenusMixin:
             for it in items:
                 self._mark_unread(it.data(ROLE_PATH))
             self._rebuild_list()
-        elif chosen == act_reload_meta:
+        elif act_reload_meta is not None and chosen == act_reload_meta:
             self._reload_meta([it.data(ROLE_PATH) for it in items])
         elif act_edit is not None and chosen == act_edit:
             self._edit_volume_info(items[0].data(ROLE_PATH))
@@ -125,7 +130,7 @@ class MenusMixin:
             self._show_in_explorer(items[0].data(ROLE_PATH))
         elif act_error is not None and chosen == act_error:
             self._show_cover_error(paths[0])
-        elif chosen == act_delete:
+        elif act_delete is not None and chosen == act_delete:
             self._delete_many([it.data(ROLE_PATH) for it in items])
 
     def _show_series_context_menu(self, item, pos):
@@ -148,8 +153,10 @@ class MenusMixin:
         act_merge = menu.addAction(tr("Fusionner avec une autre série…"))
         act_anilist = (menu.addAction(tr("Associer à AniList…"))
                        if self.tracker is not None and self.tracker.connected() else None)
-        menu.addSeparator()
-        act_delete = menu.addAction(tr("Supprimer la série ({n} tomes)…", n=n))
+        act_delete = None
+        if not any(self._is_remote(p) for p in paths):
+            menu.addSeparator()
+            act_delete = menu.addAction(tr("Supprimer la série ({n} tomes)…", n=n))
         chosen = menu.exec(self.list.viewport().mapToGlobal(pos))
         if chosen is None:
             return
@@ -165,7 +172,7 @@ class MenusMixin:
             self._associate_anilist(key, paths[0])
         elif chosen == act_merge:
             self._merge_series(key)
-        elif chosen == act_delete:
+        elif act_delete is not None and chosen == act_delete:
             self._delete_many(paths, series_label=display)
 
     def _show_shelf_menu(self, path, global_pos):

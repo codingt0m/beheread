@@ -57,6 +57,7 @@ from beheread.core import pairing
 from beheread.core.reading_session import SessionMeter
 from beheread.core.wheel_nav import WheelNavigator
 from beheread.i18n import tr
+from beheread.infra import servers
 from beheread.infra.archive import Archive, find_next_volume
 from beheread.infra.storage import Store
 from beheread.ui import icons, theme
@@ -86,7 +87,8 @@ class ReaderWidget(HudMixin, EndCardMixin, DisplayMixin, InputMixin,
     session_ended = Signal(str)     # fin de la seance de lecture de ce tome (suivi AniList)
     fullscreen_toggled = Signal()
 
-    def __init__(self, path: str, store: Store, parent=None, direct_mode=False, entry=None):
+    def __init__(self, path: str, store: Store, parent=None, direct_mode=False, entry=None,
+                 next_volume=None):
         super().__init__(parent)
         self.setFocusPolicy(Qt.StrongFocus)
         self.setMouseTracking(True)
@@ -100,6 +102,9 @@ class ReaderWidget(HudMixin, EndCardMixin, DisplayMixin, InputMixin,
         # entree de la bibliotheque (LibraryEntry) : serie et numero deja
         # connus, rien a redeviner du nom de fichier. None hors bibliotheque.
         self.entry = entry if entry is not None and entry.path == path else None
+        # tome suivant d'un tome distant (serveur de lecture), donne par la
+        # bibliotheque : chemin -> chemin ou None (voir LibraryWidget.next_volume)
+        self._next_volume_fn = next_volume
         self._released = False   # voir release()
         self.archive = Archive(path)          # peut lever ArchiveError
         try:
@@ -362,7 +367,7 @@ class ReaderWidget(HudMixin, EndCardMixin, DisplayMixin, InputMixin,
             self._save_progress(finished=True)
             if not self._next_volume_checked:
                 self._next_volume_checked = True
-                self._next_volume_path = find_next_volume(self.path)
+                self._next_volume_path = self._find_next_volume()
             self._show_end_card()
 
     def prev_page(self, step=None, animate=True, align="top"):
@@ -411,10 +416,18 @@ class ReaderWidget(HudMixin, EndCardMixin, DisplayMixin, InputMixin,
         if self.page < 0.85 * (self.total - 1):
             return
         self._next_volume_checked = True
+        if servers.is_remote(self.path):   # liste en memoire : immediat
+            self._next_volume_path = self._find_next_volume()
+            return
         probe = NextVolumeProbe(self.path)
         probe.signals.found.connect(self._on_next_volume_found)
         self._next_volume_probe = probe   # garde une reference (sinon GC)
         self.pool.start(probe)
+
+    def _find_next_volume(self):
+        if servers.is_remote(self.path):
+            return self._next_volume_fn(self.path) if self._next_volume_fn else None
+        return find_next_volume(self.path)
 
     def _on_next_volume_found(self, path):
         self._next_volume_path = path

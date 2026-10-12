@@ -112,6 +112,7 @@ beheread/
     googlebooks.py, anilist.py, mangadex.py, bnf.py   Clients d'API
     net.py               Accès réseau commun : espacement des requêtes, pause après un 429, User-Agent
     updates.py           Vérification des mises à jour (dernière release GitHub), facultative
+    servers.py           Serveurs de lecture : clients Komga, Kavita, OPDS, archive distante (RemoteArchive)
     anilist_auth.py      Connexion AniList (récepteur local du jeton)
     secret_store.py      Protection du jeton AniList (DPAPI, Trousseau : voir platforms)
     single_instance.py   Instance unique (verrou + canal local)
@@ -119,6 +120,7 @@ beheread/
   services/
     tracking.py          Interface commune des services de suivi, diffusion des événements de lecture
     anilist_tracker.py   Suivi AniList : file d'attente, envois en fin de séance
+    servers.py           Serveurs de lecture : clients actifs, listes des tomes, synchronisation de la progression
   ui/
     theme.py, icons.py, help_overlay.py
     stats_view.py        Fenêtre des statistiques (assemblage du rapport)
@@ -133,6 +135,8 @@ beheread/
       chrome.py          En-tête, barre d'outils, bandeau de consentement, état vide, glisser-déposer
       detail_panel.py    Panneau d'informations
       series_band.py     Bandeau d'une série ouverte : tomes possédés et manquants
+      sources.py         Source de la bibliothèque (cet ordinateur ou un serveur), sélecteur de l'en-tête
+      servers_ui.py      Préférences > Serveurs et fenêtre d'ajout d'un serveur
       actions.py         Actions sur les tomes et séries (marquer lu, renommer, supprimer, fusionner…)
       menus.py           Menus contextuels
       services.py        Préférences, statistiques, sauvegarde, AniList
@@ -169,7 +173,7 @@ ruff check .
 mypy
 ```
 
-La suite couvre la logique pure (séries, appairage, molette, statistiques, règles AniList…), la persistance (SQLite, import des anciens JSON, sauvegarde), les clients réseau (réseau simulé, aucun appel réel) et l'interface avec **pytest-qt** (`tests/ui/` : état vide, glisser-déposer, filtres et tris, « Continuer la lecture », gestion des séries, suppression, lecteur, molette, PDF, instance unique). Les tests d'interface tournent sans fenêtre (plateforme « offscreen »), sans réseau et sans enregistrer de raccourci global. Les tests propres à un système (DPAPI, Trousseau, Corbeille du Finder, RAR par `bsdtar`) sont ignorés ailleurs ; la CI exécute la suite sous Windows et sous macOS. `ruff check .` vérifie le code avec les règles retenues dans `pyproject.toml` : noms indéfinis, imports inutiles, erreurs de syntaxe, ordre des imports et pièges courants (bugbear). `mypy` vérifie les types de la logique pure (`beheread/core/`).
+La suite couvre la logique pure (séries, appairage, molette, statistiques, règles AniList…), la persistance (SQLite, import des anciens JSON, sauvegarde), les clients réseau (réseau simulé, aucun appel réel ; faux serveurs Komga, Kavita et OPDS sur 127.0.0.1 dans `tests/fake_servers.py`) et l'interface avec **pytest-qt** (`tests/ui/` : état vide, glisser-déposer, filtres et tris, « Continuer la lecture », gestion des séries, suppression, lecteur, molette, PDF, instance unique). Les tests d'interface tournent sans fenêtre (plateforme « offscreen »), sans réseau et sans enregistrer de raccourci global. Les tests propres à un système (DPAPI, Trousseau, Corbeille du Finder, RAR par `bsdtar`) sont ignorés ailleurs ; la CI exécute la suite sous Windows et sous macOS. `ruff check .` vérifie le code avec les règles retenues dans `pyproject.toml` : noms indéfinis, imports inutiles, erreurs de syntaxe, ordre des imports et pièges courants (bugbear). `mypy` vérifie les types de la logique pure (`beheread/core/`).
 
 ## Traduction
 

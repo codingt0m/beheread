@@ -5,11 +5,11 @@ Mixin de ReaderWidget : ces methodes partagent l'etat du lecteur
 responsabilite."""
 
 import time
-from pathlib import Path
 
 from beheread.core.library_model import is_started
 from beheread.core.series import parse_path
 from beheread.i18n import tr
+from beheread.infra import servers
 from beheread.infra.storage import Store
 from beheread.ui.reader.constants import TIME_MIN_SAMPLES
 
@@ -26,7 +26,7 @@ class SessionMixin:
         if finished and not (prev and prev[2]):
             # fin de tome journalisee sur-le-champ (et non a la fermeture) :
             # elle est datee du bon jour et survit a un arret brutal
-            self.store.record_reading(self.path, 0, 0, True, Path(self.path).stem,
+            self.store.record_reading(self.path, 0, 0, True, servers.display_name(self.path),
                                       self._series_label())
             self.volume_finished.emit(self.path)
 
@@ -102,18 +102,18 @@ class SessionMixin:
         actif (voir core/reading_session.py). La fin du tome, elle, est
         journalisee des qu'elle survient (voir _save_progress)."""
         self.store.record_reading(self.path, len(self._meter.pages), self._meter.active_seconds,
-                                  False, Path(self.path).stem, self._series_label())
+                                  False, servers.display_name(self.path), self._series_label())
 
     def _series_label(self):
         """Nom de serie pour les statistiques (regroupement manuel prioritaire)."""
         e = self.entry
         if e is not None:   # meme deduction, deja faite par la bibliotheque
-            return e.series if e.manual or e.volume is not None else Path(self.path).stem
+            return e.series if e.manual or e.volume is not None else servers.display_name(self.path)
         override = self.store.series_override(self.path)
         if override and override != Store.SERIES_DETACHED:
             return override
         name, volume, _kind = parse_path(self.path)
-        return name if volume is not None else Path(self.path).stem
+        return name if volume is not None else servers.display_name(self.path)
 
     def leave_direct_mode(self):
         """L'application, lancee sur un fichier, est rouverte normalement

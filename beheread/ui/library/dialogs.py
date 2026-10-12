@@ -47,6 +47,7 @@ from beheread.ui.help_overlay import (
     sections_css,
     sections_layout,
 )
+from beheread.ui.library.servers_ui import ServersTabMixin
 from beheread.ui.library.workers import CallWorker, PagesWorker, _FolderCountWorker
 from beheread.ui.reader.constants import FIT_NAMES, normalize_fit
 from beheread.ui.safe_text import plain
@@ -355,7 +356,7 @@ ACCENT_PRESETS = [(N_("Rouge Behelit"), theme.DEFAULT_ACCENT), (N_("Orange"), "#
                   (N_("Bleu"), "#2f7fd6"), (N_("Violet"), "#8e5bd6"), (N_("Rose"), "#d6457f")]
 
 
-class PreferencesDialog(QDialog):
+class PreferencesDialog(ServersTabMixin, QDialog):
     """Reglages de l'application, en onglets. Les preferences simples ne sont
     ecrites qu'a la validation (save) ; les actions (vider un cache, exporter,
     importer, se connecter a AniList) agissent tout de suite, via les
@@ -364,12 +365,13 @@ class PreferencesDialog(QDialog):
     actions = {"clear_thumbs", "clear_meta", "export", "import"} -> fonctions ;
     tracker = AniListTracker ou None."""
 
-    def __init__(self, store, colors, actions, tracker=None, parent=None):
+    def __init__(self, store, colors, actions, tracker=None, parent=None, servers=None):
         super().__init__(parent)
         self.store = store
         self.c = colors
         self.actions = actions
         self.tracker = tracker
+        self.servers = servers   # ServerManager (onglet Serveurs), ou None
         self.setWindowTitle(tr("Préférences"))
         self.setMinimumWidth(620)
         self.setStyleSheet(_dialog_css(colors) + f"""
@@ -394,6 +396,7 @@ class PreferencesDialog(QDialog):
         tabs.addTab(self._reader_tab(), tr("Lecteur"))
         tabs.addTab(self._data_tab(), tr("Données"))
         tabs.addTab(self._anilist_tab(), "AniList")
+        tabs.addTab(self._servers_tab(), tr("Serveurs"))
         tabs.addTab(self._shortcuts_tab(), tr("Raccourcis"))
         self.tabs = tabs
         root.addSpacing(8)
@@ -938,6 +941,7 @@ class PreferencesDialog(QDialog):
                            None if tuple(self._extra_words) == archive.DEFAULT_EXTRA_PAGE_WORDS
                            else list(self._extra_words))
         s.set_anilist_value("tracking", self.tracking.isChecked())
+        self._save_servers()
         # une case decochee apres un choix vaut refus explicite ; si
         # l'utilisateur n'a jamais repondu et laisse decoche, on garde « pas
         # encore repondu » (le bandeau de consentement reste propose)

@@ -94,6 +94,9 @@ class ChromeMixin:
         home_layout.addWidget(self.logo_label)
         home_layout.addWidget(self.title_label)
         hl.addWidget(self.home_btn)
+        # -- source : cet ordinateur ou un serveur de lecture (voir sources.py)
+        hl.addSpacing(8)
+        hl.addWidget(self._build_source_switch())
 
         # -- fil d'Ariane : bouton retour, visible seulement dans un dossier
         self.btn_back = QToolButton()
@@ -266,7 +269,7 @@ class ChromeMixin:
             QSlider#sizeSlider::handle:horizontal:hover {{
                 background: {theme.ACCENT};
             }}
-        """)
+        """ + self.source_switch_css(c, theme.ACCENT))
 
         # logo et titre bicolore : "BEHE" en accent, "READ" dans la couleur du texte
         self.logo_label.setPixmap(appicon.app_icon().pixmap(QSize(28, 28)))
@@ -482,6 +485,8 @@ class ChromeMixin:
         approx = bool(text) and n > 0 and self._search_approx
         if approx:
             text += " · " + tr("résultats approchants")
+        elif text and self.is_remote_source():
+            text += " · " + tr("lus en continu depuis le serveur, sans copie sur le disque")
         self.count_label.setText(text)
         self.count_label.setToolTip(
             tr("Aucun résultat exact : les fautes de frappe sont tolérées.") if approx else "")

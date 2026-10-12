@@ -21,6 +21,7 @@ from beheread.core.library_model import (
 )
 from beheread.core.series import normalize_name
 from beheread.i18n import N_, fmt_decimal, tr, trn
+from beheread.infra import servers as remote
 
 # modules extraits (voir chacun) : constantes de rendu, delegates, dialogues et
 # taches d'arriere-plan. LibraryWidget (ci-dessous) orchestre le tout.
@@ -71,7 +72,15 @@ class DetailPanelMixin:
     # libelles traduits a l'affichage (tr)
     _SOURCE_LABELS = {"comicinfo": "ComicInfo.xml", "googlebooks": "Google Books",
                       "anilist": "AniList", "mangadex": "MangaDex", "bnf": "BnF",
-                      "manual": N_("Saisie manuelle"), "series": N_("Série")}
+                      "manual": N_("Saisie manuelle"), "series": N_("Série"),
+                      "server": N_("Serveur")}
+
+    def _server_name(self, path) -> str:
+        """Nom du serveur d'un tome distant, "" pour un tome local."""
+        if not self._is_remote(path) or self.servers is None:
+            return ""
+        config = self.servers.config(remote.split_path(path)[0])
+        return config.name if config is not None else tr("Serveur")
 
     def _show_volume_detail(self, path):
         e = self._entry_by_path.get(path)
@@ -95,23 +104,25 @@ class DetailPanelMixin:
             progress += " — " + tr("page {page} / {total}", page=prog[0] + 1, total=prog[1])
         total = (prog[1] if prog and prog[1] else None) or self.store.page_count(path)
         estimate = self._time_estimate_text(path)
+        server = self._server_name(path)
         try:
-            size = f"{fmt_decimal(os.path.getsize(path) / 1_048_576)} {tr('Mo')}"
+            size = "" if server else f"{fmt_decimal(os.path.getsize(path) / 1_048_576)} {tr('Mo')}"
         except OSError:
             size = ""
+        source = tr(self._SOURCE_LABELS.get((meta or {}).get("source"), ""))
         byline = " · ".join(p for p in (info.author, str(info.year) if info.year else "") if p)
         subtitle = "\n".join(p for p in (subtitle, byline) if p)
         rows = [
             (tr("Statut"), progress),
             (tr("Pages"), str(total) if total else ""),
             (tr("Série"), self._series_counts_text(info.series_key) if info.series_key else ""),
-            (tr("Source"), tr(self._SOURCE_LABELS.get((meta or {}).get("source"), ""))),
+            (tr("Source"), server or source),
             (tr("Durée"), estimate.split(" : ", 1)[-1] if estimate else ""),
             (tr("Ajouté le"), self._fmt_date(info.added)),
             (tr("Lu le"), self._fmt_date(info.last_read)),
             (tr("Taille"), size),
             # le chemin peut revenir a la ligne au lieu d'elargir le panneau
-            (tr("Fichier"), breakable(path)),
+            (tr("Fichier"), breakable(path)) if not server else (tr("Serveur"), server),
         ]
         primary = {READING: tr("Reprendre la lecture"), FINISHED: tr("Relire")}.get(status, tr("Lire"))
         actions = [(primary, lambda: self.mangaActivated.emit(path), True)]
@@ -124,8 +135,9 @@ class DetailPanelMixin:
         actions += [
             (tr("Modifier les informations…"), lambda: self._edit_volume_info(path), False),
             (tr("Déplacer vers une série…"), lambda: self._move_to_series([path]), False),
-            (tr(platforms.REVEAL_LABEL), lambda: self._show_in_explorer(path), False),
         ]
+        if not server:
+            actions.append((tr(platforms.REVEAL_LABEL), lambda: self._show_in_explorer(path), False))
         if info.series_key and not e.detached:
             self._add_anilist_detail(info.series_key, path, rows, actions)
         genres, summary = self._work_details(meta, info.series_key)

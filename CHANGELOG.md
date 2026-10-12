@@ -33,6 +33,12 @@ Les numéros de version suivent [SemVer](https://semver.org/lang/fr/). Chaque se
 * **Corrigé** : dans les statistiques, un ancien tome terminé venu d'une sauvegarde d'un autre système affichait son chemin complet au lieu de son titre.
 * Les guides d'installation sont désormais séparés : [Windows](https://github.com/codingt0m/beheread/blob/main/docs/INSTALLATION-WINDOWS.md) et [macOS](https://github.com/codingt0m/beheread/blob/main/docs/INSTALLATION-MACOS.md).
 
+### Serveurs de lecture (nouveau)
+
+* **Nouveau** : Beheread lit les tomes d'un serveur Komga, Kavita ou OPDS, page par page, sans les copier sur l'ordinateur. L'option est désactivée par défaut (*Préférences > Serveurs*) ; une fois un serveur ajouté, l'en-tête de la bibliothèque permet de passer de « Sur cet ordinateur » à vos serveurs.
+* Avec Komga et Kavita, la progression est synchronisée : la page atteinte est renvoyée au serveur à la fin de chaque séance, et une lecture plus avancée faite sur un autre appareil est reprise.
+* Le mot de passe ou la clé d'API est protégé comme la connexion AniList, et n'est jamais envoyé ailleurs qu'à l'adresse du serveur.
+
 ### Interface en anglais (nouveau)
 
 * **Nouveau** : Beheread existe en anglais. Le choix se fait dans *Préférences > Général > Langue* : « Celle du système » (par défaut : français si Windows ou macOS est en français, anglais sinon), Français ou English. Il s'applique au prochain lancement.

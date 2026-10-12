@@ -901,6 +901,46 @@ class Store:
                 "series_direction": self.settings.setdefault("series_direction", {}),
                 "series_reader": self.settings.setdefault("series_reader", {})}
 
+    # ------------------------------------------------------------ serveurs de lecture
+    def servers(self) -> list:
+        """Serveurs de lecture configures : [{"id", "kind", "name", "url",
+        "user", "secret_enc"}] (voir infra/servers.py). Le mot de passe ou la
+        cle d'API est protege comme le jeton AniList."""
+        value = self.settings.get("servers")
+        return [dict(s) for s in value if isinstance(s, dict)] if isinstance(value, list) else []
+
+    def server_secret(self, server_id):
+        for s in self.servers():
+            if s.get("id") == server_id:
+                return secret_store.unprotect(s.get("secret_enc"))
+        return None
+
+    def save_server(self, data: dict, secret=None):
+        """Ajoute ou remplace un serveur (meme "id"). `secret` : nouveau mot
+        de passe ou cle d'API, None pour garder celui enregistre."""
+        servers = self.servers()
+        old = next((s for s in servers if s.get("id") == data["id"]), None)
+        entry = {k: data[k] for k in ("id", "kind", "name", "url", "user")}
+        entry["secret_enc"] = (old or {}).get("secret_enc")
+        if secret is not None:
+            secret_store.discard(entry["secret_enc"])
+            entry["secret_enc"] = secret_store.protect(secret, f"server-{data['id']}") if secret else None
+        servers = [entry if s.get("id") == data["id"] else s for s in servers]
+        if old is None:
+            servers.append(entry)
+        self.settings["servers"] = servers
+        self._schedule("settings")
+        self.flush()
+
+    def remove_server(self, server_id):
+        servers = self.servers()
+        for s in servers:
+            if s.get("id") == server_id:
+                secret_store.discard(s.get("secret_enc"))
+        self.settings["servers"] = [s for s in servers if s.get("id") != server_id]
+        self._schedule("settings")
+        self.flush()
+
     # ------------------------------------------------------------ AniList (suivi)
     def anilist(self) -> dict:
         """Etat AniList de l'utilisateur : user, tracking, token_enc (voir
@@ -1009,7 +1049,7 @@ class Store:
         MangaDex) et les resultats « introuvable », en conservant ce qui vient
         de ComicInfo.xml ou d'une saisie manuelle. Renvoie le nombre d'entrees
         retirees."""
-        keep = ("comicinfo", "manual")
+        keep = ("comicinfo", "manual", "server")   # server : redonne a chaque liste
         removed = 0
         for section in ("volume", "series"):
             data = self.meta_cache.get(section, {})

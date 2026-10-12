@@ -71,13 +71,14 @@ from beheread.ui.library.menus import MenusMixin
 from beheread.ui.library.series_band import SeriesBand
 from beheread.ui.library.services import ServicesMixin
 from beheread.ui.library.shelf import ContinueShelf
+from beheread.ui.library.sources import SourcesMixin
 from beheread.ui.library.views import ScrollingHeaderHost, SmoothListWidget
 from beheread.ui.safe_text import plain
 
 # ---------------------------------------------------------------- widget
 
 class LibraryWidget(ChromeMixin, DetailPanelMixin, ActionsMixin, MenusMixin,
-                    ServicesMixin, QWidget):
+                    ServicesMixin, SourcesMixin, QWidget):
     mangaActivated = Signal(str)
     preferencesChanged = Signal()   # preferences modifiees (theme, raccourci global...)
     volumesFinished = Signal(list)  # tomes marques « lus » depuis la bibliotheque (suivi AniList)
@@ -151,8 +152,9 @@ class LibraryWidget(ChromeMixin, DetailPanelMixin, ActionsMixin, MenusMixin,
         self._info = {}            # path -> info de tri/statut (library_model), par reconstruction
         self._series_raw_name = {}   # cle de serie -> nom issu des fichiers (vote)
         self._root_position = (0, None)   # defilement + element courant a la racine
-        # service fourni par la fenetre principale (voir set_services)
+        # services fournis par la fenetre principale (voir set_services, set_servers)
         self.tracker = None
+        self._init_sources()
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -293,7 +295,11 @@ class LibraryWidget(ChromeMixin, DetailPanelMixin, ActionsMixin, MenusMixin,
 
     # ----- liaison avec les controleurs -----
     def refresh(self):
-        """Relance un scan des dossiers sources (voir ScanController)."""
+        """Relance un scan des dossiers sources (voir ScanController), ou la
+        liste du serveur consulte."""
+        if self.is_remote_source():
+            self._refresh_source()
+            return
         self.scanner.refresh()
 
     @property
@@ -305,6 +311,9 @@ class LibraryWidget(ChromeMixin, DetailPanelMixin, ActionsMixin, MenusMixin,
             self._update_empty_state(False, self._search_hits is not None)
 
     def _on_scanned(self, paths, cloud_paths, local_paths):
+        if self.is_remote_source():   # applique au retour sur les dossiers locaux
+            self._local_results = (paths, cloud_paths, local_paths)
+            return
         self._apply_scan_results(paths, cloud_paths, local_paths)
         if not self._entries:
             self._update_empty_state(False, self._search_hits is not None)
@@ -741,7 +750,9 @@ class LibraryWidget(ChromeMixin, DetailPanelMixin, ActionsMixin, MenusMixin,
         self.empty_panel.setVisible(not has_any_result)
         if has_any_result:
             return
-        if not self._entries and not self.store.folders():
+        if self.is_remote_source() and not self._entries:
+            self._remote_empty_state()
+        elif not self._entries and not self.store.folders():
             self._set_empty_state(
                 tr("Bienvenue dans Beheread"),
                 tr("Ajoutez un dossier contenant vos fichiers CBZ, CBR, EPUB ou PDF pour "

@@ -25,7 +25,7 @@ from PySide6.QtGui import QPixmap
 
 from beheread.core.series import author_hint, normalize_name
 from beheread.i18n import tr
-from beheread.infra import metadata
+from beheread.infra import metadata, servers
 from beheread.ui.library.workers import (
     HydrateWorker,
     MetaWorker,
@@ -278,6 +278,11 @@ class MetadataController(QObject):
         par une cascade plus ancienne (voir metadata.is_stale) est retente ;
         un resultat perime reste affiche en attendant le nouveau."""
         path = entry.path
+        if servers.is_remote(path):
+            # tome d'un serveur de lecture : auteur et annee donnes par le
+            # serveur (voir ServerManager), rien n'est cherche en ligne
+            cached = self.store.volume_meta(path)
+            return None if not cached or cached.get("not_found") else cached
         cached = self.store.volume_meta(path)
         if cached is not None and not metadata.is_stale(cached):
             return None if cached.get("not_found") else cached

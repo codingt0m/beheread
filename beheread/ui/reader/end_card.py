@@ -21,6 +21,7 @@ from PySide6.QtWidgets import (
 
 from beheread.core import babelio
 from beheread.i18n import tr, trn
+from beheread.infra import servers
 from beheread.infra.storage import Store
 from beheread.ui import theme
 
@@ -99,7 +100,7 @@ class EndCardMixin:
         self.end_next_btn.setObjectName("endNext")
 
     def _show_end_card(self):
-        name = Path(self.path).stem
+        name = servers.display_name(self.path)
         self.end_title.setText(name)
 
         cover = QPixmap(str(self.store.thumb_path(self.path)))
@@ -120,7 +121,7 @@ class EndCardMixin:
 
         if self._next_volume_path:
             self.end_next_btn.setText(tr("Tome suivant : {title}",
-                                         title=Path(self._next_volume_path).stem))
+                                         title=servers.display_name(self._next_volume_path)))
             self.end_next_btn.show()
         else:
             self.end_next_btn.hide()
@@ -153,7 +154,8 @@ class EndCardMixin:
         p = Path(self.path)
         override = self.store.series_override(self.path)
         name = None if override in (None, Store.SERIES_DETACHED) else override
-        query = babelio.search_query(p.stem, p.parent.name, name)
+        folder = "" if servers.is_remote(self.path) else p.parent.name
+        query = babelio.search_query(servers.display_name(self.path), folder, name)
         page = self.store.dir / "babelio_search.html"
         page.write_text(babelio.search_page(query), encoding="utf-8")
         return page

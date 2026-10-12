@@ -97,7 +97,7 @@ def test_preferences_list_every_keyboard_shortcut(qtbot, store):
     dlg = PreferencesDialog(store, theme.colors("dark"), {})
     qtbot.addWidget(dlg)
     titles = [dlg.tabs.tabText(i) for i in range(dlg.tabs.count())]
-    assert titles == ["Général", "Lecteur", "Données", "AniList", "Raccourcis"]
+    assert titles == ["Général", "Lecteur", "Données", "AniList", "Serveurs", "Raccourcis"]
     page = dlg.tabs.widget(titles.index("Raccourcis"))
     texts = {lab.text() for lab in page.findChildren(QLabel)}
     assert {"Dans la bibliothèque", "Dans le lecteur"} <= texts

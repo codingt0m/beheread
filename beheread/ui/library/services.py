@@ -40,7 +40,7 @@ class ServicesMixin:
                    "export": self._export_backup, "import": self._import_backup,
                    "export_csv": self._export_reading_csv,
                    "check_updates": lambda report: self.check_updates(True, report)}
-        dlg = PreferencesDialog(self.store, c, actions, self.tracker, self)
+        dlg = PreferencesDialog(self.store, c, actions, self.tracker, self, servers=self.servers)
         if dlg.exec() != QDialog.Accepted:
             return
         was_online = self._online_meta()
@@ -52,6 +52,8 @@ class ServicesMixin:
         if self._online_meta() and not was_online:
             self.meta.forget_failures()
         archive.set_extra_page_words(self.store.library_pref("extra_page_words"))
+        if self.servers is not None:
+            self.servers.reload()   # option activee ou desactivee
         self._rebuild_list()
         self.preferencesChanged.emit()
 

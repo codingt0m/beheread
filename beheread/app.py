@@ -19,6 +19,7 @@ from PySide6.QtCore import (
     QLocale,
     QObject,
     Qt,
+    QThreadPool,
     QTimer,
     QTranslator,
     Signal,
@@ -28,15 +29,17 @@ from PySide6.QtWidgets import QApplication, QMainWindow, QMenuBar, QMessageBox
 
 from beheread import i18n, platforms
 from beheread.i18n import tr
-from beheread.infra import applogging, archive
+from beheread.infra import applogging, archive, servers
 from beheread.infra.archive import ArchiveError
 from beheread.infra.database import DatabaseTooNew
 from beheread.infra.single_instance import SingleInstance, send_to_primary
 from beheread.infra.storage import Store, data_dir
 from beheread.services.anilist_tracker import AniListTracker
+from beheread.services.servers import ServerManager
 from beheread.services.tracking import TrackerSet
 from beheread.ui import appicon, keys, theme
 from beheread.ui.library.widget import LibraryWidget
+from beheread.ui.library.workers import CallWorker
 from beheread.ui.reader.widget import ReaderWidget
 from beheread.ui.safe_text import plain
 from beheread.version import __version__
@@ -128,8 +131,12 @@ class MainWindow(QMainWindow):
         # services de suivi de lecture (voir services/tracking.py) : AniList,
         # dont les ecrans (connexion, association) sont fournis a la bibliotheque
         self.tracker = AniListTracker(store, self.library.series_volumes_for, self)
-        self.trackers = TrackerSet([self.tracker])
+        # serveurs de lecture (Komga, Kavita, OPDS ; desactives par defaut) :
+        # la progression de leurs tomes leur est renvoyee comme a un service de suivi
+        self.servers = ServerManager(store, self)
+        self.trackers = TrackerSet([self.tracker, self.servers])
         self.library.set_services(tracker=self.tracker)
+        self.library.set_servers(self.servers)
         self.library.volumesFinished.connect(self.trackers.on_volumes_finished)
         QTimer.singleShot(3000, self.trackers.flush_pending)   # envois restes en attente
         QTimer.singleShot(5000, self.library.check_updates)    # si l'option est activee
@@ -191,9 +198,13 @@ class MainWindow(QMainWindow):
         self.open_manga(path)
 
     def open_manga(self, path: str):
+        if servers.registry.needs_download(path):
+            self._download_then_open(path)
+            return
         try:
             reader = ReaderWidget(path, self.store, direct_mode=self.direct_mode,
-                                  entry=self.library.entry(path))
+                                  entry=self.library.entry(path),
+                                  next_volume=self.library.next_volume)
         except ArchiveError as e:
             logging.warning("Ouverture impossible (%s): %s", path, e)
             QMessageBox.warning(self, tr("Impossible d'ouvrir le manga"), plain(e))
@@ -218,7 +229,7 @@ class MainWindow(QMainWindow):
         win = self.reader_window
         reader.fullscreen_toggled.connect(win.toggle_fullscreen)
         win.setCentralWidget(reader)   # avant showFullScreen : la fenetre a deja
-        win.setWindowTitle(f"{Path(path).stem}  —  {APP_NAME}")  # son contenu au premier affichage
+        win.setWindowTitle(f"{servers.display_name(path)}  —  {APP_NAME}")  # son contenu au premier affichage
         if first_open:
             win.showFullScreen()   # le lecteur s'ouvre toujours en plein ecran
             self.hide()   # la bibliotheque passe derriere, comme un popup
@@ -260,6 +271,25 @@ class MainWindow(QMainWindow):
             self.open_file_directly(path)
         else:
             self.handle_instance_message({"open": path})
+
+    def _download_then_open(self, path):
+        """Tome d'un serveur OPDS sans lecture en continu : le fichier est
+        charge en memoire (hors du thread UI) avant d'ouvrir le lecteur."""
+        if getattr(self, "_download_job", None) is not None:
+            return
+        QApplication.setOverrideCursor(Qt.WaitCursor)
+        job = CallWorker(lambda: servers.registry.download(path))
+        self._download_job = job
+
+        def done(_result, err):
+            self._download_job = None
+            QApplication.restoreOverrideCursor()
+            if err is not None:
+                QMessageBox.warning(self, tr("Impossible d'ouvrir le manga"), plain(err))
+                return
+            self.open_manga(path)
+        job.signals.done.connect(done)
+        QThreadPool.globalInstance().start(job)
 
     def _on_open_failed(self):
         """Le fichier passe en ligne de commande n'a pas pu s'ouvrir. En mode

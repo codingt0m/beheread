@@ -311,7 +311,11 @@ class ActionsMixin:
     def _delete_many(self, paths, series_label=None):
         """Supprime les fichiers donnes (corbeille du systeme si possible,
         sinon suppression definitive). `series_label` : si fourni, la
-        confirmation annonce la suppression de toute une serie."""
+        confirmation annonce la suppression de toute une serie. Les tomes
+        d'un serveur de lecture ne sont jamais supprimes d'ici."""
+        paths = [p for p in paths if not self._is_remote(p)]
+        if not paths:
+            return
         # corbeille du systeme si elle est utilisable (voir
         # beheread.platforms.trash_function), suppression definitive sinon
         send2trash = platforms.trash_function()
