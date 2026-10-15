@@ -92,6 +92,7 @@ def _accept_with_language(monkeypatch, code):
 
 def test_changing_the_language_restarts_beheread(qtbot, window, monkeypatch):
     lib = window.library
+    window.store.set_ui_pref("language", "fr")   # independant de la langue du systeme
     _accept_with_language(monkeypatch, "en")
     with qtbot.waitSignal(lib.restartRequested, timeout=1000):
         lib.open_preferences()
@@ -100,7 +101,8 @@ def test_changing_the_language_restarts_beheread(qtbot, window, monkeypatch):
 
 def test_keeping_the_language_does_not_restart(qtbot, window, monkeypatch):
     lib = window.library
-    _accept_with_language(monkeypatch, "fr")   # langue actuelle de la session de test
+    window.store.set_ui_pref("language", "fr")   # independant de la langue du systeme
+    _accept_with_language(monkeypatch, "fr")
     with qtbot.assertNotEmitted(lib.restartRequested):
         lib.open_preferences()
 
