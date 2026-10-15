@@ -41,7 +41,7 @@ Les numéros de version suivent [SemVer](https://semver.org/lang/fr/). Chaque se
 
 ### Interface en anglais (nouveau)
 
-* **Nouveau** : Beheread existe en anglais. Le choix se fait dans *Préférences > Général > Langue* : « Celle du système » (par défaut : français si Windows ou macOS est en français, anglais sinon), Français ou English. Il s'applique au prochain lancement.
+* **Nouveau** : Beheread existe en anglais. Le choix se fait dans *Préférences > Général > Langue* : « Celle du système » (par défaut : français si Windows ou macOS est en français, anglais sinon), Français ou English. Beheread redémarre de lui-même pour l'appliquer.
 * Les dates, les nombres, les tailles de fichiers et le journal de lecture exporté en CSV suivent la langue choisie.
 * En français, les boutons et fenêtres fournis par le système d'affichage (Oui / Non, choix d'un fichier) sont désormais eux aussi en français.
 

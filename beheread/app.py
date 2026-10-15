@@ -18,6 +18,7 @@ from PySide6.QtCore import (
     QLibraryInfo,
     QLocale,
     QObject,
+    QProcess,
     Qt,
     QThreadPool,
     QTimer,
@@ -126,6 +127,7 @@ class MainWindow(QMainWindow):
         self._session_paths = set()   # tomes ouverts depuis le dernier retour a la bibliotheque
         self.library.mangaActivated.connect(self.open_manga)
         self.library.preferencesChanged.connect(self.apply_preferences)
+        self.library.restartRequested.connect(self.restart)
 
         # suivi AniList
         # services de suivi de lecture (voir services/tracking.py) : AniList,
@@ -380,6 +382,14 @@ class MainWindow(QMainWindow):
         self._apply_current_theme()
         self._sync_global_hotkey()
 
+    def restart(self):
+        """Ferme Beheread normalement (progression et reglages ecrits, verrou
+        d'instance libere), puis main() le relance (changement de langue)."""
+        global _restart_requested
+        _restart_requested = True
+        self.close()
+        QApplication.instance().quit()
+
     def _sync_global_hotkey(self):
         """Enregistre ou libere le raccourci global Ctrl+Alt+C selon la
         preference (RegisterHotKey est exclusif : le liberer le rend aux
@@ -477,6 +487,31 @@ def apply_language(app: QApplication, preference):
             logging.info("Traduction francaise de Qt introuvable")
 
 
+_restart_requested = False   # voir MainWindow.restart
+
+
+def restart_command():
+    """(programme, arguments) qui relance Beheread tel qu'il a ete lance :
+    application emballee (exe Windows, application macOS) ou sources."""
+    if getattr(sys, "frozen", False):
+        exe = Path(sys.executable)
+        bundle = next((p for p in exe.parents if p.suffix == ".app"), None)
+        if platforms.IS_MACOS and bundle is not None:
+            return "open", ["-n", str(bundle)]   # par LaunchServices (Dock, icone)
+        return str(exe), []
+    script = Path(sys.argv[0])
+    if script.name == "__main__.py":   # python -m beheread
+        return sys.executable, ["-m", "beheread"]
+    return sys.executable, [str(script.resolve())]
+
+
+def _relaunch():
+    program, args = restart_command()
+    logging.info("Redemarrage de Beheread")
+    if not QProcess.startDetached(program, args):
+        logging.warning("Redemarrage impossible : %s", program)
+
+
 def main():
     applogging.setup()
     platforms.before_app_start()
@@ -553,7 +588,10 @@ def main():
         # verification d'un build (packaging/macos/build.sh) : l'application
         # emballee demarre, affiche sa fenetre puis se ferme d'elle-meme
         QTimer.singleShot(3000, app.quit)
-    sys.exit(app.exec())
+    code = app.exec()
+    if _restart_requested:   # verrou d'instance libere par aboutToQuit
+        _relaunch()
+    sys.exit(code)
 
 
 if __name__ == "__main__":

@@ -625,7 +625,7 @@ CATALOG = {
     'impossible de mettre « {path} » à la Corbeille': 'could not move “{path}” to the Trash',
     'Langue': 'Language',
     'Celle du système': 'System language',
-    'au prochain lancement': 'at the next launch',
+    "Beheread redémarre pour l'appliquer": 'Beheread restarts to apply it',
     'To': 'TB',
     'Go': 'GB',
     'Mo': 'MB',

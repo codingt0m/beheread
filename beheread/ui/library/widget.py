@@ -81,6 +81,7 @@ class LibraryWidget(ChromeMixin, DetailPanelMixin, ActionsMixin, MenusMixin,
                     ServicesMixin, SourcesMixin, QWidget):
     mangaActivated = Signal(str)
     preferencesChanged = Signal()   # preferences modifiees (theme, raccourci global...)
+    restartRequested = Signal()     # langue changee : l'interface doit etre reconstruite
     volumesFinished = Signal(list)  # tomes marques « lus » depuis la bibliotheque (suivi AniList)
 
     # bornes du curseur de taille des couvertures (pourcentage de la taille de

@@ -576,8 +576,8 @@ class PreferencesDialog(ServersTabMixin, QDialog):
         return host
 
     def _language_row(self):
-        """Langue de l'interface, prise en compte au prochain lancement (les
-        textes sont traduits a la creation des fenetres)."""
+        """Langue de l'interface. Les textes sont traduits a la creation des
+        fenetres : en changer redemarre Beheread (voir MainWindow.restart)."""
         host = QWidget()
         row = QHBoxLayout(host)
         row.setContentsMargins(0, 0, 0, 0)
@@ -588,7 +588,7 @@ class PreferencesDialog(ServersTabMixin, QDialog):
         self.language.setCurrentIndex(
             max(0, self.language.findData(self.store.ui_pref("language", "system"))))
         row.addWidget(self.language)
-        hint = self._hint(tr("au prochain lancement"))
+        hint = self._hint(tr("Beheread redémarre pour l'appliquer"))
         hint.setWordWrap(False)
         row.addWidget(hint)
         row.addStretch(1)

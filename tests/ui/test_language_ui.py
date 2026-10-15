@@ -76,3 +76,50 @@ def test_numbers_and_plurals_follow_the_language():
     assert i18n.trn(1500, "{n} page", "{n} pages") == "1 500 pages"
     i18n.set_language("en")
     assert i18n.fmt_int(12345) == "12,345" and i18n.fmt_decimal(2.5) == "2.5"
+
+
+def _accept_with_language(monkeypatch, code):
+    """Le dialogue des preferences est valide avec cette langue choisie."""
+    from PySide6.QtWidgets import QDialog
+
+    from beheread.ui.library import services
+
+    def exec_(dlg):
+        dlg.language.setCurrentIndex(dlg.language.findData(code))
+        return QDialog.Accepted
+    monkeypatch.setattr(services.PreferencesDialog, "exec", exec_)
+
+
+def test_changing_the_language_restarts_beheread(qtbot, window, monkeypatch):
+    lib = window.library
+    _accept_with_language(monkeypatch, "en")
+    with qtbot.waitSignal(lib.restartRequested, timeout=1000):
+        lib.open_preferences()
+    assert window.store.ui_pref("language") == "en"
+
+
+def test_keeping_the_language_does_not_restart(qtbot, window, monkeypatch):
+    lib = window.library
+    _accept_with_language(monkeypatch, "fr")   # langue actuelle de la session de test
+    with qtbot.assertNotEmitted(lib.restartRequested):
+        lib.open_preferences()
+
+
+def test_restart_command_relaunches_the_same_way(monkeypatch, tmp_path):
+    import sys
+
+    from beheread import app, platforms
+    monkeypatch.delattr(sys, "frozen", raising=False)
+    monkeypatch.setattr(sys, "argv", [str(tmp_path / "beheread" / "__main__.py")])
+    assert app.restart_command() == (sys.executable, ["-m", "beheread"])
+    monkeypatch.setattr(sys, "argv", [str(tmp_path / "main.py")])
+    assert app.restart_command() == (sys.executable, [str((tmp_path / "main.py").resolve())])
+
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    monkeypatch.setattr(sys, "executable", str(tmp_path / "Beheread.exe"))
+    monkeypatch.setattr(platforms, "IS_MACOS", False)
+    assert app.restart_command() == (str(tmp_path / "Beheread.exe"), [])
+    bundle = tmp_path / "Beheread.app"
+    monkeypatch.setattr(sys, "executable", str(bundle / "Contents" / "MacOS" / "Beheread"))
+    monkeypatch.setattr(platforms, "IS_MACOS", True)
+    assert app.restart_command() == ("open", ["-n", str(bundle)])

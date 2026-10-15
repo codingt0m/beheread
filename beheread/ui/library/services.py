@@ -7,7 +7,7 @@ responsabilite pour garder chaque fichier lisible."""
 import time
 from pathlib import Path
 
-from PySide6.QtCore import Qt, QThreadPool
+from PySide6.QtCore import QLocale, Qt, QThreadPool
 from PySide6.QtWidgets import (
     QApplication,
     QDialog,
@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
     QMessageBox,
 )
 
+from beheread import i18n
 from beheread.core.anilist_track import ONESHOT
 from beheread.core.library_model import FINISHED
 from beheread.core.series import normalize_name, parse_path
@@ -44,6 +45,7 @@ class ServicesMixin:
         if dlg.exec() != QDialog.Accepted:
             return
         was_online = self._online_meta()
+        old_language = i18n.language()
         dlg.save()
         self._show_continue = bool(self.store.library_pref("show_continue", True))
         self._set_details_visible(bool(self.store.library_pref("show_details", False)))
@@ -56,6 +58,11 @@ class ServicesMixin:
             self.servers.reload()   # option activee ou desactivee
         self._rebuild_list()
         self.preferencesChanged.emit()
+        # langue effectivement differente (« systeme » peut valoir la langue
+        # actuelle) : redemarrage, les textes etant traduits a la creation
+        system = QLocale.system().name()
+        if i18n.resolve(self.store.ui_pref("language", "system"), system) != old_language:
+            self.restartRequested.emit()
 
     def _clear_thumbnails(self) -> int:
         n = self.store.clear_thumbnails()
