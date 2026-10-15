@@ -2,9 +2,12 @@
 couvertures pour les series) et liste compacte. Ils ne lisent que les donnees
 portees par l'index (roles ROLE_*), sans connaitre le widget."""
 
-from PySide6.QtCore import QPoint, QRect, QSize, Qt
+from collections import OrderedDict
+from functools import lru_cache
+
+from PySide6.QtCore import QPoint, QRect, QRectF, QSize, Qt
 from PySide6.QtGui import QColor, QFont, QPainter, QPainterPath, QPen, QPixmap
-from PySide6.QtWidgets import QStyle, QStyledItemDelegate
+from PySide6.QtWidgets import QStyle, QStyledItemDelegate, QStyleOptionViewItem
 
 from beheread.i18n import tr
 from beheread.infra.storage import Store
@@ -47,6 +50,99 @@ def _cover_source_rect(pm: QPixmap, target: QSize) -> QRect:
         return QRect((pw - nw) // 2, 0, nw, ph)
     nh = max(1, round(pw * th / tw))   # pm plus haut -> rogne haut/bas
     return QRect(0, (ph - nh) // 2, pw, nh)
+
+
+class _PixmapLRU:
+    """Pixmaps rendues une fois et recopiees ensuite telles quelles, par cle.
+    Une cle couvre tout ce dont depend le rendu : quand une donnee change, la
+    cle change, l'ancienne entree n'est plus demandee et finit evincee.
+    Memoire bornee (LRU)."""
+
+    def __init__(self, budget_bytes):
+        self.budget = budget_bytes
+        self._items = OrderedDict()   # cle -> QPixmap, du moins au plus recent
+        self._bytes = 0
+
+    def get(self, key, render) -> QPixmap:
+        out = self._items.get(key)
+        if out is not None:
+            self._items.move_to_end(key)
+            return out
+        out = render()
+        self._items[key] = out
+        self._bytes += out.width() * out.height() * 4
+        while self._bytes > self.budget and len(self._items) > 1:
+            _, old = self._items.popitem(last=False)
+            self._bytes -= old.width() * old.height() * 4
+        return out
+
+    def clear(self):
+        self._items.clear()
+        self._bytes = 0
+
+
+# Couvertures deja mises a la taille d'affichage, arrondies et bordees. Sans
+# ce cache, chaque peinture reduisait la couverture depuis sa pleine
+# resolution (lissage) a travers un decoupage arrondi anticrenele, puis
+# tracait son contour. Cle : (pixmap source, taille, densite, rayon, contour).
+_scaled_covers = _PixmapLRU(64 * 1024 * 1024)
+_COVER_PAD = 1   # marge (px logiques) ou deborde la moitie exterieure du contour
+
+
+def _render_cover(pm, size, dpr, radius, border):
+    pad = _COVER_PAD * dpr
+    inner = QRectF(pad, pad, size.width() * dpr, size.height() * dpr)
+    # reduction de qualite (moyenne de zone) une fois pour toutes, plutot que
+    # l'interpolation bilineaire du painter a chaque peinture
+    src = pm.copy(_cover_source_rect(pm, size)).scaled(
+        max(1, round(inner.width())), max(1, round(inner.height())),
+        Qt.IgnoreAspectRatio, Qt.SmoothTransformation)
+    out = QPixmap(round((size.width() + 2 * _COVER_PAD) * dpr),
+                  round((size.height() + 2 * _COVER_PAD) * dpr))
+    out.fill(Qt.transparent)
+    p = QPainter(out)
+    p.setRenderHint(QPainter.Antialiasing)
+    path = QPainterPath()
+    path.addRoundedRect(inner, radius * dpr, radius * dpr)
+    p.setClipPath(path)
+    p.drawPixmap(inner.topLeft(), src)
+    p.setClipping(False)
+    if border is not None:
+        # meme trait que drawRoundedRect(rect, r, r) avec QPen(border, 1)
+        p.setPen(QPen(border, dpr))
+        p.setBrush(Qt.NoBrush)
+        p.drawRoundedRect(inner, radius * dpr, radius * dpr)
+    p.end()
+    out.setDevicePixelRatio(dpr)
+    return out
+
+
+# Image complete des cases de la grille (voir MangaDelegate.paint)
+_cells = _PixmapLRU(96 * 1024 * 1024)
+
+
+def _cover_key(pm):
+    """Identite d'une couverture pour les cles de cache (None si absente)."""
+    return pm.cacheKey() if pm is not None and not pm.isNull() else None
+
+
+def _draw_cover(painter: QPainter, rect: QRect, pm: QPixmap, radius: int, border=None):
+    """Peint la couverture pm recadree, arrondie et (si `border`) bordee dans
+    rect, depuis le cache des couvertures a la taille d'affichage."""
+    dpr = painter.device().devicePixelRatioF()
+    size = rect.size()
+    key = (pm.cacheKey(), size.width(), size.height(), dpr, radius,
+           border.rgba() if border is not None else None)
+    scaled = _scaled_covers.get(key, lambda: _render_cover(pm, size, dpr, radius, border))
+    painter.drawPixmap(rect.x() - _COVER_PAD, rect.y() - _COVER_PAD, scaled)
+
+
+@lru_cache(maxsize=64)
+def _qcolor(value):
+    """theme.qcolor memorise : evite de reanalyser les « rgba(...) » de la
+    palette a chaque case peinte. Les QColor rendues sont partagees : ne
+    jamais les modifier."""
+    return theme.qcolor(value)
 
 
 def _keyboard_focus(option) -> bool:
@@ -121,7 +217,10 @@ class MangaDelegate(QStyledItemDelegate):
     reduite de la bande gonflait la case bien plus que la couverture."""
 
     CAPTION_H = 80        # hauteur fixe de la legende (grille normale)
-    CAPTION_H_COMPACT = 40
+    # marge 10 + ecart 8 + titre 16 + progression (~18 avec les jambages).
+    # Rien ne doit deborder de la case : elle est rendue dans une image a sa
+    # taille (_render_cell), ce qui depasse est coupe.
+    CAPTION_H_COMPACT = 54
 
     def __init__(self, store: Store, parent=None, compact=False, covers=None):
         super().__init__(parent)
@@ -143,6 +242,57 @@ class MangaDelegate(QStyledItemDelegate):
         return QSize(self.cell_w, self.cell_h)
 
     def paint(self, painter: QPainter, option, index):
+        """Recopie l'image de la case, rendue une fois (_render_cell) puis
+        gardee en cache : pendant un defilement, une meme case est repeinte
+        a chaque pas (bande sous le degrade du haut, deplacement de l'en-tete)
+        et refaire tout son rendu en Python a chaque fois saccadait l'image."""
+        theme_mode = self.store.ui_pref("theme", "dark")
+        mode = theme.colors(theme_mode)
+        vp = option.widget.viewport() if option.widget is not None else None
+        bg = (vp.palette().color(vp.backgroundRole()) if vp is not None
+              else QColor(mode["list_bg"]))
+        dpr = painter.device().devicePixelRatioF()
+        size = option.rect.size()
+        key = (self._cell_key(option, index), theme_mode, theme.ACCENT, theme.FINISHED,
+               bg.rgba(), size.width(), size.height(), dpr)
+        pm = _cells.get(key, lambda: self._render_cell(option, index, bg, dpr))
+        painter.drawPixmap(option.rect.topLeft(), pm)
+
+    def _cell_key(self, option, index):
+        """Tout ce dont depend le rendu d'une case, hors theme et taille.
+        Les couvertures sont demandees ici (lookup) comme a la peinture."""
+        state = (bool(option.state & QStyle.State_Selected), _keyboard_focus(option))
+        if index.data(ROLE_IS_SERIES):
+            paths = (index.data(ROLE_SERIES_PATHS) or [])[:3]
+            covers = tuple(_cover_key(_cover(self.covers, p)) for p in paths)
+            content = (True, covers, index.data(ROLE_SERIES_COUNT), index.data(ROLE_PROG_TEXT))
+        elif index.data(ROLE_MISSING):
+            content = ("missing", tuple(index.data(ROLE_MISSING)))
+        else:
+            path = index.data(ROLE_PATH)
+            content = (False, _cover_key(_cover(self.covers, path)),
+                       _cover_error(self.covers, path), index.data(ROLE_FRACTION),
+                       index.data(ROLE_PROG_TEXT))
+        author = None if self.compact else index.data(ROLE_AUTHOR_TEXT)
+        return (self.compact, self.thumb_w, self.thumb_h, option.font.key(), state,
+                index.data(Qt.DisplayRole), bool(index.data(ROLE_FINISHED)), author, content)
+
+    def _render_cell(self, option, index, bg, dpr):
+        size = option.rect.size()
+        out = QPixmap(max(1, round(size.width() * dpr)), max(1, round(size.height() * dpr)))
+        out.setDevicePixelRatio(dpr)
+        # fond opaque, celui de la vue : le texte garde le meme lissage que
+        # s'il etait peint directement dans la vue
+        out.fill(bg)
+        opt = QStyleOptionViewItem(option)
+        opt.rect = QRect(QPoint(0, 0), size)
+        p = QPainter(out)
+        p.setFont(option.font)
+        self._paint_cell(p, opt, index)
+        p.end()
+        return out
+
+    def _paint_cell(self, painter: QPainter, option, index):
         c = theme.colors(self.store.ui_pref("theme", "dark"))
         painter.save()
         painter.setRenderHint(QPainter.Antialiasing)
@@ -151,7 +301,7 @@ class MangaDelegate(QStyledItemDelegate):
 
         if option.state & QStyle.State_Selected:
             painter.setPen(Qt.NoPen)
-            painter.setBrush(theme.qcolor(c["selection"]))
+            painter.setBrush(_qcolor(c["selection"]))
             painter.drawRoundedRect(r.adjusted(2, 2, -2, -2), 10, 10)
         if _keyboard_focus(option):
             painter.setPen(QPen(QColor(theme.ACCENT), 2))
@@ -176,31 +326,32 @@ class MangaDelegate(QStyledItemDelegate):
         # cadre de la couverture
         cover = QRect(r.x() + (r.width() - self.thumb_w) // 2, r.y() + 10,
                       self.thumb_w, self.thumb_h)
-        path = QPainterPath()
-        path.addRoundedRect(cover, 6, 6)
-        painter.setClipPath(path)
-        # pm est la couverture haute resolution ; drawPixmap la met a l'echelle
-        # de la case courante (voir _cover_source_rect). Le curseur de taille
-        # change donc la taille sans toucher au cache.
+        # pm est la couverture haute resolution ; _draw_cover la met a
+        # l'echelle de la case courante (voir _ScaledCovers). Le curseur de
+        # taille change donc la taille sans toucher au cache des couvertures.
         pm: QPixmap = _cover(self.covers, index.data(ROLE_PATH))
         unreadable = _cover_error(self.covers, index.data(ROLE_PATH)) is not None
         if pm and not pm.isNull():
-            painter.drawPixmap(cover, pm, _cover_source_rect(pm, cover.size()))
-        elif unreadable:
-            painter.fillRect(cover, QColor(c["cover_placeholder"]))
-            _draw_unreadable(painter, cover, c, option.font)
+            # contour compris dans la couverture mise en cache
+            _draw_cover(painter, cover, pm, 6, _qcolor(c["cover_border"]))
         else:
+            path = QPainterPath()
+            path.addRoundedRect(cover, 6, 6)
+            painter.setClipPath(path)
             painter.fillRect(cover, QColor(c["cover_placeholder"]))
-            painter.setPen(QColor(c["cover_text"]))
-            painter.drawText(cover, Qt.AlignCenter, "...")
-        painter.setClipping(False)
-        if unreadable:
-            painter.setPen(QPen(QColor(c["warning_border"]), 1))
+            if unreadable:
+                _draw_unreadable(painter, cover, c, option.font)
+            else:
+                painter.setPen(QColor(c["cover_text"]))
+                painter.drawText(cover, Qt.AlignCenter, "...")
+            painter.setClipping(False)
+            if unreadable:
+                painter.setPen(QPen(QColor(c["warning_border"]), 1))
+                painter.setBrush(Qt.NoBrush)
+                painter.drawRoundedRect(cover, 6, 6)
+            painter.setPen(QPen(_qcolor(c["cover_border"]), 1))
             painter.setBrush(Qt.NoBrush)
             painter.drawRoundedRect(cover, 6, 6)
-        painter.setPen(QPen(theme.qcolor(c["cover_border"]), 1))
-        painter.setBrush(Qt.NoBrush)
-        painter.drawRoundedRect(cover, 6, 6)
 
         painter.setOpacity(1.0)
 
@@ -209,7 +360,7 @@ class MangaDelegate(QStyledItemDelegate):
         if finished or frac > 0:
             bar = QRect(cover.x(), cover.bottom() - 5, cover.width(), 6)
             painter.setPen(Qt.NoPen)
-            painter.setBrush(theme.qcolor(c["track_bg"]))
+            painter.setBrush(_qcolor(c["track_bg"]))
             painter.drawRect(bar)
             color = QColor(theme.FINISHED) if finished else QColor(theme.ACCENT)
             w = bar.width() if finished else max(3, int(bar.width() * frac))
@@ -319,18 +470,13 @@ class MangaDelegate(QStyledItemDelegate):
         """Dessine une couverture (ou un placeholder) dans un cadre arrondi,
         rognee au centre - une couche de la pile d'un dossier de serie."""
         painter.setOpacity(opacity)
-        path = QPainterPath()
-        path.addRoundedRect(rect, 6, 6)
-        painter.save()
-        painter.setClipPath(path)
         if pm and not pm.isNull():
-            painter.drawPixmap(rect, pm, _cover_source_rect(pm, rect.size()))
+            # contour compris dans la couverture mise en cache
+            _draw_cover(painter, rect, pm, 6, _qcolor(c["cover_border"]))
         else:
-            painter.fillRect(rect, QColor(c["cover_placeholder"]))
-        painter.restore()
-        painter.setPen(QPen(theme.qcolor(c["cover_border"]), 1))
-        painter.setBrush(Qt.NoBrush)
-        painter.drawRoundedRect(rect, 6, 6)
+            painter.setPen(QPen(_qcolor(c["cover_border"]), 1))
+            painter.setBrush(QColor(c["cover_placeholder"]))
+            painter.drawRoundedRect(rect, 6, 6)
         painter.setOpacity(1.0)
 
     def _paint_series(self, painter, option, index, c):
@@ -411,7 +557,7 @@ class ListDelegate(QStyledItemDelegate):
 
         if option.state & QStyle.State_Selected:
             painter.setPen(Qt.NoPen)
-            painter.setBrush(theme.qcolor(c["selection"]))
+            painter.setBrush(_qcolor(c["selection"]))
             painter.drawRect(r)
         if _keyboard_focus(option):
             painter.setPen(QPen(QColor(theme.ACCENT), 2))
@@ -439,29 +585,25 @@ class ListDelegate(QStyledItemDelegate):
             thumb = QRect(thumb.x(), thumb.y(), thumb.width() - 6, thumb.height() - 6)
             for i in (2, 1):
                 back = thumb.translated(i * 3, i * 3)
-                painter.setPen(QPen(theme.qcolor(c["cover_border"]), 1))
+                painter.setPen(QPen(_qcolor(c["cover_border"]), 1))
                 painter.setBrush(QColor(c["cover_placeholder"]))
                 painter.drawRoundedRect(back, 4, 4)
-        clip = QPainterPath()
-        clip.addRoundedRect(thumb, 4, 4)
-        painter.setClipPath(clip)
         if is_series:
             pm = _cover(self.covers, (index.data(ROLE_SERIES_PATHS) or [None])[0])
         else:
             pm = _cover(self.covers, index.data(ROLE_PATH))
         unreadable = not is_series and _cover_error(self.covers, index.data(ROLE_PATH)) is not None
-        if unreadable and not (pm and not pm.isNull()):
-            painter.fillRect(thumb, QColor(c["cover_placeholder"]))
-            _warning_icon(painter, thumb.center().x(), thumb.center().y(), 18,
-                          QColor(c["warning"]))
-        elif pm and not pm.isNull():
-            # meme couverture haute resolution que la grille : drawPixmap la
-            # met a l'echelle de la petite vignette de liste (voir
-            # _cover_source_rect), rendu net sans pre-redimensionnement.
-            painter.drawPixmap(thumb, pm, _cover_source_rect(pm, thumb.size()))
+        if pm and not pm.isNull():
+            # meme couverture haute resolution que la grille, mise a
+            # l'echelle de la petite vignette de liste (voir _ScaledCovers)
+            _draw_cover(painter, thumb, pm, 4)
         else:
-            painter.fillRect(thumb, QColor(c["cover_placeholder"]))
-        painter.setClipping(False)
+            painter.setPen(Qt.NoPen)
+            painter.setBrush(QColor(c["cover_placeholder"]))
+            painter.drawRoundedRect(thumb, 4, 4)
+            if unreadable:
+                _warning_icon(painter, thumb.center().x(), thumb.center().y(), 18,
+                              QColor(c["warning"]))
 
         text_x = thumb.right() + 14
         text_w = max(40, r.width() - text_x - 90)
@@ -499,7 +641,7 @@ class ListDelegate(QStyledItemDelegate):
                 bar_w = 70
                 bar = QRect(r.right() - bar_w - 14, r.y() + r.height() // 2 - 3, bar_w, 6)
                 painter.setPen(Qt.NoPen)
-                painter.setBrush(theme.qcolor(c["track_bg"]))
+                painter.setBrush(_qcolor(c["track_bg"]))
                 painter.drawRect(bar)
                 color = QColor(theme.FINISHED) if finished else QColor(theme.ACCENT)
                 w = bar.width() if finished else max(2, int(bar.width() * frac))

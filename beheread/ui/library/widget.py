@@ -7,7 +7,7 @@ en cache sur disque."""
 import logging
 from pathlib import Path
 
-from PySide6.QtCore import QSize, Qt, QTimer, Signal
+from PySide6.QtCore import QPoint, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import QGuiApplication, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QHBoxLayout,
@@ -347,10 +347,7 @@ class LibraryWidget(ChromeMixin, DetailPanelMixin, ActionsMixin, MenusMixin,
                 area = area.adjusted(-area.width() // 2, 0, area.width(), 0)
             else:
                 area = area.adjusted(0, -area.height() // 2, 0, area.height())
-            model = lst.model()
-            for row in range(lst.count()):
-                if lst.isRowHidden(row) or not lst.visualRect(model.index(row, 0)).intersects(area):
-                    continue
+            for row in self._rows_in(lst, area):
                 item = lst.item(row)
                 if item.data(ROLE_MISSING):
                     continue
@@ -363,6 +360,32 @@ class LibraryWidget(ChromeMixin, DetailPanelMixin, ActionsMixin, MenusMixin,
                     self.covers.request(path)
                 visible += len(paths)
         self.covers.min_kept = visible
+
+    @staticmethod
+    def _rows_in(lst, area):
+        """Lignes visibles (non masquees) dont la case touche `area`
+        (coordonnees du viewport), par ordre croissant. Les cases ont toutes
+        la meme taille : on sonde la zone tous les demi-pas de case avec
+        indexAt, au cout constant, au lieu de parcourir toute la liste (des
+        dizaines de ms pour quelques milliers de tomes, a chaque pause du
+        defilement)."""
+        step = lst.gridSize()
+        if not step.isValid() or step.isEmpty():
+            probe = next((lst.indexAt(p) for p in (QPoint(4, 4), lst.viewport().rect().center())
+                          if lst.indexAt(p).isValid()), None)
+            if probe is None:
+                return []
+            step = lst.visualRect(probe).size()
+        sx, sy = max(1, step.width() // 2), max(1, step.height() // 2)
+        xs = [*range(area.left(), area.right(), sx), area.right()]
+        ys = [*range(area.top(), area.bottom(), sy), area.bottom()]
+        rows = set()
+        for y in ys:
+            for x in xs:
+                idx = lst.indexAt(QPoint(x, y))
+                if idx.isValid():
+                    rows.add(idx.row())
+        return sorted(r for r in rows if not lst.isRowHidden(r))
 
     def _on_cover_ready(self, path):
         self.list.viewport().update()   # les delegates relisent le cache

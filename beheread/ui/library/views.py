@@ -39,7 +39,7 @@ class SmoothListWidget(QListWidget):
     cases : en vue grille (cases de ~350 px) chaque cran saute d'un kilometre.
     Les trackpads (pixelDelta) gardent le defilement natif."""
 
-    WHEEL_STEP = 110   # pixels par cran de molette
+    WHEEL_STEP = 73    # pixels par cran de molette
 
     backRequested = Signal()   # Echap / Retour arriere : remonter d'un niveau
 
@@ -52,6 +52,19 @@ class SmoothListWidget(QListWidget):
         self._wheel_anim.valueChanged.connect(lambda v: self._set_position(int(v)))
         self._top_fade = _TopFade(self)
         self.verticalScrollBar().valueChanged.connect(self._update_top_fade)
+        # viewport opaque (fond peint par paintEvent) : au defilement, Qt
+        # decale l'image deja peinte et ne repeint que la bande qui apparait.
+        # Un viewport transparent etait repeint en entier a chaque pas.
+        self.viewport().setAttribute(Qt.WA_OpaquePaintEvent)
+
+    def paintEvent(self, event):
+        # fond de la feuille de style (« QListWidget { background } »), que
+        # Qt ne peint plus lui-meme sur un viewport opaque
+        vp = self.viewport()
+        p = QPainter(vp)
+        p.fillRect(event.rect(), vp.palette().brush(vp.backgroundRole()))
+        p.end()
+        super().paintEvent(event)
 
     # position de defilement globale : en-tete eventuel + barre de defilement
     def _position(self):

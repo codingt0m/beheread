@@ -633,3 +633,23 @@ def test_new_version_banner(window, qtbot, store, monkeypatch):
     lib.check_updates(force=True, report=reports.append)        # « Verifier maintenant »
     qtbot.waitUntil(lambda: bool(reports), timeout=5000)
     assert reports == ["Beheread 99.0.0 est disponible."]
+
+
+def test_shelf_caption_fits_in_its_cell(qapp, store):
+    """Les cases sont rendues dans une image a leur taille : la ligne de
+    progression (« A suivre ») de la bande « Continuer » ne doit pas en
+    deborder, sinon elle est coupee."""
+    from PySide6.QtGui import QFont, QFontMetrics
+
+    from beheread.ui.library.delegates import MangaDelegate
+    from beheread.ui.library.shelf import SHELF_SCALE
+
+    f = QFont(qapp.font())
+    f.setPointSizeF(f.pointSizeF() * 0.95)
+    line_h = QFontMetrics(f).height()
+    for compact, scale in ((True, SHELF_SCALE), (False, 1.0)):
+        d = MangaDelegate(store, compact=compact)
+        d.set_scale(scale)
+        caption_top = 10 + d.thumb_h + 8
+        lines = 2 if compact else 3
+        assert caption_top + 16 * (lines - 1) + line_h <= d.cell_h
