@@ -79,29 +79,21 @@ class DisplayMixin:
         shared = tuple(min(m[k] for m in margins) for k in range(4))
         return {i: self._rect_from_margins(i, shared) for i in indices}
 
-    def _effective_size(self, index):
-        """Taille de la source affichee pour cette page (rognee si recadrage
-        actif), ou None si l'image n'est pas encore disponible. Sert a la
-        detection des planches doubles (appairage), independamment du partage
-        de recadrage entre deux pages voisines."""
-        img = self.cache.get(index)
-        if img is None or img.isNull():
-            return None
-        if self.smart_crop:
-            r = self._content_rect(index)
-            if r is not None:
-                return r.size()
-        return img.size()
-
     def _is_spread(self, index):
         """Une image plus large que haute couvre deja une double page (scan
         de planche double) : elle doit s'afficher seule, jamais couplee. Le
         resultat est retenu : une planche sortie du cache continue de recaler
-        l'appairage des pages qui la suivent."""
-        s = self._effective_size(index)
-        if s is None:
+        l'appairage des pages qui la suivent.
+
+        Jugee sur l'image d'origine, jamais sur sa version recadree : une page
+        simple aux grandes marges blanches en haut et en bas (illustration en
+        largeur, page de titre) devient plus large que haute une fois rognee,
+        et le recadrage la ferait passer pour une planche double - affichee
+        seule, en decalant l'appairage de toutes les pages suivantes."""
+        img = self.cache.get(index)
+        if img is None or img.isNull():
             return self._spreads.get(index, False)
-        wide = s.width() > s.height()
+        wide = img.width() > img.height()
         self._spreads[index] = wide
         return wide
 

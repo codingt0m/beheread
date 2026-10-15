@@ -546,7 +546,7 @@ class LibraryWidget(ChromeMixin, DetailPanelMixin, ActionsMixin, MenusMixin,
         sinon), basee sur le rythme personnel mesure et le nombre de pages
         connu. Renvoie "" tant que le rythme n'a pas ete mesure ou que le
         nombre de pages est inconnu."""
-        pace = self.store.median_page_seconds()
+        pace = self.store.reading_pace()
         if not pace:
             return ""
         prog = self.store.get_progress(path)

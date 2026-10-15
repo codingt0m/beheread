@@ -139,6 +139,12 @@ class ReaderWidget(HudMixin, EndCardMixin, DisplayMixin, InputMixin,
         self.smart_crop = bool(store.reader_setting("smart_crop", key, False))
         self.ambilight = bool(store.reader_pref("ambilight", False))
         self.page_offset = int(store.reader_setting("page_offset", key, 0)) & 1
+        # (page, decalage) atteints par un decalage qui a recule d'une page :
+        # l'appui suivant avance au lieu de reculer encore (_shift_parity)
+        self._parity_stepped_back = None
+        # sections (debut apres une planche double) decalees par S pour cette
+        # lecture : voir _shift_parity
+        self._shifted_sections = set()
         # planches doubles deja vues (index -> bool) : l'appairage s'y recale
         # (pairing.pair_anchor), meme une fois la page sortie du cache
         self._spreads = {}
@@ -330,7 +336,11 @@ class ReaderWidget(HudMixin, EndCardMixin, DisplayMixin, InputMixin,
 
     def _current_indices(self):
         return pairing.current_indices(self.page, self.total, self.page_offset,
-                                       self.double_page, self._is_spread)
+                                       self.double_page, self._is_spread,
+                                       self._shifted_sections)
+
+    def _parity_state(self):
+        return (self.page, self.page_offset, frozenset(self._shifted_sections))
 
     def _shift_parity(self):
         """Decale la parite de l'appairage double page (touche S). Pour ne pas
@@ -338,18 +348,37 @@ class ReaderWidget(HudMixin, EndCardMixin, DisplayMixin, InputMixin,
         page visible en la re-appairant avec sa voisine precedente : la vue
         (p, p+1) devient (p-1, p) - c'est justement la bonne planche double
         quand une couverture en tete de tome decale tout l'appairage. Seule
-        exception : tout au debut, la couverture s'affiche seule (pas de
-        voisine avant elle). Le choix vaut pour la serie (voir
-        Store.reader_setting)."""
-        self.page_offset ^= 1
-        self.store.set_reader_setting("page_offset", self.page_offset, self._series_key)
+        exception : tout au debut de la section, la premiere page s'affiche
+        seule (pas de voisine avant elle).
+
+        Avant la premiere planche double, le choix vaut pour la serie (voir
+        Store.reader_setting). Apres une planche double, l'appairage s'y
+        recale de lui-meme (pairing.pair_anchor) et ignore ce reglage : on
+        decale alors cette section seule, le temps de la lecture - sinon S
+        n'avait plus aucun effet passe la premiere planche double.
+
+        Appuis repetes : le decalage precedent a recule d'une page, celui-ci
+        avance d'une page - deux appuis rendent exactement la vue de depart,
+        au lieu de reculer d'une page a chaque appui dans le tome."""
+        undo = self._parity_stepped_back == self._parity_state()
+        self._parity_stepped_back = None
+        start = pairing.segment_start(self.page, self._is_spread)
+        if start == 0:
+            self.page_offset ^= 1
+            self.store.set_reader_setting("page_offset", self.page_offset, self._series_key)
+        else:
+            self._shifted_sections ^= {start}
         # apres inversion, une page qui etait debut de paire devient fin de
         # paire : on recule d'une page pour reafficher une paire (au lieu
-        # d'isoler la page courante), sauf a la toute premiere page.
-        anchor = pairing.pair_anchor(self.page, self.page_offset, self._is_spread)
-        if (self.double_page and self.page > 0
-                and (self.page - anchor) % 2 != 0):
+        # d'isoler la page courante), sauf en tout debut de section.
+        anchor = pairing.pair_anchor(self.page, self.page_offset, self._is_spread,
+                                     self._shifted_sections)
+        misaligned = (self.page - anchor) % 2 != 0
+        if self.double_page and misaligned and undo and self.page < self.total - 1:
+            self._go_to(self.page + 1)
+        elif self.double_page and self.page > start and misaligned:
             self._go_to(self.page - 1)
+            self._parity_stepped_back = self._parity_state()
         else:
             self._update_hud()
             self.update()
@@ -378,7 +407,8 @@ class ReaderWidget(HudMixin, EndCardMixin, DisplayMixin, InputMixin,
         """Nombre de pages a reculer pour atteindre la page/paire logique
         precedente (logique pure dans pairing.py, testee sans Qt)."""
         return pairing.step_back(self.page, self.total, self.page_offset,
-                                 self.double_page, self._is_spread)
+                                 self.double_page, self._is_spread,
+                                 self._shifted_sections)
 
     def _go_to(self, index: int, save=True, animate=True, align="top"):
         new_page = max(0, min(index, self.total - 1))

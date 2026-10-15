@@ -33,7 +33,7 @@ def test_a_pause_is_not_reading_time_but_the_page_was_read():
     m.leave(600.0, [0])          # dix minutes : une pause
     m.leave(620.0, [1])
     assert m.pages == {0, 1} and m.active_seconds == 20.0
-    assert list(m.samples) == [20.0]
+    assert list(m.samples) == [(20.0, 1)]
 
 
 def test_going_back_is_reading_time_but_adds_no_page():
@@ -41,7 +41,7 @@ def test_going_back_is_reading_time_but_adds_no_page():
     m.leave(10.0, [0])
     m.leave(30.0, [1], forward=False)      # retour a la page precedente
     assert m.pages == {0} and m.active_seconds == 30.0
-    assert list(m.samples) == [10.0]       # le rythme ne retient que l'avancee
+    assert list(m.samples) == [(10.0, 1)]       # le rythme ne retient que l'avancee
 
 
 def test_pace_is_per_page_not_per_turn():
@@ -60,3 +60,14 @@ def test_clock_stops_on_the_end_card_and_resumes():
     m.leave(300.0, [0], forward=False)  # retour en arriere : l'horloge repart
     m.leave(320.0, [1])
     assert m.active_seconds == 30.0 and m.pages == {0, 1}
+
+
+def test_pace_is_the_mean_time_per_page_not_the_median():
+    # beaucoup de pages vite lues, quelques pages de dialogue longues : le
+    # temps reel est la moyenne (la mediane donnait 4 s)
+    m = SessionMeter(0.0)
+    t = 0.0
+    for dwell in (4, 4, 4, 30, 30):
+        t += dwell
+        m.leave(t, [0])
+    assert m.pace() == 72 / 5

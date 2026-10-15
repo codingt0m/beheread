@@ -162,7 +162,7 @@ def test_empty_journal_shows_a_single_message(store, qtbot):
     assert "Rythme de lecture pas encore mesuré" in _texts(dlg)
     assert dlg.backlog_value.isHidden()
 
-    store.update_page_seconds(12.0)
+    store.reading_pace = lambda: 12.0   # journal vide : rythme impose
     dlg = _dialog(store, qtbot)
     assert dlg.backlog_value.text() == "≈ 2 h"
     assert dlg.backlog_detail.text() == ("600 pages à votre rythme de 12 s par page, "
@@ -246,3 +246,12 @@ def test_year_recap_image_is_rendered_and_saved(qtbot, store, tmp_path, monkeypa
                         staticmethod(lambda *a, **k: (str(out), "")))
     dlg._save()
     assert out.exists() and out.stat().st_size > 10_000
+
+
+def test_period_selector_has_rounded_ends(store, qtbot):
+    """Extremites arrondies du selecteur de periode : la propriete qui les
+    designe doit bien etre posee (« pos », propriete de QWidget, ne l'etait pas)."""
+    dlg = _dialog(store, qtbot)
+    buttons = list(dlg.period_buttons.values())
+    assert [b.property("segPos") for b in buttons] == (
+        ["first"] + ["mid"] * (len(buttons) - 2) + ["last"])

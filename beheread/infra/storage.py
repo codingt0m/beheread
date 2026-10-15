@@ -195,7 +195,11 @@ class Store:
         # ancien rythme de lecture : il mesurait l'intervalle entre deux tours
         # de page, feuilletage compris, et non des secondes par page lue. Sans
         # rapport avec la mesure actuelle, il est oublie puis re-mesure.
-        if self.settings["reader"].pop("median_page_seconds", None) is not None:
+        # Puis rythme lisse (moyenne mobile des medianes de chaque seance) :
+        # remplace par un calcul sur le journal de lecture (reading_pace).
+        stale = [self.settings["reader"].pop(k, None)
+                 for k in ("median_page_seconds", "page_seconds")]
+        if any(v is not None for v in stale):
             self._schedule("settings")
         if self.db.get_meta(FINISHED_HISTORY_KEY) is None:
             self._import_finished_history()
@@ -981,22 +985,14 @@ class Store:
             self._schedule(name)
 
     # ------------------------------------------------------------ estimation du temps de lecture
-    def median_page_seconds(self):
-        """Rythme de lecture personnel (secondes par page), lisse entre les
-        sessions, ou None si jamais mesure."""
-        v = self.settings.get("reader", {}).get("page_seconds")
-        return float(v) if v else None
+    PACE_DAYS = 180   # le rythme suit la lecture recente
 
-    def update_page_seconds(self, sample: float):
-        """Integre le rythme median d'une session au rythme global par moyenne
-        mobile exponentielle (les sessions recentes pesent davantage, sans
-        qu'une session atypique ne fasse tout basculer)."""
-        if not sample or sample <= 0:
-            return
-        old = self.median_page_seconds()
-        blended = sample if old is None else (0.7 * old + 0.3 * sample)
-        self.settings.setdefault("reader", {})["page_seconds"] = round(blended, 3)
-        self._schedule("settings")
+    def reading_pace(self):
+        """Rythme de lecture personnel (secondes par page) d'apres le journal
+        de lecture des derniers mois (voir ReadingLog.pace), ou None tant que
+        rien n'a ete lu."""
+        since = datetime.date.today() - datetime.timedelta(days=self.PACE_DAYS)
+        return self.reading_log.pace(since)
 
     def page_count(self, path: str):
         """Nombre de pages connu pour ce fichier (par empreinte de contenu),

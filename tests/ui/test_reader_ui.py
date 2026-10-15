@@ -2,7 +2,7 @@
 
 import time
 
-from PySide6.QtCore import QEvent, QPoint, QPointF, Qt
+from PySide6.QtCore import QEvent, QPoint, QPointF, QRect, Qt
 from PySide6.QtGui import QKeyEvent, QWheelEvent
 from PySide6.QtWidgets import QApplication, QPushButton
 
@@ -60,7 +60,7 @@ def test_reading_saves_progress_and_session_stats(window, qtbot, mangas, store):
     record = _session_record(store, path)
     assert (record["pages"], record["seconds"], record["sessions"], record["finished"]) == (
         5, 50.0, 1, 1)
-    assert store.median_page_seconds() == 10.0
+    assert store.reading_pace() == 10.0
 
 
 def test_flipping_through_pages_is_not_reading(window, qtbot, mangas, store):
@@ -72,7 +72,7 @@ def test_flipping_through_pages_is_not_reading(window, qtbot, mangas, store):
         reader._on_slider_scrub(value)
     reader.close_reader()
     days = store.reading_log.export()["devices"]
-    assert days == {} and store.median_page_seconds() is None
+    assert days == {} and store.reading_pace() is None
 
 
 def test_remaining_time_counts_pages_not_page_turns(window, qtbot, mangas, store):
@@ -172,6 +172,59 @@ def test_reader_settings_follow_from_one_manga_to_another(window, qtbot, mangas,
     assert again.page_offset == 1 and again.fit_mode == FIT_WIDTH
     # ... mais devient le reglage d'une serie encore jamais reglee
     assert _open(window, qtbot, make_cbz(mangas, "Gamma - Tome 1", seed=3)).page_offset == 0
+
+
+def test_smart_crop_does_not_turn_a_page_into_a_spread(window, qtbot, mangas, store):
+    """Une page simple aux grandes marges haut/bas, une fois rognee, est plus
+    large que haute : le recadrage ne doit pas la faire passer pour une
+    planche double (affichee seule, appairage des suivantes decale)."""
+    reader = _open(window, qtbot, make_cbz(mangas, "Alpha - Tome 1", pages=6))
+    qtbot.waitUntil(lambda: all(i in reader.cache for i in range(4)), timeout=10000)
+    reader._go_to(2, animate=False)
+    pair = list(reader._current_indices())
+    assert reader.double_page and len(pair) == 2
+    img = reader.cache[pair[0]]
+    wide = QRect(0, img.height() // 3, img.width(), img.height() // 4)
+    reader._content_rect = lambda i: wide if i == pair[0] else None
+    reader.toggle_smart_crop()
+    reader._spreads.clear()
+    assert not reader._is_spread(pair[0])
+    assert list(reader._current_indices()) == pair
+
+
+def test_repeated_parity_shift_does_not_walk_through_the_volume(window, qtbot, mangas, store):
+    reader = _open(window, qtbot, make_cbz(mangas, "Alpha - Tome 1", pages=12))
+    reader._go_to(6, animate=False)
+    qtbot.waitUntil(lambda: all(i in reader.cache for i in range(5, 9)), timeout=10000)
+    start = list(reader._current_indices())
+    assert reader.double_page and len(start) == 2
+    seen = []
+    for _ in range(6):
+        reader._shift_parity()
+        seen.append(list(reader._current_indices()))
+    # deux vues seulement, en alternance, la vue de depart revenant tous les deux appuis
+    assert seen[1::2] == [start] * 3
+    assert len({tuple(v) for v in seen[0::2]}) == 1 and seen[0] != start
+
+
+def test_parity_shift_still_works_after_a_spread(window, qtbot, mangas, store):
+    """Apres une planche double, l'appairage s'y recale : S doit decaler cette
+    section (il n'avait plus aucun effet), sans toucher au reglage de serie."""
+    reader = _open(window, qtbot, make_cbz(mangas, "Alpha - Tome 1", pages=14))
+    reader._is_spread = lambda i: i == 3
+    reader._go_to(6, animate=False)
+    start = list(reader._current_indices())
+    assert start == [6, 7]
+    seen = []
+    for _ in range(4):
+        reader._shift_parity()
+        seen.append(list(reader._current_indices()))
+    assert seen == [[5, 6], start, [5, 6], start]
+    assert reader.page_offset == 0
+    # premiere page apres la planche : seule, sans reculer sur la planche
+    reader._go_to(4, animate=False)
+    reader._shift_parity()
+    assert reader.page == 4 and list(reader._current_indices()) == [4]
 
 
 def test_reading_direction_stays_per_series(window, qtbot, mangas, store):

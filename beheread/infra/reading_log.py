@@ -80,6 +80,9 @@ def _iso(date):
     return date.isoformat() if isinstance(date, _dt.date) else date
 
 
+PACE_MIN_PAGES = 10   # pages par tome et par jour pour compter comme une lecture
+
+
 class ReadingLog:
     def __init__(self, db):
         self.db = db
@@ -139,6 +142,23 @@ class ReadingLog:
             """SELECT volume, title, series, SUM(pages), SUM(seconds), SUM(finished), MAX(day)
                FROM reading_log WHERE day BETWEEN ? AND ?
                GROUP BY volume ORDER BY MAX(day) DESC, volume""", (_iso(start), _iso(end)))]
+
+    def pace(self, since, min_pages=PACE_MIN_PAGES):
+        """Rythme de lecture (secondes par page) depuis le jour `since` : le
+        temps actif total divise par le nombre de pages lues, chaque seance
+        pesant donc selon ses pages. Seules comptent les lignes (un tome, un
+        jour) d'au moins `min_pages` pages : un coup d'oeil a quelques pages
+        (2 pages a 1 s chacune) n'est pas une lecture et tirait le rythme vers
+        le bas. A defaut de telles lignes, toutes celles avec des pages. None
+        sans pages lues."""
+        for floor in (min_pages, 1):
+            pages, seconds = self._query(
+                """SELECT COALESCE(SUM(pages), 0), COALESCE(SUM(seconds), 0.0)
+                   FROM reading_log WHERE day >= ? AND pages >= ?""",
+                (_iso(since), floor))[0]
+            if pages:
+                return seconds / pages if seconds > 0 else None
+        return None
 
     def finished(self, start, end, limit):
         """[(jour, tome, titre, serie)] des dernieres fins de tome de la

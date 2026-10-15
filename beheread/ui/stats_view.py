@@ -229,10 +229,10 @@ class StatsDialog(QDialog):
             QPushButton#seg {{
                 padding: 5px 14px; font-size: 12px; border-radius: 0; margin-left: -1px;
             }}
-            QPushButton#seg[pos="first"] {{
+            QPushButton#seg[segPos="first"] {{
                 margin-left: 0; border-top-left-radius: 8px; border-bottom-left-radius: 8px;
             }}
-            QPushButton#seg[pos="last"] {{
+            QPushButton#seg[segPos="last"] {{
                 border-top-right-radius: 8px; border-bottom-right-radius: 8px;
             }}
             QPushButton#seg:checked {{
@@ -277,7 +277,9 @@ class StatsDialog(QDialog):
         for i, (key, label) in enumerate(stats.PERIODS):
             btn = QPushButton(tr(label))
             btn.setObjectName("seg")
-            btn.setProperty("pos", "first" if i == 0 else
+            # pas « pos » : propriete Qt de QWidget (une position), l'ecriture
+            # echouait sans bruit et les extremites n'etaient jamais arrondies
+            btn.setProperty("segPos", "first" if i == 0 else
                             ("last" if i == len(stats.PERIODS) - 1 else "mid"))
             btn.setCheckable(True)
             btn.setCursor(Qt.PointingHandCursor)
@@ -435,7 +437,7 @@ class StatsDialog(QDialog):
     def _backlog(self) -> tuple:
         """(chiffre, precision) du temps qu'il reste a lire dans la
         bibliotheque, au rythme habituel."""
-        pace = self.store.median_page_seconds()
+        pace = self.store.reading_pace()
         remaining = self.library.get("remaining_pages", 0)
         if not pace:
             return "", (tr("Rythme de lecture pas encore mesuré : l'estimation s'affichera "

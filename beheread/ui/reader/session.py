@@ -69,10 +69,11 @@ class SessionMixin:
         self.closed.emit()
 
     def release(self):
-        """Sauvegarde la progression et le rythme de lecture, puis ferme
-        l'archive. Idempotent : appele a la fermeture du lecteur ET quand il
-        est remplace par le tome suivant (voir MainWindow.open_manga) - sans
-        quoi le rythme mesure sur un tome enchaine etait perdu."""
+        """Sauvegarde la progression et la seance (journal de lecture, d'ou
+        vient aussi le rythme de lecture), puis ferme l'archive. Idempotent :
+        appele a la fermeture du lecteur ET quand il est remplace par le tome
+        suivant (voir MainWindow.open_manga) - sans quoi la seance d'un tome
+        enchaine etait perdue."""
         if self._released:
             return
         self._released = True
@@ -82,7 +83,6 @@ class SessionMixin:
                           forward=self._on_last_view(), resume=False)
         self._save_progress()
         self._forget_barely_started()
-        self._persist_reading_pace()
         self._record_session()
         self.pages.shutdown()
         self.archive.close()
@@ -127,10 +127,3 @@ class SessionMixin:
         self.back_button.adjustSize()
         self.end_lib_btn.setText(tr("Bibliothèque"))
         self._place_corner_buttons()
-
-    def _persist_reading_pace(self):
-        """Integre le rythme median de la session au rythme global persiste,
-        pour alimenter les estimations de temps de lecture de la bibliotheque."""
-        pace = self._meter.pace(TIME_MIN_SAMPLES)
-        if pace is not None:
-            self.store.update_page_seconds(pace)

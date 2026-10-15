@@ -101,3 +101,17 @@ def test_step_back_over_a_pair_that_follows_a_spread():
     # 3 = planche double, paire (4, 5) : depuis 6, reculer de deux pages
     assert pairing.step_back(6, 12, 0, True, spreads(3)) == 2
     assert pairing.pair_anchor(6, 0, spreads(3)) == 4
+
+
+# ----- decalage d'une section apres une planche double -----
+
+def test_shifted_section_after_a_spread():
+    # 3 = planche double ; section 4 decalee : 4 seule, puis (5, 6)
+    s = spreads(3)
+    assert pairing.segment_start(6, s) == 4 and pairing.segment_start(2, s) == 0
+    assert pairing.current_indices(4, 12, 0, True, s, {4}) == [4]
+    assert pairing.current_indices(5, 12, 0, True, s, {4}) == [5, 6]
+    assert pairing.step_back(5, 12, 0, True, s, {4}) == 1
+    assert pairing.step_back(7, 12, 0, True, s, {4}) == 2
+    # le debut du tome garde son propre decalage
+    assert pairing.current_indices(0, 12, 0, True, s, {4}) == [0, 1]

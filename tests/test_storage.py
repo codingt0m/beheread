@@ -415,16 +415,22 @@ def test_finished_volumes_older_than_the_journal_are_imported_once(store, tmp_pa
     assert Store().reading_log.totals("0000-01-01", "9999-12-31").finished == 1   # une seule fois
 
 
-def test_reading_pace_is_remeasured_under_the_new_rules(store):
-    """L'ancien rythme (intervalle entre tours de page, feuilletage compris)
-    est oublie ; le nouveau est une moyenne lissee de secondes par page."""
+def test_reading_pace_comes_from_the_reading_log(store, tmp_path):
+    """Les anciens rythmes stockes sont oublies ; le rythme est le temps
+    total divise par les pages des vraies lectures du journal - un coup
+    d'oeil a quelques pages n'y pese pas."""
     store.set_reader_pref("median_page_seconds", 0.486)
-    assert _reopen(store).median_page_seconds() is None
-    fresh = Store()
-    assert "median_page_seconds" not in fresh.settings["reader"]
-    fresh.update_page_seconds(10.0)
-    fresh.update_page_seconds(20.0)
-    assert fresh.median_page_seconds() == 13.0
+    store.set_reader_pref("page_seconds", 5.4)
+    fresh = _reopen(store)
+    assert not {"median_page_seconds", "page_seconds"} & set(fresh.settings["reader"])
+    assert fresh.reading_pace() is None
+    a = _make_manga(tmp_path, "a.cbz", b"tome a")
+    b = _make_manga(tmp_path, "b.cbz", b"tome b")
+    fresh.record_reading(a, 3, 3.0, False, "A", "A")          # coup d'oeil seul
+    assert fresh.reading_pace() == 1.0
+    fresh.record_reading(b, 60, 600.0, False, "B", "B")       # vraie lecture
+    fresh.record_reading(b, 40, 600.0, False, "B", "B")
+    assert fresh.reading_pace() == 12.0
 
 
 def test_backup_export_import_roundtrip(tmp_path, monkeypatch):

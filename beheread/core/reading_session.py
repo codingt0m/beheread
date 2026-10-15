@@ -10,12 +10,14 @@ double page) ; le compteur en deduit les trois mesures de la seance :
 * le temps de lecture actif : la duree d'affichage de chaque vue lue, dans
   les deux sens (revenir relire une page, c'est lire). Au-dela de PAUSE_CAP
   secondes sur une meme vue, on considere une pause : l'intervalle est ignore ;
-* le rythme : secondes PAR PAGE (la duree d'une vue divisee par son nombre
-  de pages, pour qu'une double page ne compte pas double), sur les dernieres
-  vues lues en avancant.
+* le rythme : secondes PAR PAGE, sur les dernieres vues lues en avancant -
+  le temps total de ces vues divise par leur nombre de pages (une double
+  page ne compte pas double). Une moyenne et non une mediane : le temps
+  passe sur une page est tres asymetrique (pages d'action vite lues, pages
+  de dialogue bien plus longues) et la mediane sous-estimait nettement le
+  temps reel, de moitie environ.
 """
 
-import statistics
 from collections import deque
 
 MIN_DWELL = 1.0     # secondes d'affichage en dessous desquelles une vue n'est pas lue
@@ -29,7 +31,8 @@ class SessionMeter:
         self.pause_cap = pause_cap
         self.active_seconds = 0.0
         self.pages: set[int] = set()              # indices des pages lues
-        self.samples: deque[float] = deque(maxlen=PACE_WINDOW)  # secondes par page
+        # (secondes, pages) des vues lues en avancant
+        self.samples: deque[tuple[float, int]] = deque(maxlen=PACE_WINDOW)
         self._since: float | None = now           # debut d'affichage de la vue (None : a l'arret)
 
     def leave(self, now: float, shown, forward: bool = True, resume: bool = True):
@@ -49,11 +52,11 @@ class SessionMeter:
         if forward and shown:
             self.pages.update(shown)
             if timed:
-                self.samples.append(dwell / len(shown))
+                self.samples.append((dwell, len(shown)))
 
     def pace(self, min_samples: int = 1):
-        """Rythme median de la seance (secondes par page), ou None tant qu'il
-        n'y a pas assez de vues lues pour l'estimer."""
+        """Rythme de la seance (secondes par page), ou None tant qu'il n'y a
+        pas assez de vues lues pour l'estimer."""
         if len(self.samples) < max(1, min_samples):
             return None
-        return statistics.median(self.samples)
+        return sum(s for s, _ in self.samples) / sum(n for _, n in self.samples)
