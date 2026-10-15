@@ -36,7 +36,7 @@ from beheread.core.library_model import (
 from beheread.core.models import LibraryEntry, VolumeInfo
 from beheread.core.search import SearchIndex, known_titles
 from beheread.core.series import clean_title, normalize_name, parse_path, volume_label
-from beheread.i18n import N_, tr
+from beheread.i18n import N_, tr, trn
 from beheread.infra.storage import Store, is_cloud_placeholder
 from beheread.ui import keys
 from beheread.ui.help_overlay import LIBRARY_SHORTCUTS, ShortcutOverlay
@@ -858,8 +858,9 @@ class LibraryWidget(ChromeMixin, DetailPanelMixin, ActionsMixin, MenusMixin,
         sub = [self._series_author(vols) or self._series_author_text(key)]
         if published:
             source = tr(self._SOURCE_LABELS.get(sm.get("source"), ""))
-            sub.append(tr("{n} tomes parus ({source})", n=published, source=source) if source
-                       else tr("{n} tomes parus", n=published))
+            sub.append(trn(published, "{n} tome paru ({source})", "{n} tomes parus ({source})",
+                           source=source) if source
+                       else trn(published, "{n} tome paru", "{n} tomes parus"))
         self.series_band.set_content(name, " · ".join(p for p in sub if p),
                                      len(owned) or len(vols), published,
                                      describe_numbers(missing), len(missing), show_missing)
@@ -876,10 +877,17 @@ class LibraryWidget(ChromeMixin, DetailPanelMixin, ActionsMixin, MenusMixin,
             self._add_missing_item(cell, name)
 
     def _series_published(self, key):
-        """Nombre de tomes parus de la serie (base en ligne), ou None."""
+        """Nombre de tomes parus de la serie (base en ligne), ou None. Un
+        nombre inferieur au plus grand tome possede est ecarte : il est faux
+        pour cette edition (oeuvre parue en un volume au Japon, decoupee en
+        trois en France ; fiche de la mauvaise oeuvre)."""
         sm = self.store.series_meta(key)
         volumes = (sm or {}).get("volumes") if not (sm or {}).get("not_found") else None
-        return volumes if isinstance(volumes, int) and volumes > 0 else None
+        if not isinstance(volumes, int) or volumes <= 0:
+            return None
+        entries = (self._entry_by_path.get(p) for p in self._paths_by_series.get(key, ()))
+        owned = owned_numbers(e.volume for e in entries if e is not None and not e.detached)
+        return None if owned and max(owned) > volumes else volumes
 
     def _add_missing_item(self, cell, series_name):
         first, last = cell

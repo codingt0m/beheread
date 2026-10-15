@@ -161,8 +161,8 @@ class DetailPanelMixin:
             return ""
         published = self._series_published(key)
         if published:
-            return trn(owned, "{published} tomes parus · {n} possédé",
-                       "{published} tomes parus · {n} possédés", published=published)
+            return (trn(published, "{n} tome paru", "{n} tomes parus") + " · "
+                    + trn(owned, "{n} possédé", "{n} possédés"))
         return tr("{n} tomes possédés", n=owned)
 
     def _metadata_notice(self, e):

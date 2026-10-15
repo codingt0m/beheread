@@ -110,6 +110,8 @@ Les numéros de version suivent [SemVer](https://semver.org/lang/fr/). Chaque se
 
 ### Corrections
 
+* **Corrigé** : une série dont la fiche en ligne compte moins de tomes que vous n'en possédez (œuvre parue en un volume au Japon et en trois en France, comme *Léviathan*) affichait « 3 possédés sur 1 ». Ce nombre, faux pour votre édition, est désormais ignoré. « 1 tome paru » s'accorde aussi au singulier.
+
 * **Corrigé** (Windows) : supprimer un tome juste après son apparition dans la bibliothèque pouvait échouer (« fichier utilisé par un autre processus ») pendant que Beheread préparait sa couverture.
 * **Corrigé** : supprimer une copie d'un tome présent en double effaçait la progression de l'autre copie.
 * **Corrigé** : la mémoire du lecteur grossissait sans limite en feuilletant un tome dans les deux sens.

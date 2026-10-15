@@ -496,6 +496,29 @@ def test_open_series_shows_owned_and_missing_volumes(window, qtbot, mangas, stor
     assert not band.isVisibleTo(lib)
 
 
+def test_published_count_below_owned_volumes_is_ignored(window, qtbot, mangas, store):
+    """Leviathan : un volume au Japon (AniList), trois tomes en France. Le
+    nombre de parus, faux pour cette edition, n'est ni affiche ni compare."""
+    for n in (1, 2, 3):
+        make_cbz(mangas, f"Leviathan - Tome {n}", seed=n)
+    store.set_series_meta("leviathan", {"authors": ["Shiro Kuroi"], "volumes": 1,
+                                        "source": "anilist", "cascade_version": 99})
+    store.set_folders([str(mangas)])
+    lib = window.library
+    lib.refresh()
+    scanned(qtbot, lib, 3)
+    lib._set_group_series(True)
+    lib._enter_series("leviathan")
+    band = lib.series_band
+    assert band.count.text() == "<b>3</b> tomes" and not band.bar.isVisibleTo(lib)
+    assert "parus" not in band.sub.text() and not band.note.isVisibleTo(lib)
+
+    # nombre plausible (au moins le plus grand tome possede) : de nouveau affiche
+    store.set_series_meta("leviathan", {"volumes": 3, "source": "anilist", "cascade_version": 99})
+    lib._rebuild_list()
+    assert "3 tomes parus" in band.sub.text()
+
+
 def test_detail_panel_shows_genres_and_a_folded_summary(window, qtbot, mangas, store):
     path = make_cbz(mangas, "Berserk - Tome 1", seed=1)
     make_cbz(mangas, "Berserk - Tome 2", seed=2)
