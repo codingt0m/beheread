@@ -2,7 +2,14 @@
 
 Les numéros de version suivent [SemVer](https://semver.org/lang/fr/). Chaque section ci-dessous sert aussi de notes à la release GitHub du même numéro.
 
-## [Non publié]
+## [1.2.0] - 2026-10-15
+
+### Quel fichier télécharger
+
+* `Beheread-Setup-1.2.0.exe` : l'installateur Windows, recommandé. Il remplace la version en place et conserve vos données.
+* `Beheread-1.2.0-windows-x64.zip` : la version Windows sans installation, à dézipper où vous voulez.
+* `SHA256SUMS.txt` : les sommes de contrôle des deux fichiers Windows.
+* `Beheread-1.2.0-macos.dmg` : la version Mac (puce Apple, macOS 13 ou plus récent), avec ses sommes de contrôle dans `SHA256SUMS-macos.txt`.
 
 ### Sécurité
 
@@ -67,6 +74,9 @@ Les numéros de version suivent [SemVer](https://semver.org/lang/fr/). Chaque se
 * Les réglages du lecteur (double page, ajustement, recadrage, décalage) sont retenus pour chaque série : un tome d'une série déjà réglée retrouve ses réglages, les autres séries reprennent le dernier choix fait.
 * En double page, l'appairage se recale tout seul après une planche double : la page suivante commence une nouvelle paire, comme dans le livre imprimé.
 * Un tome refermé sur sa page 1, 2 ou 3 n'est plus considéré comme commencé : sa progression est effacée à la sortie du lecteur, et il n'apparaît ni « en cours » ni dans « Continuer la lecture ». Un tome déjà terminé le reste.
+* **Corrigé** : avec le recadrage automatique, une page simple aux grandes marges (haut et bas) passait pour une planche double une fois rognée : elle s'affichait seule et décalait l'appairage de toutes les pages suivantes. Une planche double est désormais reconnue sur l'image d'origine.
+* **Corrigé** : appuyer plusieurs fois sur « Décalage » faisait reculer d'une page à chaque appui. Les appuis alternent maintenant entre deux vues, et la touche agit aussi après une planche double (le décalage ne vaut alors que pour cette partie du tome, pour la lecture en cours).
+* **Corrigé** : le temps de lecture estimé était environ deux fois trop court. Le rythme est maintenant le temps total passé divisé par les pages lues, d'après le journal de lecture des six derniers mois (les coups d'œil de quelques pages n'y comptent pas) ; le temps restant du lecteur suit la même moyenne.
 * **Corrigé** : un album nommé « Série - Tome 4 - Titre de l'album », ou un fichier au nommage « scène » (« Chainsaw.Man.T20.Fujimoto.FR.[CBZ]-NoTag »), formait sa propre série au lieu de rejoindre les autres tomes.
 
 ### Babelio
@@ -100,6 +110,7 @@ Les numéros de version suivent [SemVer](https://semver.org/lang/fr/). Chaque se
 * Les auteurs arrivent bien plus vite au premier remplissage d'une grande bibliothèque : chaque série n'est plus cherchée qu'une fois en ligne, au lieu d'une fois par tome.
 * Une recherche d'auteur qui a échoué (réseau, service saturé) est retentée dans la session, après 5, 15 puis 60 minutes, au lieu d'attendre le prochain lancement. Beheread respecte les pauses demandées par les services en ligne.
 * L'analyse des dossiers lit chaque dossier une seule fois, et un fichier ajouté ou retiré ne fait plus relire que son dossier, plus toute la bibliothèque : nettement plus rapide sur un disque réseau ou une grande bibliothèque.
+* Le défilement de la bibliothèque est plus fluide : les cases et les couvertures sont préparées une seule fois, au lieu d'être redessinées à chaque pas.
 * L'enregistrement de la progression ne dépend plus de la taille de la bibliothèque : seules les données modifiées sont écrites. La base de données est réorganisée au premier lancement (une copie de l'ancienne est gardée à côté), puis entretenue à la fermeture.
 
 ### Lecture des fichiers
@@ -110,6 +121,8 @@ Les numéros de version suivent [SemVer](https://semver.org/lang/fr/). Chaque se
 
 ### Corrections
 
+* **Corrigé** : dans « Continuer la lecture », la ligne de progression sous le titre était coupée.
+* **Corrigé** : dans les statistiques, les boutons de période (7 jours, 30 jours, 12 mois, Tout) n'avaient pas leurs extrémités arrondies.
 * **Corrigé** : une série dont la fiche en ligne compte moins de tomes que vous n'en possédez (œuvre parue en un volume au Japon et en trois en France, comme *Léviathan*) affichait « 3 possédés sur 1 ». Ce nombre, faux pour votre édition, est désormais ignoré. « 1 tome paru » s'accorde aussi au singulier.
 
 * **Corrigé** (Windows) : supprimer un tome juste après son apparition dans la bibliothèque pouvait échouer (« fichier utilisé par un autre processus ») pendant que Beheread préparait sa couverture.
