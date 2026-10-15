@@ -2,6 +2,7 @@
 
 import time
 
+import pytest
 from PySide6.QtCore import QEvent, QPoint, QPointF, QRect, Qt
 from PySide6.QtGui import QKeyEvent, QWheelEvent
 from PySide6.QtWidgets import QApplication, QPushButton
@@ -60,7 +61,7 @@ def test_reading_saves_progress_and_session_stats(window, qtbot, mangas, store):
     record = _session_record(store, path)
     assert (record["pages"], record["seconds"], record["sessions"], record["finished"]) == (
         5, 50.0, 1, 1)
-    assert store.reading_pace() == 10.0
+    assert store.reading_pace() == pytest.approx(10.0)
 
 
 def test_flipping_through_pages_is_not_reading(window, qtbot, mangas, store):
@@ -85,7 +86,7 @@ def test_remaining_time_counts_pages_not_page_turns(window, qtbot, mangas, store
     for _ in range(5):
         clock[0] += 30
         reader.next_page(animate=False)
-    assert reader._meter.pace() == 15.0
+    assert reader._meter.pace() == pytest.approx(15.0)
     remaining = (reader.total - 1) - reader.page
     assert reader._time_remaining_text() == f"~{round(15 * remaining / 60)} min restantes"
 

@@ -824,6 +824,7 @@ class Store:
                     return
                 self.reading_log.add(device, name, date or datetime.date.today(), key,
                                      pages, seconds, finished, title, series, time.time())
+                self._pace_cache = None
         except Exception:
             logging.error("Seance de lecture non enregistree dans le journal", exc_info=True)
 
@@ -985,14 +986,25 @@ class Store:
             self._schedule(name)
 
     # ------------------------------------------------------------ estimation du temps de lecture
-    PACE_DAYS = 180   # le rythme suit la lecture recente
+    PACE_DAYS = 180       # le rythme suit la lecture recente
+    PACE_TTL = 60.0       # secondes : une requete SQL par minute au plus
+    _pace_cache = None    # (instant, rythme)
 
     def reading_pace(self):
         """Rythme de lecture personnel (secondes par page) d'apres le journal
         de lecture des derniers mois (voir ReadingLog.pace), ou None tant que
-        rien n'a ete lu."""
+        rien n'a ete lu. Memorise brievement : la bibliotheque le demande une
+        fois par tome affiche, et une seance l'invalide (record_reading)."""
+        now = time.monotonic()
+        cached = self._pace_cache
+        if cached is not None and now - cached[0] < self.PACE_TTL:
+            return cached[1]
         since = datetime.date.today() - datetime.timedelta(days=self.PACE_DAYS)
-        return self.reading_log.pace(since)
+        if self._closed:   # mises a jour en file tardives, apres la fermeture
+            return None
+        pace = self.reading_log.pace(since)
+        self._pace_cache = (now, pace)
+        return pace
 
     def page_count(self, path: str):
         """Nombre de pages connu pour ce fichier (par empreinte de contenu),
