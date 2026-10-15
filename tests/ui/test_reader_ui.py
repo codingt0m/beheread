@@ -88,7 +88,10 @@ def test_remaining_time_counts_pages_not_page_turns(window, qtbot, mangas, store
         reader.next_page(animate=False)
     assert reader._meter.pace() == pytest.approx(15.0)
     remaining = (reader.total - 1) - reader.page
-    assert reader._time_remaining_text() == f"~{round(15 * remaining / 60)} min restantes"
+    # a partir du rythme mesure : 15 s x pages / 60 tombe sur une demi-minute,
+    # ou un flottant d'un cheveu sous 15 fait arrondir dans l'autre sens
+    minutes = round(reader._meter.pace() * remaining / 60)
+    assert reader._time_remaining_text() == f"~{minutes} min restantes"
 
 
 def test_reader_always_opens_fullscreen(window, qtbot, mangas):
