@@ -20,6 +20,15 @@ from beheread.version import __version__  # noqa: E402
 
 MACOS = sys.platform == 'darwin'
 
+# module local facultatif (absent du depot) : charge dynamiquement par app.py,
+# donc invisible pour l'analyse de PyInstaller. Inclus quand il est present.
+from pathlib import Path  # noqa: E402
+
+from PyInstaller.utils.hooks import collect_submodules  # noqa: E402
+
+_LOCAL = (collect_submodules('beheread.perso')
+          if (Path(SPECPATH) / 'beheread' / 'perso' / '__init__.py').exists() else [])
+
 # Composants que les hooks PySide6 embarquent d'office et que Beheread (Qt
 # Widgets, QtPdf, QtNetwork) ne charge jamais - environ 45 Mo :
 # * opengl32sw.dll : OpenGL logiciel, utile aux seules applications OpenGL/QML ;
@@ -49,7 +58,7 @@ a = Analysis(
     # icone et autres ressources, retrouvees par beheread.config.resource_path
     datas=[('beheread/resources', 'beheread/resources')],
     # moteur du Trousseau, importe a l'usage (voir platforms/macos.py)
-    hiddenimports=['keyring.backends.macOS'] if MACOS else [],
+    hiddenimports=(['keyring.backends.macOS'] if MACOS else []) + _LOCAL,
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
