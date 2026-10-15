@@ -45,7 +45,8 @@ class ServicesMixin:
         if dlg.exec() != QDialog.Accepted:
             return
         was_online = self._online_meta()
-        old_language = i18n.language()
+        system = QLocale.system().name()
+        old_language = i18n.resolve(self.store.ui_pref("language", "system"), system)
         dlg.save()
         self._show_continue = bool(self.store.library_pref("show_continue", True))
         self._set_details_visible(bool(self.store.library_pref("show_details", False)))
@@ -59,8 +60,7 @@ class ServicesMixin:
         self._rebuild_list()
         self.preferencesChanged.emit()
         # langue effectivement differente (« systeme » peut valoir la langue
-        # actuelle) : redemarrage, les textes etant traduits a la creation
-        system = QLocale.system().name()
+        # choisie avant) : redemarrage, les textes etant traduits a la creation
         if i18n.resolve(self.store.ui_pref("language", "system"), system) != old_language:
             self.restartRequested.emit()
 

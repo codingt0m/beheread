@@ -83,6 +83,9 @@ def test_rarfile_only_runs_tools_found_by_absolute_path(tmp_path, monkeypatch):
     monkeypatch.setattr(rarfile, "Popen", fake_popen)
     monkeypatch.setattr(archive, "_rarfile", None)
     monkeypatch.setattr(archive, "_rar_error", None)
+    # outils retenus : restaures apres le test (sinon le faux UnRAR.exe sert
+    # aux tests suivants, ex. l'extraction des RAR solides)
+    monkeypatch.setattr(archive, "_rar_tools", {})
     monkeypatch.setattr(archive.platforms, "rar_tools", lambda app_dir: {
         "unrar": [Path("unrar"), tool], "sevenzip": [Path("7z")], "bsdtar": []})
 

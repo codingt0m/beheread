@@ -1,6 +1,8 @@
 """Serveurs de lecture (infra/servers.py, services/servers.py) face a de
 faux serveurs Komga, Kavita et OPDS locaux (tests/fake_servers.py)."""
 
+from pathlib import Path
+
 import pytest
 
 from beheread import platforms
@@ -49,7 +51,7 @@ def test_paths_identify_remote_volumes():
     # un identifiant OPDS (urn, adresse) devient une empreinte sans separateur
     odd = servers.safe_id("urn:uuid:1/2.3")
     assert odd.isalnum() and servers.safe_id("urn:uuid:1/2.3") == odd
-    assert servers.display_name(r"C:\mangas\Berserk 1.cbz") == "Berserk 1"
+    assert servers.display_name(str(Path("mangas") / "Berserk 1.cbz")) == "Berserk 1"
 
 
 def test_urls_are_normalized_and_checked():
