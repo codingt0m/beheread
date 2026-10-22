@@ -192,14 +192,17 @@ class ChapterMapController(QObject):
         self._call = None             # (cle, CallWorker) en cours
         self._now = time.time         # remplace dans les tests
 
-    def ensure(self, key, name, hints=None):
-        """Demande le decoupage de la serie s'il manque ou date."""
+    def ensure(self, key, name, hints=None, incomplete=False):
+        """Demande le decoupage de la serie s'il manque ou date. `incomplete` :
+        le decoupage en cache ne connait pas le dernier tome possede - il est
+        redemande des CHAPTER_MAP_RETRY (un jour) au lieu d'une semaine."""
         if not self.online() or key in self._queue or (self._call and self._call[0] == key):
             return
         cached = self.store.chapter_map(key)
         if cached and cached.get("v") == mangadex.RANGES_VERSION:
             age = self._now() - float(cached.get("at") or 0)
-            if age < (CHAPTER_MAP_RETRY if cached.get("failed") else CHAPTER_MAP_TTL):
+            stale = CHAPTER_MAP_RETRY if cached.get("failed") or incomplete else CHAPTER_MAP_TTL
+            if age < stale:
                 return
         self._queue[key] = (name, hints)
         self._next()

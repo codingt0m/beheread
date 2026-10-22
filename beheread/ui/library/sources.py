@@ -12,7 +12,7 @@ from PySide6.QtWidgets import QButtonGroup, QHBoxLayout, QPushButton, QWidget
 
 from beheread.core import units
 from beheread.core.models import LibraryEntry
-from beheread.core.series import normalize_name
+from beheread.core.series import normalize_name, parse_series_ex
 from beheread.i18n import tr
 from beheread.infra import servers as remote
 from beheread.infra.storage import Store
@@ -185,7 +185,7 @@ class SourcesMixin:
                 series = override
             entries.append(LibraryEntry(
                 path=b.path, title=b.title, series=series, volume=b.number,
-                kind="volume" if b.number is not None else None, added=added.get(b.path, 0),
+                kind=self._remote_kind(b), added=added.get(b.path, 0),
                 detached=detached, manual=bool(override) and not detached))
         if entries != self._file_entries:
             self._set_entries(entries)
@@ -207,6 +207,14 @@ class SourcesMixin:
         else:
             self._set_empty_state(tr("Aucun tome sur ce serveur"), "", tr("Réessayer"),
                                   lambda: self.servers.fetch(self._source))
+
+    @staticmethod
+    def _remote_kind(book):
+        """Nature d'un livre d'un serveur : chapitre si son titre le dit
+        (« Chainsaw Man Chapitre 211 », « Chapter 211 »), tome sinon."""
+        if book.number is None:
+            return None
+        return "chapter" if parse_series_ex(book.title)[2] == "chapter" else "volume"
 
     # ----- lecteur -----
     def next_volume(self, path):

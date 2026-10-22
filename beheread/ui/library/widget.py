@@ -42,6 +42,7 @@ from beheread.core.series import (
     edition_label,
     normalize_name,
     parse_path,
+    volume_hint,
     volume_label,
 )
 from beheread.i18n import N_, tr, trn
@@ -123,6 +124,7 @@ class LibraryWidget(ChromeMixin, DetailPanelMixin, ActionsMixin, MenusMixin,
         # tomes virtuels (voir virtual_ui.py) : chapitres regroupes (masques),
         # chapitres de chaque tome, tomes remplaces par leur tome officiel
         self._grouped_chapters = set()
+        self._ranges_cache = {}
         self._virtual_members = {}
         self._superseded = []
         self._replacements_offered = set()
@@ -683,17 +685,47 @@ class LibraryWidget(ChromeMixin, DetailPanelMixin, ActionsMixin, MenusMixin,
         chapters = [e for e in grp if by_path[e.path] == units.CHAPTER and e.volume is not None]
         if not chapters:
             return
-        self.chapter_maps.ensure(key, self._series_raw_name.get(key, grp[0].series))
         # tomes reels seulement : un tome virtuel cache deja ses chapitres
         volumes = [e.volume for e in grp if by_path[e.path] == units.VOLUME
                    and e.volume is not None and not virtual.is_virtual(e.path)]
+        # decoupage qui ne connait pas le dernier tome possede : redemande
+        # chaque jour (MangaDex se complete au fil des mises en ligne)
+        known = self.store.chapter_ranges(key)
+        incomplete = bool(volumes) and units.fmt_number(max(volumes)) not in known
+        self.chapter_maps.ensure(key, self._series_raw_name.get(key, grp[0].series),
+                                 incomplete=incomplete)
         if not volumes:
             return
-        ranges = self.store.chapter_ranges(key)
+        ranges = self._chapter_ranges(key)
         covered = units.covered_chapters([e.volume for e in chapters], volumes, ranges)
         for e in chapters:
             if e.volume in covered:
                 by_path[e.path] = units.COVERED
+
+    def _chapter_ranges(self, key):
+        """Decoupage tomes/chapitres de la serie : MangaDex (et tomes arrives
+        a la place d'un tome virtuel), complete par les noms de fichiers qui
+        donnent le tome d'un chapitre (« Vol.22 Ch.199 », voir
+        series.volume_hint) pour les tomes que MangaDex ne connait pas.
+        Ces indices ne couvrent que les chapitres possedes : ils servent aux
+        manquants et aux libelles, jamais a creer un tome virtuel."""
+        cached = self._ranges_cache.get(key)
+        if cached is not None:
+            return cached
+        ranges = dict(self.store.chapter_ranges(key))
+        hints = {}
+        for path in self._paths_by_series.get(key, ()):
+            e = self._entry_by_path.get(path)
+            if e is None or e.kind != "chapter" or e.volume is None:
+                continue
+            volume = volume_hint(e.title)
+            if volume is not None:
+                first, last = hints.get(volume, (e.volume, e.volume))
+                hints[volume] = (min(first, e.volume), max(last, e.volume))
+        for volume, (first, last) in hints.items():
+            ranges.setdefault(str(volume), [first, last])
+        self._ranges_cache[key] = ranges
+        return ranges
 
     def _ensure_latest_releases(self, key, grp, by_path):
         """Serie en tomes seuls dont le nombre de tomes parus est inconnu
@@ -738,6 +770,7 @@ class LibraryWidget(ChromeMixin, DetailPanelMixin, ActionsMixin, MenusMixin,
         self._meta_subscribers = {}
         entries = self._entries
 
+        self._ranges_cache = {}   # decoupages par serie (voir _chapter_ranges)
         self._series_display_name = self._compute_display_names(self._entries)
         self._unit_by_path = self._compute_units(self._entries)
         self._info = {e.path: self._entry_info(e) for e in self._entries}
@@ -1133,7 +1166,7 @@ class LibraryWidget(ChromeMixin, DetailPanelMixin, ActionsMixin, MenusMixin,
         else:
             real = owned_numbers(e.volume for e in vols if self._unit(e) == units.VOLUME
                                  and not virtual.is_virtual(e.path))
-            end = units.coverage_end(real, self.store.chapter_ranges(key))
+            end = units.coverage_end(real, self._chapter_ranges(key))
             if end is not None:
                 start = int(end) + 1
         missing_ch = units.missing_chapters(held, start)
@@ -1245,7 +1278,7 @@ class LibraryWidget(ChromeMixin, DetailPanelMixin, ActionsMixin, MenusMixin,
         item.setData(ROLE_SMALL, small)
         item.setData(ROLE_VIRTUAL, virtual.is_virtual(e.path))
         if units.is_chapter(self._unit(e)):
-            volume = units.volume_of(e.volume, self.store.chapter_ranges(normalize_name(e.series)))
+            volume = units.volume_of(e.volume, self._chapter_ranges(normalize_name(e.series)))
             item.setData(ROLE_IN_VOLUME, tr("Tome {n}", n=volume) if volume else None)
         # declenche (ou reutilise) la recherche de metadonnees pour toute la
         # bibliotheque, pas seulement quand on trie par auteur/date : l'info

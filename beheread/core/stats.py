@@ -469,6 +469,7 @@ class YearRecap:
     best_streak: int                  # plus longue suite de jours de lecture de l'annee
     series: list                      # SeriesRank, les plus lues
     months: list                      # secondes de lecture par mois (12)
+    finished_chapters: int = 0        # dont chapitres (voir is_chapter_title)
 
     @property
     def empty(self) -> bool:
@@ -514,4 +515,5 @@ def year_recap(log, year: int, today: _dt.date, resolve=None, top: int = 3) -> Y
             streak = max(streak, (b - a).days + 1)
     return YearRecap(year, float(totals.seconds), int(totals.pages), int(totals.finished),
                      favorite, averages[best_day] if favorite is not None else 0.0, streak,
-                     top_series(log.volumes(start, end), resolve, top), months)
+                     top_series(log.volumes(start, end), resolve, top), months,
+                     int(totals.finished_chapters))

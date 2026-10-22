@@ -6,11 +6,12 @@ from typing import NamedTuple
 
 from PySide6.QtCore import (
     QObject,
+    QPointF,
     QRunnable,
     Qt,
     Signal,
 )
-from PySide6.QtGui import QImage
+from PySide6.QtGui import QColor, QImage, QPainter
 from PySide6.QtWidgets import (
     QSlider,
 )
@@ -33,9 +34,33 @@ class _PageSlider(QSlider):
     hovered = Signal(int, int)   # page visee, x (dans le slider) du curseur
     hoverLeft = Signal()
 
+    MARKER = 5   # diametre des reperes de chapitre (pixels)
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.setMouseTracking(True)   # recevoir les mouvements sans bouton
+        # tome virtuel : premiere page de chaque chapitre (sauf le premier),
+        # marquee d'un petit point sur la barre
+        self.markers = []
+
+    def set_markers(self, pages):
+        self.markers = list(pages)
+        self.update()
+
+    def paintEvent(self, event):
+        super().paintEvent(event)
+        span = self.maximum() - self.minimum()
+        if not self.markers or span <= 0:
+            return
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+        painter.setPen(Qt.NoPen)
+        painter.setBrush(QColor(255, 255, 255, 170))
+        d, y = self.MARKER, self.height() / 2
+        for page in self.markers:
+            x = (page - self.minimum()) / span * self.width()
+            painter.drawEllipse(QPointF(x, y), d / 2, d / 2)
+        painter.end()
 
     def _value_at(self, x):
         ratio = min(1.0, max(0.0, x / max(1, self.width())))

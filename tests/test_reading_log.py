@@ -70,6 +70,8 @@ def test_chapters_are_counted_apart(log):
     t = log.totals(TODAY, TODAY)
     assert (t.finished, t.finished_chapters, t.volumes, t.chapters) == (2, 1, 3, 2)
     assert log.buckets(TODAY, TODAY)[0][3:] == (2, 1)
+    recap = stats.year_recap(log, TODAY.year, TODAY)
+    assert (recap.finished, recap.finished_chapters) == (2, 1)
 
 
 def test_volumes_carry_their_latest_title_and_series(log):

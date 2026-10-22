@@ -658,6 +658,31 @@ def test_ongoing_series_shows_what_was_released_since(window, qtbot, mangas, sto
     assert missing() == [(3, 3, "chapter", False), (4, 4, "chapter", False)]
 
 
+def test_volume_named_in_chapter_files_completes_the_split(window, qtbot, mangas, store):
+    """Sans decoupage MangaDex, des fichiers « Vol.X Ch.Y » le completent : le
+    chapitre du tome possede est masque, les manquants partent de la fin de
+    ce tome, et chaque chapitre affiche son tome."""
+    from beheread.ui.library.constants import ROLE_IN_VOLUME, ROLE_MISSING
+
+    for i, name in enumerate(("Serie T22", "Serie Vol.22 Ch.205", "Serie Vol.23 Ch.207",
+                              "Serie Vol.23 Ch.209")):
+        make_cbz(mangas, name, seed=i + 1)
+    store.set_folders([str(mangas)])
+    lib = window.library
+    lib.refresh()
+    scanned(qtbot, lib, 4)
+    lib._set_group_series(True)
+    lib._enter_series("serie")
+    items = [lib.list.item(i) for i in range(lib.list.count())]
+    titles = [it.text() for it in items if not lib.list.isRowHidden(lib.list.row(it))]
+    assert "Chapitre 205" not in titles and "Chapitre 207" in titles
+    missing = [it.data(ROLE_MISSING) for it in items if it.data(ROLE_MISSING)]
+    assert missing == [(1, 21, "volume", False), (206, 206, "chapter", False),
+                       (208, 208, "chapter", False)]
+    ch207 = next(it for it in items if it.text() == "Chapitre 207")
+    assert ch207.data(ROLE_IN_VOLUME) == "Tome 23"
+
+
 def test_published_count_below_owned_volumes_is_ignored(window, qtbot, mangas, store):
     """Leviathan : un volume au Japon (AniList), trois tomes en France. Le
     nombre de parus, faux pour cette edition, n'est ni affiche ni compare."""

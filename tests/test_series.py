@@ -335,3 +335,17 @@ def test_edition_with_another_split(stem, expected):
     from beheread.core.series import edition_label
     assert edition_label(stem) == expected
 
+
+
+@pytest.mark.parametrize("stem, expected, volume", [
+    ("Chainsaw Man Vol.22 Ch.199", ("Chainsaw Man", 199, "chapter"), 22),
+    ("One Piece v105 c1060", ("One Piece", 1060, "chapter"), 105),
+    ("City Hunter T03 Ch.20 [Team]", ("City Hunter", 20, "chapter"), 3),
+    ("Monster T03 [C2C]", ("Monster", 3, "volume"), None),     # groupe de release
+    ("Berserk T41", ("Berserk", 41, "volume"), None),
+])
+def test_chapter_named_with_its_volume(stem, expected, volume):
+    """« Vol.22 Ch.199 » : le chapitre 199, range dans le tome 22."""
+    from beheread.core.series import parse_series_ex, volume_hint
+    assert parse_series_ex(stem) == expected
+    assert volume_hint(stem) == volume

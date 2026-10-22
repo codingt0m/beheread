@@ -142,7 +142,7 @@ class VirtualMixin:
         self._grouped_chapters = set()
         self._virtual_members = {}
         self._superseded = []
-        defs = self.store.virtual_volumes() if not self.is_remote_source() else {}
+        defs = self.store.virtual_volumes()
         if not defs:
             virtual.registry.set_all({})
             return []
@@ -347,8 +347,6 @@ class VirtualMixin:
     def _auto_virtual_volumes(self):
         """Tous les chapitres d'un tome officiel sont la : le tome virtuel
         est cree tout seul, avec sa couverture officielle (en ligne)."""
-        if self.is_remote_source():
-            return
         created = False
         for key, grp in self._group_entries(self._entries).items():
             if not any(self._unit(e) == units.CHAPTER for e in grp):

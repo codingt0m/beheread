@@ -289,7 +289,40 @@ def _folder_series(folder):
     return None if is_generic_name(name) else name
 
 
+# tome PUIS chapitre dans un meme nom (« Vol.22 Ch.199 », « v105 c1060 ») :
+# c'est le chapitre 199, range dans le tome 22 - pas le tome 22
+_VOLUME_THEN_CHAPTER = re.compile(
+    r"(?i)(?<![a-z0-9])(?:tome|tomo|vol(?:ume)?|t|v)[\s\-_.]*0*(\d+)(?![\d.])"
+    r".*?(?<![a-z0-9])(?:chapitre|chapter|chap|ch|c|ep(?:isode)?)[\s\-_.]*0*(\d+(?:\.\d+)?)"
+    r"(?![\d])")
+
+
+def _volume_and_chapter(stem: str):
+    """(tome, chapitre) d'un nom qui donne les deux, ou None."""
+    # sans les groupes de release (« [C2C] » n'est pas un chapitre 2)
+    m = _VOLUME_THEN_CHAPTER.search(_strip_release_junk(_normalized_stem(stem)))
+    return (int(m.group(1)), _to_number(m.group(2))) if m else None
+
+
+def volume_hint(stem: str):
+    """Tome qui contient ce chapitre, quand son nom le dit (« Vol.22
+    Ch.199 » -> 22), sinon None : complete le decoupage officiel."""
+    found = _volume_and_chapter(stem)
+    return found[0] if found else None
+
+
 def parse_series_ex(stem: str, folder=None):
+    """Comme _parse_series_ex, en reconnaissant un chapitre dont le nom
+    donne aussi le tome (« Chainsaw Man Vol.22 Ch.199 » : chapitre 199)."""
+    name, number, kind = _parse_series_ex(stem, folder)
+    if kind == "volume" and number is not None:
+        found = _volume_and_chapter(stem)
+        if found is not None and found[0] == number:
+            return name, found[1], "chapter"
+    return name, number, kind
+
+
+def _parse_series_ex(stem: str, folder=None):
     """Comme parse_series, mais renvoie aussi la NATURE du numero
     (voir _volume_kind) : (nom_de_serie, numero, kind). `kind` vaut None quand
     aucun numero n'est trouve. Utilise par la deduplication, qui doit

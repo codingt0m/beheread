@@ -11,7 +11,10 @@ Les numéros de version suivent [SemVer](https://semver.org/lang/fr/). Chaque se
 * Le découpage officiel en tomes (MangaDex) masque les chapitres déjà contenus dans un tome possédé, et signale les chapitres manquants à partir de la fin du dernier tome.
 * **Tomes virtuels** : des chapitres peuvent être regroupés en un tome, lu d'une traite, sans modifier les fichiers (sélection de chapitres › « Regrouper en tome… »). Quand tous les chapitres d'un tome officiel sont là, le tome virtuel est créé tout seul, avec sa couverture officielle ; quand le tome officiel arrive, il prend sa place et la lecture est conservée.
 * Clic droit sur une série › « Publiée en » : tomes, chapitres ou détection automatique.
-* Les statistiques comptent les chapitres à part des tomes.
+* Les statistiques et le récapitulatif de l'année comptent les chapitres à part des tomes.
+* Dans un tome virtuel, la barre de progression du lecteur marque d'un point le début de chaque chapitre, et le chapitre en cours s'affiche.
+* Un fichier nommé « Vol.22 Ch.199 » est reconnu comme le chapitre 199 (et non plus comme le tome 22) ; le tome qu'il indique complète le découpage officiel quand celui-ci est incomplet.
+* Les livres d'un serveur Komga ou Kavita dont le titre indique un chapitre sont traités comme des chapitres, et les tomes virtuels fonctionnent aussi pour eux.
 
 ### Bibliothèque
 

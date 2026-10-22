@@ -56,6 +56,7 @@ def test_chapters_grouped_into_a_virtual_volume(window, qtbot, mangas, store, mo
     window.open_manga(vpath)
     reader = window.reader
     qtbot.waitUntil(lambda: reader.total == 12, timeout=5000)
+    assert reader.page_slider.markers == [4, 8]          # debut des chapitres 22 et 23
     reader._go_to(9, animate=False)
     assert store.get_progress(ch[22])[2] is True
     assert not (store.get_progress(ch[23]) or (0, 0, False))[2]

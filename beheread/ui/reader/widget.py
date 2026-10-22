@@ -233,6 +233,9 @@ class ReaderWidget(HudMixin, EndCardMixin, DisplayMixin, InputMixin,
         self.page_slider.setMinimum(0)
         self.page_slider.setMaximum(max(0, self.total - 1))
         self.page_slider.setVisible(self.total > 1)
+        # tome virtuel : un repere au debut de chaque chapitre
+        spans = getattr(self.archive, "spans", None) or []
+        self.page_slider.set_markers(first for first, _last, _path in spans[1:])
         self.page_slider.scrubbed.connect(self._on_slider_scrub)
         self.page_slider.hovered.connect(self._on_slider_hover)
         self.page_slider.hoverLeft.connect(self._hide_preview)

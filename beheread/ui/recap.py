@@ -83,9 +83,13 @@ def render_recap(recap: stats.YearRecap, accent: str) -> QImage:
                      + tr("{n} pages en moyenne", n=f"{recap.favorite_pages:.0f}"))
     else:
         day, day_label = "—", tr("jour de lecture préféré")
+    # tomes seuls ; les chapitres termines en dessous
+    volumes = recap.finished - recap.finished_chapters
+    volumes_label = tr("tome terminé") if volumes == 1 else tr("tomes terminés")
+    if recap.finished_chapters:
+        volumes_label += "\n" + trn(recap.finished_chapters, "+ {n} chapitre", "+ {n} chapitres")
     tiles = [(_hours(recap.seconds), tr("de lecture")),
-             (fmt_int(recap.finished), tr("tome terminé") if recap.finished == 1
-              else tr("tomes terminés")),
+             (fmt_int(volumes), volumes_label),
              (day, day_label),
              (trn(recap.best_streak, "{n} jour", "{n} jours"),
               tr("de lecture d'affilée, mon record"))]

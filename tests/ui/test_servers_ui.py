@@ -126,3 +126,21 @@ def test_disabling_servers_returns_to_local(qtbot, remote_window, store):
     store.set_ui_pref("servers_enabled", False)
     remote_window.servers.reload()
     assert not lib.source_switch.isVisible() and not lib.is_remote_source()
+
+
+def test_server_chapters_are_told_apart_from_volumes(window, qtbot):
+    """Livres d'un serveur : « Chapitre 211 » dans le titre en fait un
+    chapitre, qui complete les tomes comme en local."""
+    from beheread.core import units
+    books = [servers.RemoteBook("k9", "V1", "Chainsaw Man T01", "Chainsaw Man", 1, pages=4),
+             servers.RemoteBook("k9", "V2", "Chainsaw Man T02", "Chainsaw Man", 2, pages=4),
+             servers.RemoteBook("k9", "C1", "Chainsaw Man Chapitre 211", "Chainsaw Man", 211,
+                                pages=4)]
+    lib = window.library
+    lib._apply_remote_books(books)
+    kinds = {e.title: e.kind for e in lib._entries}
+    assert kinds == {"Chainsaw Man T01": "volume", "Chainsaw Man T02": "volume",
+                     "Chainsaw Man Chapitre 211": "chapter"}
+    chapter = lib.entry(servers.make_path("k9", "C1"))
+    assert lib._unit(chapter) == units.CHAPTER
+    assert lib.next_volume(servers.make_path("k9", "V2")) == chapter.path
