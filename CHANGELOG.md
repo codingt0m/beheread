@@ -16,6 +16,16 @@ Les numéros de version suivent [SemVer](https://semver.org/lang/fr/). Chaque se
 * Un fichier nommé « Vol.22 Ch.199 » est reconnu comme le chapitre 199 (et non plus comme le tome 22) ; le tome qu'il indique complète le découpage officiel quand celui-ci est incomplet.
 * Les livres d'un serveur Komga ou Kavita dont le titre indique un chapitre sont traités comme des chapitres, et les tomes virtuels fonctionnent aussi pour eux.
 
+### Métadonnées des BD, comics et mangas français
+
+* Les comics ne sont plus confondus avec un manga homonyme : la BnF, interrogée en premier, dit de quelle langue l'œuvre est traduite. « Saga », « Batman », « Invincible » ou « Sandman » sont reconnus comme des comics (bon auteur, lecture de gauche à droite), les albums franco-belges comme des BD (« Largo Winch » n'est plus lu de droite à gauche), et les mangas restent confiés à AniList et MangaDex.
+* Les BD ont désormais leur nombre de tomes parus (donc leurs tomes manquants), la date de chaque tome, l'éditeur d'origine et un résumé ; l'année affichée est celle du premier tome, plus celle d'une réédition.
+* Wikidata départage les homonymes quand la BnF ne connaît pas la série, et sert de source à défaut (« Lastman »).
+* L'ISBN imprimé en code-barres sur la quatrième de couverture d'un scan identifie le tome exact.
+* `ComicInfo.xml` est mieux exploité (nombre de tomes, genres, résumé, ISBN), ainsi que les métadonnées des EPUB (série, numéro, sens de lecture) et le `series.json` de Mylar, comme dans Komga.
+* Les œuvres pour adultes d'AniList ne sont plus associées à une série d'un autre genre portant le même nom.
+* Les métadonnées déjà trouvées en ligne sont vérifiées à nouveau en arrière-plan.
+
 ### Bibliothèque
 
 * Nouveau : déplacer des tomes, des chapitres ou une série vers un autre dossier de la bibliothèque (par exemple vers iCloud Drive), sous-dossier, lecture et réglages conservés.

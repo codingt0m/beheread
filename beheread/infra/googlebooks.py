@@ -1,8 +1,13 @@
 """Client minimal pour l'API Google Books (recherche publique, sans cle),
-utilisee comme 2e priorite pour retrouver la date de sortie d'un TOME precis
-- contrairement a AniList/MyAnimeList qui ne documentent que la serie dans
-son ensemble. La couverture n'est pas recuperee ici : la premiere page de
-l'archive suffit et evite toute dependance reseau pour l'affichage.
+utilisee pour retrouver la date de sortie d'un TOME precis quand la serie ne
+la donne pas - AniList et MangaDex ne documentent que la serie dans son
+ensemble ; la BnF, elle, date chaque tome (voir metadata.fetch). La
+couverture n'est pas recuperee ici : la premiere page de l'archive suffit et
+evite toute dependance reseau pour l'affichage.
+
+En plus de l'auteur et de la date : editeur, resume, ISBN, et la categorie
+BISAC « Comics & Graphic Novels / Manga », seul indice de nature retenu (les
+autres categories ne disent rien du sens de lecture).
 
 Aucune authentification requise pour une recherche simple, mais le quota
 anonyme (sans cle API) est relativement bas et partage par adresse IP : des
@@ -18,6 +23,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
+from beheread.core.text import clean_description
 from beheread.infra import net
 
 BASE_URL = "https://www.googleapis.com/books/v1/volumes"
@@ -62,21 +68,13 @@ def _title_matches(series_name: str, title: str) -> bool:
     return ratio >= 0.6
 
 
-def search_volume(series_name: str, number=None, lang: str = "fr"):
-    """Cherche un tome precis (nom de serie + numero). Renvoie
-    {title, authors: [str], published_date, published_year} ou None si
-    aucun resultat. Leve GoogleBooksError en cas de probleme reseau/HTTP/format."""
-    query = f"{series_name} tome {number}" if number else series_name
-    params = {"q": query, "maxResults": 5}
-    if lang:
-        params["langRestrict"] = lang
+def _get(params):
     url = f"{BASE_URL}?{urllib.parse.urlencode(params)}"
-
     _throttle()
     try:
         req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
         with urllib.request.urlopen(req, timeout=TIMEOUT) as resp:
-            payload = json.loads(resp.read().decode("utf-8"))
+            return json.loads(resp.read().decode("utf-8"))
     except urllib.error.HTTPError as e:
         if e.code == 429:
             _LIMITER.back_off(net.retry_after(e))   # quota anonyme depasse
@@ -84,22 +82,9 @@ def search_volume(series_name: str, number=None, lang: str = "fr"):
     except (urllib.error.URLError, OSError, ValueError, TimeoutError) as e:
         raise GoogleBooksError(str(e)) from e
 
-    items = payload.get("items") or []
-    if not items:
-        return None
 
-    # On retient le premier item dont le titre correspond reellement a la serie
-    # demandee (voir _title_matches) plutot que le premier resultat brut, qui
-    # peut etre un ouvrage sans rapport quand la serie n'est pas indexee.
-    info = None
-    for item in items:
-        vi = item.get("volumeInfo", {})
-        if _title_matches(series_name, vi.get("title", "")):
-            info = vi
-            break
-    if info is None:
-        return None
-
+def _volume(info):
+    """Donnees retenues d'un volumeInfo."""
     published = info.get("publishedDate")
     year = None
     if published:
@@ -107,12 +92,48 @@ def search_volume(series_name: str, number=None, lang: str = "fr"):
             year = int(str(published)[:4])
         except (ValueError, TypeError):
             year = None
-
-    authors = info.get("authors") or []
-
-    return {
+    isbn = next((i.get("identifier") for i in info.get("industryIdentifiers") or ()
+                 if i.get("type") == "ISBN_13"), None)
+    out = {
         "title": info.get("title"),
-        "authors": authors[:1],   # seul l'auteur principal (premier de la liste) est garde
+        "authors": (info.get("authors") or [])[:1],   # seul l'auteur principal est garde
         "published_date": published,
         "published_year": year,
+        "publisher": info.get("publisher"),
+        "description": clean_description(info.get("description")),
+        "isbn": isbn,
     }
+    # « Comics & Graphic Novels / Manga / ... » : seul indice de nature fiable
+    if any("manga" in str(c).casefold() for c in info.get("categories") or ()):
+        out["format"] = "manga"
+    return out
+
+
+def search_volume(series_name: str, number=None, lang: str = "fr"):
+    """Cherche un tome precis (nom de serie + numero). Renvoie
+    {title, authors: [str], published_date, published_year, publisher,
+    description, isbn[, format]} ou None si aucun resultat. Leve
+    GoogleBooksError en cas de probleme reseau/HTTP/format."""
+    query = f"{series_name} tome {number}" if number else series_name
+    params = {"q": query, "maxResults": 5}
+    if lang:
+        params["langRestrict"] = lang
+    items = _get(params).get("items") or []
+    # On retient le premier item dont le titre correspond reellement a la serie
+    # demandee (voir _title_matches) plutot que le premier resultat brut, qui
+    # peut etre un ouvrage sans rapport quand la serie n'est pas indexee.
+    for item in items:
+        vi = item.get("volumeInfo", {})
+        if _title_matches(series_name, vi.get("title", "")):
+            return _volume(vi)
+    return None
+
+
+def search_isbn(isbn: str):
+    """Tome identifie par son ISBN (meme forme que search_volume), ou None.
+    Leve GoogleBooksError en cas de probleme reseau/HTTP/format."""
+    digits = re.sub(r"[^\dX]", "", (isbn or "").upper())
+    if len(digits) not in (10, 13):
+        return None
+    items = _get({"q": f"isbn:{digits}", "maxResults": 1}).get("items") or []
+    return _volume(items[0].get("volumeInfo", {})) if items else None

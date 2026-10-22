@@ -243,9 +243,9 @@ class ChapterMapController(QObject):
 
 
 class MetadataController(QObject):
-    """Metadonnees auteur/date : cascade ComicInfo.xml -> Google Books ->
-    AniList -> MangaDex -> BnF par tome, et recherche au niveau serie pour que
-    l'auteur apparaisse vite pour tous les tomes. Un pool par hote distant,
+    """Metadonnees auteur/date : cascade par tome (metadonnees du fichier,
+    ISBN, serie, Google Books : voir infra/metadata.py), et recherche au
+    niveau serie pour que l'auteur apparaisse vite pour tous les tomes. Un pool par hote distant,
     limite a 1 thread, pour rester poli avec les API."""
 
     volumeUpdated = Signal(str)     # chemin du tome dont les metadonnees ont change

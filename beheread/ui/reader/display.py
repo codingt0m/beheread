@@ -246,9 +246,10 @@ class DisplayMixin:
         """Sens de lecture detecte automatiquement, sans requete reseau (le
         lecteur reste hors ligne) - quatre paliers, par ordre de priorite :
 
-        1. "bnf" : serie inconnue des bases manga mais trouvee au catalogue
-           de la BnF, dont les notices disent s'il s'agit d'albums de BD
-           (gauche -> droite) ou de mangas traduits (droite -> gauche).
+        1. "bnf" : nature de l'oeuvre connue ("format") - par la BnF (langue
+           dont l'oeuvre est traduite, format des albums), Wikidata, la
+           notice de l'ISBN du tome ou la categorie Google Books : BD,
+           comics et manhwa (gauche -> droite) ou manga (droite -> gauche).
         2. "manga" : genre AniList deja mis en cache (par la bibliotheque, au
            survol/scan) pour ce tome ou sa serie, avec pays d'origine connu -
            trouve dans la base manga d'AniList et pays hors Coree/Chine ->

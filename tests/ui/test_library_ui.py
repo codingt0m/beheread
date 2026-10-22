@@ -706,6 +706,22 @@ def test_published_count_below_owned_volumes_is_ignored(window, qtbot, mangas, s
     assert "3 tomes parus" in band.sub.text()
 
 
+def test_local_count_gives_published_volumes(window, qtbot, mangas, store):
+    """« Count » de ComicInfo.xml (edition possedee, comme dans Komga) : il
+    prime sur le nombre de la base en ligne, et sa source est citee."""
+    paths = [make_cbz(mangas, f"Blacksad - Tome {n}", seed=n) for n in (1, 2)]
+    store.set_series_meta("blacksad", {"volumes": 9, "source": "bnf", "cascade_version": 99})
+    store.set_volume_meta(paths[0], {"authors": ["Juan Díaz Canales"], "volumes": 7,
+                                     "source": "comicinfo"})
+    store.set_folders([str(mangas)])
+    lib = window.library
+    lib.refresh()
+    scanned(qtbot, lib, 2)
+    lib._set_group_series(True)
+    lib._enter_series("blacksad")
+    assert "7 tomes parus (ComicInfo.xml)" in lib.series_band.sub.text()
+
+
 def test_detail_panel_shows_genres_and_a_folded_summary(window, qtbot, mangas, store):
     path = make_cbz(mangas, "Berserk - Tome 1", seed=1)
     make_cbz(mangas, "Berserk - Tome 2", seed=2)

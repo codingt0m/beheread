@@ -51,6 +51,7 @@ query ($search: String) {
       staff(perPage: 8, sort: RELEVANCE) { edges { role node { name { full } } } }
       startDate { year }
       countryOfOrigin
+      isAdult
       volumes
       chapters
       genres
@@ -205,11 +206,15 @@ def _all_media_titles(media):
     return [t for t in titles.values() if t] + list(media.get("synonyms") or [])
 
 
-def search_series(name: str, author_hint=None):
+def search_series(name: str, author_hint=None, adult=True):
     """Cherche une serie par son nom. Renvoie {title, authors: [str],
     published_year, country, anilist_id, volumes, match_score} ou None si
     introuvable. Leve AniListError en cas de probleme reseau/HTTP/format (hors
     404, qui signifie "non trouve").
+
+    adult=False : les oeuvres pour adultes sont ecartees, sauf si leur auteur
+    correspond a l'indice tire du nom de fichier - un synonyme suffit sinon
+    a associer « Radiant » ou « Saga » a un hentai homonyme.
 
     match_score (0..1) mesure la ressemblance entre le nom cherche et les
     titres de l'oeuvre trouvee (titres + synonymes) : la recherche AniList est
@@ -223,7 +228,11 @@ def search_series(name: str, author_hint=None):
     candidates = (data.get("Page") or {}).get("media")
     if candidates is None:   # ancienne forme de reponse (une seule oeuvre)
         candidates = [data["Media"]] if data.get("Media") else []
-    media, score = _pick([c for c in candidates if c],
+    candidates = [c for c in candidates if c]
+    if not adult:
+        candidates = [c for c in candidates if not c.get("isAdult")
+                      or matches_author(author_hint, _staff_names(c))]
+    media, score = _pick(candidates,
                          lambda c: title_score(name, _all_media_titles(c)),
                          _staff_names, author_hint)
     if not media:

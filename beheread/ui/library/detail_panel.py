@@ -73,6 +73,8 @@ class DetailPanelMixin:
     # libelles traduits a l'affichage (tr)
     _SOURCE_LABELS = {"comicinfo": "ComicInfo.xml", "googlebooks": "Google Books",
                       "anilist": "AniList", "mangadex": "MangaDex", "bnf": "BnF",
+                      "wikidata": "Wikidata", "isbn": "ISBN", "epub": "EPUB",
+                      "seriesjson": "series.json",
                       "manual": N_("Saisie manuelle"), "series": N_("Série"),
                       "server": N_("Serveur")}
 

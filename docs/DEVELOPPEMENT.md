@@ -99,6 +99,7 @@ beheread/
     reading_session.py   Mesure d'une séance (pages lues, temps actif, rythme)
     backup.py            Sauvegarde (export, fusion à l'import)
     anilist_track.py     Règles du suivi AniList (uniquement des ajouts)
+    barcode.py           Lecture d'un code-barres EAN-13 (ISBN) dans les lignes d'une image
   platforms/             Tout ce qui dépend du système, derrière une seule interface (__init__.py)
     windows.py           DPAPI, raccourci global Ctrl+Alt+C, explorateur, outils RAR, fichiers cloud
     macos.py             Trousseau, Finder, Corbeille, bsdtar / 7-Zip, fichiers iCloud, masquage (touche C)
@@ -108,8 +109,8 @@ beheread/
     database.py          Base SQLite : schéma versionné, dépôts (une ligne par tome), écritures incrémentales
     reading_log.py       Journal de lecture : table SQL, agrégats par période des statistiques
     archive.py           Ouverture CBZ/CBR/EPUB en mémoire, rendu des PDF (QtPdf), scan des dossiers
-    metadata.py          Cascade ComicInfo.xml -> Google Books -> AniList -> MangaDex -> BnF
-    googlebooks.py, anilist.py, mangadex.py, bnf.py   Clients d'API
+    metadata.py          Cascade fichier (ComicInfo/OPF/series.json) -> ISBN -> BnF -> AniList/MangaDex -> Wikidata -> Google Books
+    googlebooks.py, anilist.py, mangadex.py, bnf.py, wikidata.py   Clients d'API
     net.py               Accès réseau commun : espacement des requêtes, pause après un 429, User-Agent
     updates.py           Vérification des mises à jour (dernière release GitHub), facultative
     servers.py           Serveurs de lecture : clients Komga, Kavita, OPDS, archive distante (RemoteArchive)

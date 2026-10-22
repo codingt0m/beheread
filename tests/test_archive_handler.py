@@ -324,3 +324,113 @@ def test_extra_page_words_follow_the_preferences(tmp_path):
     ar = Archive(str(path))
     assert ar.pages == ["001.jpg", "002.jpg", "teamscan-pub.jpg"]
     ar.close()
+
+
+def test_comicinfo_extras_are_parsed(tmp_path):
+    """Nombre de tomes, genres, resume, langue et ISBN (comme Komga)."""
+    xml = ("<?xml version='1.0'?><ComicInfo><Series>Saga</Series><Count>12</Count>"
+           "<Genre>Science-fiction, Fantasy</Genre><Summary>Alana et Marko</Summary>"
+           "<LanguageISO>fr</LanguageISO><GTIN>978-2-36577-250-1</GTIN></ComicInfo>")
+    ar = Archive(_make_cbz(tmp_path / "saga.cbz", comicinfo=xml.encode()))
+    try:
+        meta = ar.read_comicinfo()
+    finally:
+        ar.close()
+    assert meta["count"] == 12 and meta["genres"] == ["Science-fiction", "Fantasy"]
+    assert meta["summary"] == "Alana et Marko" and meta["language"] == "fr"
+    assert meta["gtin"] == "9782365772501" and meta["embedded"] == "comicinfo"
+
+
+def _make_tagged_epub(path, metadata, spine='<spine page-progression-direction="rtl"/>'):
+    with zipfile.ZipFile(path, "w") as zf:
+        zf.writestr("mimetype", "application/epub+zip")
+        zf.writestr("META-INF/container.xml",
+                    '<?xml version="1.0"?><container xmlns="urn:oasis:names:tc:opendocument:'
+                    'xmlns:container"><rootfiles><rootfile full-path="OEBPS/content.opf"/>'
+                    '</rootfiles></container>')
+        zf.writestr("OEBPS/images/001.jpg", b"img")
+        zf.writestr("OEBPS/content.opf",
+                    '<?xml version="1.0"?><package xmlns="http://www.idpf.org/2007/opf" '
+                    'xmlns:dc="http://purl.org/dc/elements/1.1/">'
+                    f"<metadata>{metadata}</metadata><manifest/>{spine}</package>")
+    return str(path)
+
+
+def test_epub_opf_metadata(tmp_path):
+    """EPUB sans ComicInfo.xml : serie (EPUB 3), auteur, date, sens de
+    lecture du spine, sujets, ISBN."""
+    ar = Archive(_make_tagged_epub(tmp_path / "op.epub", (
+        "<dc:title>One Piece 12</dc:title><dc:creator>Eiichirō Oda</dc:creator>"
+        "<dc:date>2001-05-02</dc:date><dc:subject>Aventure; Pirates</dc:subject>"
+        "<dc:identifier>urn:isbn:9782723434621</dc:identifier><dc:publisher>Glénat</dc:publisher>"
+        '<meta property="belongs-to-collection" id="c1">One Piece</meta>'
+        '<meta refines="#c1" property="group-position">12</meta>')))
+    try:
+        meta = ar.read_comicinfo()
+    finally:
+        ar.close()
+    assert meta["series"] == "One Piece" and meta["number"] == 12
+    assert meta["authors"] == ["Eiichirō Oda"] and meta["year"] == 2001
+    assert meta["reading_direction"] == "rtl" and meta["genres"] == ["Aventure", "Pirates"]
+    assert meta["gtin"] == "9782723434621" and meta["embedded"] == "opf"
+
+
+def test_epub_calibre_series(tmp_path):
+    ar = Archive(_make_tagged_epub(tmp_path / "c.epub", (
+        '<dc:title>Tome 3</dc:title><meta name="calibre:series" content="Blacksad"/>'
+        '<meta name="calibre:series_index" content="3.0"/>'), spine="<spine/>"))
+    try:
+        meta = ar.read_comicinfo()
+    finally:
+        ar.close()
+    assert meta["series"] == "Blacksad" and meta["number"] == 3
+    assert meta["reading_direction"] is None
+
+
+def test_isbn_is_read_from_the_back_cover(tmp_path, qapp):
+    """Code-barres de la quatrieme de couverture (derniere page), dans une
+    page JPEG ; une page sans code-barres n'en donne pas."""
+    import itertools
+
+    from PySide6.QtCore import QBuffer, QByteArray, QIODevice, QRectF, Qt
+    from PySide6.QtGui import QColor, QImage, QPainter
+
+    from beheread.core import barcode
+
+    def page(code=None):
+        img = QImage(900, 1300, QImage.Format_RGB32)
+        img.fill(QColor(220, 190, 140))
+        if code:
+            p = QPainter(img)
+            p.fillRect(560, 1050, 330, 200, Qt.white)
+            x = 0
+            for dark, run in itertools.groupby(barcode.encode(code)):
+                n = len(list(run))
+                if dark:
+                    p.fillRect(QRectF(580 + x * 3, 1070, n * 3, 150), Qt.black)
+                x += n
+            p.end()
+        data = QByteArray()
+        buf = QBuffer(data)
+        buf.open(QIODevice.WriteOnly)
+        img.save(buf, "JPEG", 80)
+        return bytes(data)
+
+    path = tmp_path / "vf.cbz"
+    with zipfile.ZipFile(path, "w") as zf:
+        zf.writestr("001.jpg", page())
+        zf.writestr("002.jpg", page())
+        zf.writestr("003.jpg", page("9782505063520"))
+    ar = Archive(str(path))
+    try:
+        assert ar.find_isbn() == "9782505063520"
+    finally:
+        ar.close()
+    blank = tmp_path / "blank.cbz"
+    with zipfile.ZipFile(blank, "w") as zf:
+        zf.writestr("001.jpg", page())
+    ar = Archive(str(blank))
+    try:
+        assert ar.find_isbn() is None
+    finally:
+        ar.close()

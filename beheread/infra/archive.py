@@ -56,6 +56,13 @@ MAX_PAGE_BYTES = 200 * 1024 * 1024
 # quelques Ko. Au-dela, on ignore (evite de charger un XML piege en memoire).
 MAX_COMICINFO_BYTES = 4 * 1024 * 1024
 
+# Recherche de l'ISBN en code-barres (voir Archive.find_isbn) : pages lues au
+# plus, et hauteur de decodage maximale. Le code d'un ISBN mesure environ
+# 37 mm : sur une page de 30 cm scannee a 2 400 pixels de haut, un module
+# (barre la plus fine) fait 3 pixels - reduit davantage, il devient illisible
+ISBN_SCAN_PAGES = 4
+ISBN_SCAN_HEIGHT = 3200
+
 _rarfile = None
 _rar_error = None
 _rar_tools = {}   # sorte d'outil RAR -> chemin absolu retenu (voir _init_rarfile)
@@ -222,6 +229,93 @@ def _epub_spine_images(ar, images):
 
 
 _EPUB_IMAGE_REF = re.compile(r"""(?:src|xlink:href|href)\s*=\s*["']([^"']+)["']""", re.I)
+_YEAR = re.compile(r"\b(1[89]\d\d|20\d\d)\b")
+
+
+def _split_list(text) -> list:
+    """« Action, Aventure ; Humour » -> ["Action", "Aventure", "Humour"]."""
+    return [p.strip() for p in re.split(r"[,;]", text or "") if p.strip()]
+
+
+def _isbn_of(text) -> str:
+    """ISBN (10 ou 13 caracteres) d'un GTIN ou d'un identifiant
+    (« urn:isbn:978-2-505-06352-0 »), ou ""."""
+    digits = re.sub(r"[^\dX]", "", re.sub(r"(?i)^\s*(?:urn:)?isbn:?", "", text or "").upper())
+    if len(digits) == 13 and digits.startswith(("978", "979")):
+        return digits
+    return digits if len(digits) == 10 else ""
+
+
+def _number(text):
+    try:
+        value = float(text)
+    except (TypeError, ValueError):
+        return None
+    return int(value) if value.is_integer() else value
+
+
+def parse_opf(opf):
+    """Metadonnees d'un paquet OPF (element racine deja parse) sous la forme
+    de Archive.read_comicinfo (voir Archive._read_opf)."""
+    def local(el):
+        return el.tag.rsplit("}", 1)[-1]
+
+    def texts(name):
+        return [el.text.strip() for el in opf.iter() if local(el) == name
+                and el.text and el.text.strip()]
+
+    metas = {}        # <meta name="calibre:series" content="..."> (EPUB 2)
+    refines = {}      # <meta refines="#id" property="group-position"> (EPUB 3)
+    collections = []  # (id, titre) des <meta property="belongs-to-collection">
+    for el in opf.iter():
+        if local(el) != "meta":
+            continue
+        if el.get("name") and el.get("content"):
+            metas[el.get("name")] = el.get("content").strip()
+        prop, value = el.get("property"), (el.text or "").strip()
+        if prop == "belongs-to-collection" and value:
+            collections.append((el.get("id"), value))
+        elif el.get("refines") and prop and value:
+            refines[(el.get("refines").lstrip("#"), prop)] = value
+    series = number = None
+    if collections:
+        coll_id, series = collections[0]
+        number = _number(refines.get((coll_id, "group-position")))
+    elif metas.get("calibre:series"):
+        series = metas["calibre:series"]
+        number = _number(metas.get("calibre:series_index"))
+    dates = [m.group(1) for d in texts("date") if (m := _YEAR.search(d))]
+    creators = texts("creator")
+    direction = next((el.get("page-progression-direction") for el in opf.iter()
+                      if local(el) == "spine" and el.get("page-progression-direction")), None)
+    isbn = next((i for i in map(_isbn_of, texts("identifier")) if i), "")
+    description = texts("description")
+    titles = texts("title")
+    return {
+        "series": series,
+        "title": titles[0] if titles else None,
+        "number": number,
+        "year": int(dates[0]) if dates else None,
+        "month": None, "day": None,
+        "publisher": (texts("publisher") or [None])[0],
+        "authors": creators[:1],
+        "reading_direction": direction if direction in ("rtl", "ltr") else None,
+        "count": None,
+        "genres": [g for s in texts("subject") for g in _split_list(s)],
+        "summary": description[0] if description else None,
+        "language": (texts("language") or [None])[0],
+        "gtin": isbn,
+        "embedded": "opf",
+    }
+
+
+def _image_rows(image, step):
+    """Lignes de pixels (bytes) d'une QImage en niveaux de gris 8 bits, une
+    sur `step`."""
+    width, per_line = image.width(), image.bytesPerLine()
+    bits = image.constBits()
+    data = bits.tobytes() if hasattr(bits, "tobytes") else bytes(bits)
+    return [data[y * per_line: y * per_line + width] for y in range(0, image.height(), step)]
 
 
 def _detect_format(path: str) -> str:
@@ -453,7 +547,8 @@ class Archive:
 
     def read_comicinfo(self):
         """Lit et parse ComicInfo.xml (standard ComicRack) a la racine de
-        l'archive, s'il existe. Renvoie un dict ou None si absent/illisible.
+        l'archive, s'il existe - a defaut, pour un EPUB, ses metadonnees OPF
+        (voir _read_opf). Renvoie un dict ou None si absent/illisible.
         C'est la source de metadonnees prioritaire : locale, fiable, et
         100% hors ligne si l'utilisateur a tague ses fichiers."""
         try:
@@ -463,7 +558,7 @@ class Archive:
             return None
         target = next((n for n in names if Path(n).name.lower() == "comicinfo.xml"), None)
         if target is None:
-            return None
+            return self._read_opf(names)
         try:
             self._guard_size(target, MAX_COMICINFO_BYTES)
             with self._lock:
@@ -525,7 +620,81 @@ class Archive:
             "publisher": text("Publisher"),
             "authors": authors,
             "reading_direction": reading_direction,
+            # nombre de tomes de la serie (le plus grand vaut pour la serie,
+            # comme dans Komga), genres, resume, langue, ISBN
+            "count": integer("Count") or None,
+            "genres": _split_list(text("Genre")),
+            "summary": text("Summary"),
+            "language": text("LanguageISO"),
+            "gtin": _isbn_of(text("GTIN")),
+            "embedded": "comicinfo",
         }
+
+    def _read_opf(self, names):
+        """Metadonnees OPF d'un EPUB, sous la forme de read_comicinfo, ou None.
+        Serie et numero : belongs-to-collection / group-position (EPUB 3),
+        sinon calibre:series / calibre:series_index ; sens de lecture :
+        page-progression-direction du spine (comme Komga)."""
+        if "META-INF/container.xml" not in names:
+            return None
+        try:
+            def read(name):
+                self._guard_size(name, MAX_COMICINFO_BYTES)
+                with self._lock:
+                    return self._ar.read(name)
+            container = safe_xml.fromstring(read("META-INF/container.xml"))
+            rootfile = next((el.get("full-path") for el in container.iter()
+                             if el.tag.endswith("rootfile") and el.get("full-path")), None)
+            if not rootfile or rootfile not in names:
+                return None
+            opf = safe_xml.fromstring(read(rootfile))
+        except safe_xml.UnsafeXmlError:
+            logging.warning("Metadonnees EPUB avec DOCTYPE ignorees (securite) dans %s", self.path)
+            return None
+        except Exception:
+            logging.warning("Metadonnees EPUB illisibles dans %s", self.path, exc_info=True)
+            return None
+        return parse_opf(opf)
+
+    def find_isbn(self):
+        """ISBN lu en code-barres sur la quatrieme de couverture (dernieres
+        pages) ou, a defaut, sur les premieres pages ; None si aucun (voir
+        core/barcode.py). Lit au plus ISBN_SCAN_PAGES pages, decodees
+        reduites ; rien pour un RAR solide, ou la derniere page ne se lit
+        qu'apres decompression de tout le tome."""
+        if self._is_solid_rar() or not self.pages:
+            return None
+        from PySide6.QtCore import Qt
+        from PySide6.QtGui import QImage, QTransform
+
+        from beheread.core import barcode
+        count = len(self.pages)
+        order = [i for i in (count - 1, count - 2, 0, 1) if 0 <= i < count]
+        for index in list(dict.fromkeys(order))[:ISBN_SCAN_PAGES]:
+            try:
+                image = self.read_image(index, ISBN_SCAN_HEIGHT)
+            except Exception:
+                logging.debug("Page illisible pour l'ISBN : %s [%d]", self.path, index,
+                              exc_info=True)
+                continue
+            if image.isNull():
+                continue
+            gray = image.convertToFormat(QImage.Format_Grayscale8)
+            # code horizontal, puis vertical (dos de certains albums) ; a
+            # defaut, lignes etirees par interpolation : le seuil situe alors
+            # les bords des barres a mieux qu'un pixel pres (barres fines)
+            turned = gray.transformed(QTransform().rotate(90))
+            for img in (gray, turned):
+                isbn = barcode.decode(_image_rows(img, barcode.ROW_STEP))
+                if isbn:
+                    return isbn
+            for img in (gray, turned):
+                wide = img.scaled(img.width() * 2, img.height(), Qt.IgnoreAspectRatio,
+                                  Qt.SmoothTransformation)
+                isbn = barcode.decode(_image_rows(wide, barcode.ROW_STEP))
+                if isbn:
+                    return isbn
+        return None
 
     def close(self):
         """Ferme l'archive. Prend le verrou de lecture : une page en cours de
@@ -652,6 +821,9 @@ class PdfArchive(Archive):
 
     def read_comicinfo(self):
         return None   # pas de ComicInfo.xml dans un PDF
+
+    def _is_solid_rar(self) -> bool:
+        return False
 
     def prepare_reading(self):
         pass   # pages rendues a la demande

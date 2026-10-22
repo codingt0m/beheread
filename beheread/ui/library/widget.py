@@ -46,7 +46,7 @@ from beheread.core.series import (
     volume_label,
 )
 from beheread.i18n import N_, tr, trn
-from beheread.infra import virtual
+from beheread.infra import metadata, virtual
 from beheread.infra.storage import Store, is_cloud_placeholder
 from beheread.ui import keys
 from beheread.ui.help_overlay import LIBRARY_SHORTCUTS, ShortcutOverlay
@@ -736,8 +736,7 @@ class LibraryWidget(ChromeMixin, DetailPanelMixin, ActionsMixin, MenusMixin,
             return
         if not any(by_path[e.path] == units.VOLUME and e.volume is not None for e in grp):
             return
-        sm = self.store.series_meta(key) or {}
-        if isinstance(sm.get("volumes"), int) or self.store.series_published(key):
+        if self._published_meta(key)[0] or self.store.series_published(key):
             return
         if self._series_edition(key):
             return   # MangaDex suit l'edition courante, pas celle-ci
@@ -770,8 +769,8 @@ class LibraryWidget(ChromeMixin, DetailPanelMixin, ActionsMixin, MenusMixin,
         self._meta_subscribers = {}
         entries = self._entries
 
-        self._ranges_cache = {}   # decoupages par serie (voir _chapter_ranges)
         self._series_display_name = self._compute_display_names(self._entries)
+        self._ranges_cache = {}   # decoupages par serie (voir _chapter_ranges)
         self._unit_by_path = self._compute_units(self._entries)
         self._info = {e.path: self._entry_info(e) for e in self._entries}
         self.series_band.hide()   # remontre par _rebuild_series_contents
@@ -1035,13 +1034,12 @@ class LibraryWidget(ChromeMixin, DetailPanelMixin, ActionsMixin, MenusMixin,
         name = self._series_display_name.get(key, grp[0].series)
         owned, missing, chapters, missing_ch, published, japan = self._series_holdings(key, vols)
         show_missing = bool(self.store.library_pref("show_missing", True))
-        sm = self.store.series_meta(key) or {}
         sub = [self._series_author(vols) or self._series_author_text(key),
                self._series_edition(key)]
         if published and self.store.series_published(key):
             sub.append(trn(published, "{n} tome paru", "{n} tomes parus"))   # saisi a la main
         elif published:
-            source = tr(self._SOURCE_LABELS.get(sm.get("source"), ""))
+            source = tr(self._SOURCE_LABELS.get(self._published_meta(key)[1], ""))
             sub.append(trn(published, "{n} tome paru ({source})", "{n} tomes parus ({source})",
                            source=source) if source
                        else trn(published, "{n} tome paru", "{n} tomes parus"))
@@ -1214,9 +1212,8 @@ class LibraryWidget(ChromeMixin, DetailPanelMixin, ActionsMixin, MenusMixin,
             return manual
         if self._series_edition(key):
             return None   # le nombre trouve en ligne est celui d'une autre edition
-        sm = self.store.series_meta(key)
-        volumes = (sm or {}).get("volumes") if not (sm or {}).get("not_found") else None
-        if not isinstance(volumes, int) or volumes <= 0:
+        volumes, _source = self._published_meta(key)
+        if volumes is None:
             return None
         entries = (self._entry_by_path.get(p) for p in self._paths_by_series.get(key, ()))
         # un tome virtuel peut devancer les tomes parus : il n'entre pas en compte
@@ -1225,6 +1222,26 @@ class LibraryWidget(ChromeMixin, DetailPanelMixin, ActionsMixin, MenusMixin,
                               and self._unit(e) == units.VOLUME
                               and not virtual.is_virtual(e.path))
         return None if owned and max(owned) > volumes else volumes
+
+    def _published_meta(self, key):
+        """(nombre de tomes parus, source) d'apres les metadonnees, ou
+        (None, None) : le plus grand nombre de tomes donne par les
+        metadonnees locales des tomes (« Count » de ComicInfo.xml, series.json),
+        comme Komga - celui de l'edition possedee -, sinon celui de la base en
+        ligne de la serie."""
+        local = []
+        for path in self._paths_by_series.get(key, ()):
+            meta = self.store.volume_meta(path) or {}
+            count = meta.get("volumes")
+            if meta.get("source") in metadata.LOCAL_SOURCES and isinstance(count, int)                     and count > 0:
+                local.append((count, meta["source"]))
+        if local:
+            return max(local)
+        sm = self.store.series_meta(key) or {}
+        volumes = sm.get("volumes") if not sm.get("not_found") else None
+        if isinstance(volumes, int) and volumes > 0:
+            return volumes, sm.get("source")
+        return None, None
 
     def _add_missing_item(self, cell, series_name, unit=units.VOLUME, small=False):
         """`cell` : (premier, dernier[, paru au Japon seulement])."""

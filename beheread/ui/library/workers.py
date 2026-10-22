@@ -91,8 +91,8 @@ class _MetaSignals(QObject):
 
 
 class MetaWorker(QRunnable):
-    """Cascade ComicInfo.xml -> Google Books -> AniList -> MangaDex -> BnF pour un fichier,
-    hors du thread UI (voir metadata.py pour le detail de la strategie)."""
+    """Cascade de metadonnees d'un fichier, hors du thread UI (voir
+    metadata.py pour le detail de la strategie)."""
 
     def __init__(self, path: str, series_name: str, volume, cached_series, online=True,
                  author_hint=None):
@@ -124,9 +124,9 @@ class _SeriesMetaSignals(QObject):
 
 
 class SeriesMetaWorker(QRunnable):
-    """Recherche AniList au niveau de la serie (une requete pour tous ses
-    tomes), pour faire apparaitre l'auteur rapidement au premier scan sans
-    attendre les recherches Google Books par tome (throttlees)."""
+    """Recherche au niveau de la serie (BnF, bases manga, Wikidata : une
+    recherche pour tous ses tomes), pour faire apparaitre l'auteur
+    rapidement au premier scan sans attendre les recherches par tome."""
 
     def __init__(self, series_key: str, series_name: str, author_hint=None):
         super().__init__()
