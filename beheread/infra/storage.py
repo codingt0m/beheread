@@ -43,8 +43,9 @@ from beheread import platforms
 from beheread.config import THUMB_SCALE
 from beheread.core import backup as backup_model
 from beheread.core import stats as stats_model
+from beheread.core import units
 from beheread.i18n import fmt_decimal, language, tr
-from beheread.infra import secret_store
+from beheread.infra import mangadex, secret_store
 from beheread.infra.database import Database, JsonTable
 from beheread.infra.reading_log import ReadingLog
 
@@ -112,6 +113,21 @@ def is_cloud_placeholder(path) -> bool:
 def is_cloud_stat(st) -> bool:
     """Meme test, sur un stat deja obtenu (scan des dossiers)."""
     return platforms.is_cloud_placeholder(st)
+
+
+def _unlink_patiently(path: Path):
+    """Supprime un fichier de cache que Windows tient parfois un instant
+    (vignette en cours de lecture, antivirus) : quelques essais, puis il est
+    laisse en place (sans consequence : il sera reecrit)."""
+    for attempt in range(10):
+        try:
+            path.unlink(missing_ok=True)
+            return
+        except OSError:
+            if attempt == 9:
+                logging.info("Fichier de cache non supprime : %s", path, exc_info=True)
+            else:
+                time.sleep(0.05)
 
 
 def data_dir() -> Path:
@@ -658,6 +674,116 @@ class Store:
             names.pop(series_key, None)
         self._schedule("settings")
 
+    # ------------------------------------------- tomes parus dans l'edition possedee
+    # Saisi a la main (« Modifier les informations… » de la serie) quand
+    # l'edition possedee ne suit pas le decoupage trouve en ligne (edition
+    # Perfect, double...). Prioritaire sur le nombre trouve en ligne.
+    def series_published(self, series_key: str):
+        value = self.settings.get("series_published", {}).get(series_key)
+        return value if isinstance(value, int) and not isinstance(value, bool) and value > 0 \
+            else None
+
+    def set_series_published(self, series_key: str, count):
+        published = self.settings.setdefault("series_published", {})
+        if isinstance(count, int) and count > 0:
+            published[series_key] = count
+        else:
+            published.pop(series_key, None)
+        self._schedule("settings")
+
+    # ------------------------------------------- nature de publication d'une serie
+    # « Publiée en » tomes ou chapitres (voir core/units.py), indexee par cle
+    # de serie normalisee ; absente = detection automatique.
+    def series_nature(self, series_key: str) -> str:
+        value = self.settings.get("series_nature", {}).get(series_key)
+        return value if value in (units.VOLUMES, units.CHAPTERS) else units.AUTO
+
+    def set_series_nature(self, series_key: str, nature: str):
+        natures = self.settings.setdefault("series_nature", {})
+        if nature in (units.VOLUMES, units.CHAPTERS):
+            natures[series_key] = nature
+        else:
+            natures.pop(series_key, None)
+        self._schedule("settings")
+
+    # --------------------------------------- decoupage officiel tomes/chapitres
+    # Cache de MangaDex (voir mangadex.chapter_ranges), indexe par cle de
+    # serie : {"at": horodatage, "id": oeuvre MangaDex ou None, "ranges":
+    # {tome: [premier, dernier chapitre]}}. Redemande periodiquement : un
+    # tome qui parait range de nouveaux chapitres.
+    def chapter_map(self, series_key: str):
+        value = self.settings.get("chapter_maps", {}).get(series_key)
+        return value if isinstance(value, dict) else None
+
+    def set_chapter_map(self, series_key: str, data: dict):
+        self.settings.setdefault("chapter_maps", {})[series_key] = data
+        self._schedule("settings")
+
+    # ------------------------------------------------------------ tomes virtuels
+    # Chapitres regroupes en un tome (voir infra/virtual.py), par identifiant :
+    # {"series": cle de serie, "name": nom de serie, "number": numero,
+    # "chapters": [empreintes de contenu des chapitres, dans l'ordre]}. Les
+    # empreintes, comme pour la progression, survivent a un renommage ou a un
+    # deplacement des fichiers.
+    def virtual_volumes(self) -> dict:
+        value = self.settings.get("virtual_volumes")
+        return {k: v for k, v in value.items() if isinstance(v, dict)} \
+            if isinstance(value, dict) else {}
+
+    def set_virtual_volume(self, volume_id: str, data: dict):
+        self.settings.setdefault("virtual_volumes", {})[volume_id] = data
+        self._schedule("settings")
+
+    def remove_virtual_volume(self, volume_id: str):
+        if self.settings.get("virtual_volumes", {}).pop(volume_id, None) is not None:
+            self._schedule("settings")
+
+    def manual_chapter_ranges(self, series_key: str) -> dict:
+        """Chapitres des tomes officiels arrives a la place d'un tome virtuel
+        ({numero de tome (texte): [premier, dernier chapitre]}), qui
+        completent le decoupage de MangaDex (voir chapter_ranges)."""
+        value = self.settings.get("chapter_ranges_manual", {}).get(series_key)
+        return value if isinstance(value, dict) else {}
+
+    def set_manual_chapter_range(self, series_key: str, number: str, span):
+        ranges = self.settings.setdefault("chapter_ranges_manual", {})
+        ranges.setdefault(series_key, {})[number] = list(span)
+        self._schedule("settings")
+
+    def chapter_ranges(self, series_key: str) -> dict:
+        """Decoupage tomes/chapitres connu : MangaDex, complete et corrige par
+        les tomes arrives a la place d'un tome virtuel."""
+        cached = self.chapter_map(series_key) or {}
+        # decoupage d'une version anterieure (voir mangadex.RANGES_VERSION) :
+        # ignore en attendant d'etre redemande
+        ranges = dict(cached.get("ranges") or {}) if cached.get("v") == mangadex.RANGES_VERSION else {}
+        ranges.update(self.manual_chapter_ranges(series_key))
+        return ranges
+
+    def latest_releases(self, series_key: str):
+        """(dernier tome, dernier chapitre) parus d'apres MangaDex (parution
+        japonaise pour les tomes), None pour chacun s'il est inconnu."""
+        cached = self.chapter_map(series_key) or {}
+        if cached.get("v") != mangadex.RANGES_VERSION:
+            return None, None
+        volume, chapter = cached.get("last_volume"), cached.get("last_chapter")
+        return (volume if isinstance(volume, int) else None,
+                chapter if isinstance(chapter, (int, float)) and not isinstance(chapter, bool)
+                else None)
+
+    def virtual_dismissed(self, series_key: str) -> set:
+        """Numeros des tomes virtuels que l'utilisateur a dissocies : ils ne
+        sont plus recrees automatiquement (voir VirtualMixin)."""
+        value = self.settings.get("virtual_dismissed", {}).get(series_key)
+        if isinstance(value, int) and not isinstance(value, bool):
+            return {value}   # ancienne forme : un seul numero
+        return {n for n in value if isinstance(n, int)} if isinstance(value, list) else set()
+
+    def dismiss_virtual(self, series_key: str, number):
+        numbers = self.virtual_dismissed(series_key) | {int(number)}
+        self.settings.setdefault("virtual_dismissed", {})[series_key] = sorted(numbers)
+        self._schedule("settings")
+
     # ------------------------------------------------ « Continuer la lecture »
     def continue_dismissed(self) -> dict:
         """{empreinte: horodatage} des tomes masques de la bande « Continuer
@@ -904,7 +1030,11 @@ class Store:
                 "added": self._added, "pages": self._pages,
                 "series_names": self.settings.setdefault("series_names", {}),
                 "series_direction": self.settings.setdefault("series_direction", {}),
-                "series_reader": self.settings.setdefault("series_reader", {})}
+                "series_reader": self.settings.setdefault("series_reader", {}),
+                "series_nature": self.settings.setdefault("series_nature", {}),
+                "virtual_volumes": self.settings.setdefault("virtual_volumes", {}),
+                "series_published": self.settings.setdefault("series_published", {}),
+                "chapter_ranges_manual": self.settings.setdefault("chapter_ranges_manual", {})}
 
     # ------------------------------------------------------------ serveurs de lecture
     def servers(self) -> list:
@@ -1136,8 +1266,8 @@ class Store:
         elif page:
             covers[key] = {"page": int(page)}
         if (image is None and isinstance(old, dict) and old.get("image")):
-            stored.unlink(missing_ok=True)
-        self.thumb_path(path).unlink(missing_ok=True)
+            _unlink_patiently(stored)   # image orpheline sinon : ecrasee au prochain choix
+        _unlink_patiently(self.thumb_path(path))
         self._schedule("settings")
 
     def thumb_path(self, path: str) -> Path:

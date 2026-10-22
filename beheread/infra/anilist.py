@@ -48,7 +48,7 @@ query ($search: String) {
       id
       title { romaji english native }
       synonyms
-      staff(perPage: 4) { nodes { name { full } } }
+      staff(perPage: 8, sort: RELEVANCE) { edges { role node { name { full } } } }
       startDate { year }
       countryOfOrigin
       volumes
@@ -167,9 +167,37 @@ def _pick(candidates, score_of, names_of, author_hint):
     return best, score
 
 
+# role d'un membre du staff qui en fait un auteur de l'oeuvre (« Story &
+# Art », « Original Creator », « Story »...) ; les assistants, traducteurs,
+# lettreurs... n'en sont pas, meme cites en premier (Fire Punch : son
+# assistant Tatsuya Endo avant Tatsuki Fujimoto)
+_AUTHOR_ROLE = re.compile(r"(?i)(?:story|art|original|creator|author|mangaka)")
+_NOT_AUTHOR_ROLE = re.compile(r"(?i)assist|translat|letter|touch|edit|design|cover")
+
+
+def _staff(media):
+    """[(nom, role)] du staff de l'oeuvre (role vide si inconnu)."""
+    staff = media.get("staff") or {}
+    out = [((e.get("node") or {}).get("name") or {}, e.get("role") or "")
+           for e in staff.get("edges") or []]
+    out += [(n.get("name") or {}, "") for n in staff.get("nodes") or []]
+    return [(name.get("full"), role) for name, role in out if name.get("full")]
+
+
 def _staff_names(media):
-    return [(n.get("name") or {}).get("full")
-            for n in ((media.get("staff") or {}).get("nodes") or [])]
+    return [name for name, _role in _staff(media)]
+
+
+def _main_authors(media):
+    """Auteur(s) principal(aux) : les membres du staff au role d'auteur,
+    sinon le premier membre qui n'est ni assistant ni traducteur."""
+    staff = _staff(media)
+    authors = [name for name, role in staff
+               if _AUTHOR_ROLE.search(role) and not _NOT_AUTHOR_ROLE.search(role)]
+    if authors:
+        return list(dict.fromkeys(authors))[:1]
+    others = [name for name, role in staff if not _NOT_AUTHOR_ROLE.search(role)]
+    return others[:1]
 
 
 def _all_media_titles(media):
@@ -204,11 +232,8 @@ def search_series(name: str, author_hint=None):
     titles = media.get("title") or {}
     title = titles.get("english") or titles.get("romaji") or titles.get("native") or name
     all_titles = [t for t in titles.values() if t] + list(media.get("synonyms") or [])
-    # seul l'auteur principal (premier membre du staff, generalement le
-    # mangaka credite en premier) est garde
-    staff_nodes = (media.get("staff") or {}).get("nodes", [])
-    authors = ([staff_nodes[0]["name"]["full"]]
-               if staff_nodes and staff_nodes[0].get("name", {}).get("full") else [])
+    # seul l'auteur principal est garde (voir _main_authors)
+    authors = _main_authors(media)
     year = (media.get("startDate") or {}).get("year")
     # pays d'origine (ex. "JP", "KR", "CN") : indice pour deduire le sens de
     # lecture par defaut d'une serie quand l'archive n'a pas de ComicInfo.xml

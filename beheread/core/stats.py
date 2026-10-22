@@ -32,7 +32,7 @@ from dataclasses import dataclass
 from typing import Optional
 
 from beheread.core.reading_session import MIN_DWELL
-from beheread.core.series import normalize_name
+from beheread.core.series import normalize_name, parse_series_ex
 from beheread.i18n import N_, tr
 
 JOURNAL_RULES = 2
@@ -111,9 +111,11 @@ class Totals:
     pages: int = 0
     seconds: float = 0.0
     sessions: int = 0
-    finished: int = 0       # tomes lus jusqu'a la derniere page
+    finished: int = 0       # tomes (et chapitres) lus jusqu'a la derniere page
     active_days: int = 0    # jours avec au moins une page lue
-    volumes: int = 0        # tomes differents lus
+    volumes: int = 0        # tomes (et chapitres) differents lus
+    finished_chapters: int = 0   # dont chapitres (voir is_chapter_title)
+    chapters: int = 0
 
     @property
     def empty(self) -> bool:
@@ -127,6 +129,14 @@ class Bucket:
     pages: int = 0
     seconds: float = 0.0
     finished: int = 0
+    finished_chapters: int = 0   # dont chapitres
+
+
+def is_chapter_title(title) -> bool:
+    """Vrai si le titre note dans le journal (nom du fichier au moment de la
+    lecture) est celui d'un chapitre, et non d'un tome (« Chainsaw Man
+    Chapitre 211 », « Enigmatica - ch.12 »)."""
+    return bool(title) and parse_series_ex(title)[2] == "chapter"
 
 
 def bucket_key(date: _dt.date, grain: str) -> str:
@@ -134,7 +144,8 @@ def bucket_key(date: _dt.date, grain: str) -> str:
 
 
 def _fill(start: _dt.date, end: _dt.date, grain: str, rows) -> list:
-    found = {key: (pages, seconds, finished) for key, pages, seconds, finished in rows}
+    # lignes [(cle, pages, secondes, fins)], ou avec en plus les fins de chapitres
+    found = {row[0]: (tuple(row[1:]) + (0,))[:4] for row in rows}
     out = []
     if grain == "month":
         d, last = start.replace(day=1), end.replace(day=1)
@@ -143,8 +154,8 @@ def _fill(start: _dt.date, end: _dt.date, grain: str, rows) -> list:
         d, last = start, end
         step = lambda x: x + _DAY            # noqa: E731
     while d <= last:
-        pages, seconds, finished = found.get(bucket_key(d, grain), (0, 0.0, 0))
-        out.append(Bucket(d, int(pages), float(seconds), int(finished)))
+        pages, seconds, finished, chapters = found.get(bucket_key(d, grain), (0, 0.0, 0, 0))
+        out.append(Bucket(d, int(pages), float(seconds), int(finished), int(chapters or 0)))
         d = step(d)
     return out
 
@@ -484,7 +495,7 @@ def year_recap(log, year: int, today: _dt.date, resolve=None, top: int = 3) -> Y
         return YearRecap(year, 0.0, 0, 0, None, 0.0, 0, [], [0.0] * 12)
     totals = log.totals(start, end)
     pages_by_weekday = [0] * 7
-    for day, pages, _seconds, _finished in log.buckets(start, end, "day"):
+    for day, pages, _seconds, _finished, _chapters in log.buckets(start, end, "day"):
         pages_by_weekday[_dt.date.fromisoformat(day).weekday()] += pages or 0
     occurrences = [0] * 7
     for offset in range((end - start).days + 1):
@@ -493,7 +504,7 @@ def year_recap(log, year: int, today: _dt.date, resolve=None, top: int = 3) -> Y
     best_day = max(range(7), key=lambda d: averages[d])
     favorite = best_day if averages[best_day] > 0 else None
     months = [0.0] * 12
-    for key, _pages, seconds, _finished in log.buckets(start, end, "month"):
+    for key, _pages, seconds, _finished, _chapters in log.buckets(start, end, "month"):
         months[int(key[5:7]) - 1] = float(seconds or 0)
     streak = 0
     for first, last, _length in log.reading_runs():

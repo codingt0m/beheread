@@ -446,17 +446,23 @@ class ReaderWidget(HudMixin, EndCardMixin, DisplayMixin, InputMixin,
         if self.page < 0.85 * (self.total - 1):
             return
         self._next_volume_checked = True
-        if servers.is_remote(self.path):   # liste en memoire : immediat
-            self._next_volume_path = self._find_next_volume()
+        # la bibliotheque repond d'apres sa liste en memoire : immediat
+        known = self._next_volume_fn(self.path) if self._next_volume_fn else None
+        if servers.is_remote(self.path):
+            self._next_volume_path = known
             return
-        probe = NextVolumeProbe(self.path)
+        probe = NextVolumeProbe(self.path, known)
         probe.signals.found.connect(self._on_next_volume_found)
         self._next_volume_probe = probe   # garde une reference (sinon GC)
         self.pool.start(probe)
 
     def _find_next_volume(self):
-        if servers.is_remote(self.path):
-            return self._next_volume_fn(self.path) if self._next_volume_fn else None
+        """Element suivant : d'apres la bibliotheque (tomes puis chapitres,
+        nature forcee de la serie, autres dossiers), sinon - fichier ouvert
+        hors bibliotheque - d'apres son dossier."""
+        nxt = self._next_volume_fn(self.path) if self._next_volume_fn else None
+        if nxt or servers.is_remote(self.path):
+            return nxt
         return find_next_volume(self.path)
 
     def _on_next_volume_found(self, path):

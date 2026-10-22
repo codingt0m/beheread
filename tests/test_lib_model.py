@@ -88,6 +88,16 @@ def test_continue_reading_proposes_next_volume():
     assert [(i.title, k) for i, k in result] == [("S2", "next")]
 
 
+def test_continue_reading_proposes_first_chapter_after_last_volume():
+    """Serie mixte : apres le dernier tome, le chapitre qui le complete -
+    jamais un chapitre de numero plus petit range avant lui."""
+    t5 = info("T5", FINISHED, last_read=100, series="s", volume=5, unit="volume")
+    t6 = info("T6", FINISHED, last_read=200, series="s", volume=6, unit="volume")
+    c3 = info("C3", UNREAD, series="s", volume=3, unit="chapter")
+    result = continue_reading([c3, t6, t5])
+    assert [(i.title, k) for i, k in result] == [("C3", "next")]
+
+
 def test_continue_reading_no_next_when_series_has_volume_in_progress():
     t1 = info("S1", FINISHED, last_read=100, series="s", volume=1)
     t2 = info("S2", READING, last_read=200, series="s", volume=2)

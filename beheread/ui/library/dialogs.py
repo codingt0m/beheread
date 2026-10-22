@@ -6,7 +6,7 @@ import html
 import time
 from pathlib import Path
 
-from PySide6.QtCore import QSize, Qt, QThreadPool, QTimer, QUrl
+from PySide6.QtCore import QSize, Qt, QThreadPool, QTimer, QUrl, Signal
 from PySide6.QtGui import QColor, QDesktopServices, QIcon, QImage, QPixmap
 from PySide6.QtWidgets import (
     QApplication,
@@ -385,6 +385,7 @@ class PreferencesDialog(ServersTabMixin, QDialog):
             QTabBar::tab:selected {{ color: {colors['text']};
                                      border-bottom: 2px solid {theme.ACCENT}; }}
             QScrollArea#shortcutScroll, #shortcutHost {{ background: transparent; border: none; }}
+            QScrollArea#tabScroll, #tabPage {{ background: transparent; border: none; }}
             QPushButton#chip {{ border-radius: 12px; padding: 3px 10px; background: {colors['button']}; }}
             QLabel#shortcutGroup {{ font-size: 15px; font-weight: 700; }}
         """ + sections_css(colors))
@@ -392,11 +393,13 @@ class PreferencesDialog(ServersTabMixin, QDialog):
         root.setContentsMargins(20, 16, 20, 16)
         tabs = QTabWidget()
         root.addWidget(tabs)
-        tabs.addTab(self._general_tab(), tr("Général"))
-        tabs.addTab(self._reader_tab(), tr("Lecteur"))
-        tabs.addTab(self._data_tab(), tr("Données"))
-        tabs.addTab(self._anilist_tab(), "AniList")
-        tabs.addTab(self._servers_tab(), tr("Serveurs"))
+        # onglets defilants : sur un petit ecran, la fenetre reste a sa
+        # hauteur (boutons visibles) et l'onglet defile au lieu de deborder
+        tabs.addTab(self._scrolled(self._general_tab()), tr("Général"))
+        tabs.addTab(self._scrolled(self._reader_tab()), tr("Lecteur"))
+        tabs.addTab(self._scrolled(self._data_tab()), tr("Données"))
+        tabs.addTab(self._scrolled(self._anilist_tab()), "AniList")
+        tabs.addTab(self._scrolled(self._servers_tab()), tr("Serveurs"))
         tabs.addTab(self._shortcuts_tab(), tr("Raccourcis"))
         self.tabs = tabs
         root.addSpacing(8)
@@ -404,13 +407,32 @@ class PreferencesDialog(ServersTabMixin, QDialog):
         # Qt plafonne la taille initiale d'une fenetre aux 2/3 de l'ecran : sur
         # un ecran de 900 px de haut, l'onglet General etait ecrase (lignes
         # rognees). On prend la taille voulue, dans la limite de l'ecran.
+        # Les onglets defilent : leur zone ne reclame plus la taille de son
+        # contenu, prise donc sur les pages elles-memes (la plus grande).
         self.ensurePolished()
         wanted = self.sizeHint()
+        pages = [tabs.widget(i).widget() for i in range(tabs.count())
+                 if isinstance(tabs.widget(i), QScrollArea) and tabs.widget(i).objectName() == "tabScroll"]
+        extra_w = wanted.width() - tabs.sizeHint().width()
+        extra_h = wanted.height() - tabs.sizeHint().height() + tabs.tabBar().sizeHint().height() + 16
+        width = max([wanted.width()] + [p.sizeHint().width() + extra_w + 24 for p in pages])
+        height = max([wanted.height()] + [p.sizeHint().height() + extra_h for p in pages])
         screen = (parent.screen() if parent is not None else QApplication.primaryScreen())
-        self.resize(wanted.width(),
-                    min(wanted.height(), screen.availableGeometry().height() - 60))
+        self.resize(width, min(height, screen.availableGeometry().height() - 60))
 
     # ----- helpers -----
+    @staticmethod
+    def _scrolled(page):
+        """Onglet dans une zone defilante sans cadre (fond de l'onglet)."""
+        area = QScrollArea()
+        area.setObjectName("tabScroll")
+        area.setWidgetResizable(True)
+        area.setFrameShape(QFrame.NoFrame)
+        area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        page.setObjectName("tabPage")
+        area.setWidget(page)
+        return area
+
     @staticmethod
     def _page():
         w = QWidget()
@@ -470,6 +492,18 @@ class PreferencesDialog(ServersTabMixin, QDialog):
         self.show_details = QCheckBox(tr("Afficher le panneau d'informations"))
         self.show_details.setChecked(bool(s.library_pref("show_details", False)))
         checks.addWidget(self.show_details, 1, 0)
+        # dossier de serie ouvert : cases « Non possede », chapitres redondants
+        self.show_missing = QCheckBox(tr("Afficher les tomes et chapitres manquants"))
+        self.show_missing.setToolTip(tr("Dans une série ouverte, une case « Non possédé » "
+                                        "marque chaque tome ou chapitre manquant"))
+        self.show_missing.setChecked(bool(s.library_pref("show_missing", True)))
+        checks.addWidget(self.show_missing, 1, 1)
+        self.show_covered = QCheckBox(tr("Afficher les chapitres déjà inclus dans un tome"))
+        self.show_covered.setToolTip(tr("Chapitres qu'un tome possédé contient déjà (découpage "
+                                        "de MangaDex). Ceux d'un tome virtuel se lisent en "
+                                        "ouvrant ce tome."))
+        self.show_covered.setChecked(bool(s.library_pref("show_covered_chapters", False)))
+        checks.addWidget(self.show_covered, 2, 0)
         gv.addLayout(checks)
         v.addWidget(g)
 
@@ -927,6 +961,8 @@ class PreferencesDialog(ServersTabMixin, QDialog):
         s.set_library_pref("group_series", self.group_series.isChecked())
         s.set_library_pref("show_continue", self.show_continue.isChecked())
         s.set_library_pref("show_details", self.show_details.isChecked())
+        s.set_library_pref("show_missing", self.show_missing.isChecked())
+        s.set_library_pref("show_covered_chapters", self.show_covered.isChecked())
         s.set_reader_pref("manga_mode", bool(self.direction.currentData()))
         s.set_reader_pref("fit_mode", int(self.fit.currentData()))
         s.set_reader_pref("double_page", self.double_page.isChecked())
@@ -1067,7 +1103,9 @@ class EditInfoDialog(QDialog):
     """Saisie manuelle de l'auteur et de l'annee d'un tome ou d'une serie
     (source « manual » : prioritaire, et conservee par les nettoyages)."""
 
-    def __init__(self, heading, author, year, colors, parent=None):
+    def __init__(self, heading, author, year, colors, parent=None, published=None):
+        """`published` : pour une serie, le nombre de tomes parus saisi a la
+        main (0 = automatique) ; None pour un tome (champ absent)."""
         super().__init__(parent)
         self.setWindowTitle(tr("Modifier les informations"))
         self.setMinimumWidth(420)
@@ -1088,6 +1126,16 @@ class EditInfoDialog(QDialog):
         self.year.setSpecialValueText(tr("Inconnue"))
         self.year.setValue(int(year or 0))
         f.addRow(tr("Année de sortie"), self.year)
+        self.published = None
+        if published is not None:
+            self.published = QSpinBox()
+            self.published.setRange(0, 999)
+            self.published.setSpecialValueText(tr("Automatique"))
+            self.published.setValue(int(published or 0))
+            self.published.setToolTip(tr("Pour une édition au découpage différent (Perfect, "
+                                         "double…) : le nombre trouvé en ligne est celui de "
+                                         "l'édition courante"))
+            f.addRow(tr("Tomes parus dans votre édition"), self.published)
         root.addLayout(f)
         root.addSpacing(8)
         root.addLayout(_buttons_row(self, tr("Enregistrer")))
@@ -1185,23 +1233,47 @@ class UnreadableDialog(QDialog):
 
 # ---------------------------------------------------------------- couverture
 
+class _OfficialCover(QFrame):
+    """Encadre « Couverture officielle » de CoverDialog : apercu, source, et
+    selection au clic."""
+
+    clicked = Signal()
+
+    def mousePressEvent(self, event):
+        if self.isEnabled():
+            self.clicked.emit()
+        super().mousePressEvent(event)
+
+
 class CoverDialog(QDialog):
-    """Choix de la couverture d'un tome : une de ses pages (chargees en
-    arriere-plan), ou une image de l'ordinateur. `choice` apres acceptation :
-    ("page", index) ou ("image", QImage)."""
+    """Choix de la couverture d'un tome : sa couverture officielle (si
+    `official` est donne), une de ses pages (chargees en arriere-plan), ou
+    une image de l'ordinateur. `choice` apres acceptation : ("page", index)
+    ou ("image", QImage).
+
+    `official` : (fetch, source) - fetch() renvoie l'image (octets) de la
+    couverture officielle, ou b"" ; appele hors du thread UI. `source` :
+    « Tome 23 · MangaDex »."""
 
     THUMB = QSize(90, 128)
+    OFFICIAL = QSize(96, 136)
 
-    def __init__(self, title, path, current_page, colors, parent=None):
+    def __init__(self, title, path, current_page, colors, parent=None, official=None):
         super().__init__(parent)
         self.choice = None
+        self._official_image = None
         self.setWindowTitle(tr("Choisir la couverture"))
         self.setMinimumSize(660, 520)
         self.setStyleSheet(_dialog_css(colors) + f"""
             QListWidget {{ background: {colors['panel']}; border: 1px solid {colors['border']};
                            border-radius: 6px; color: {colors['text_dim']}; }}
             QListWidget::item:selected {{ background: transparent; color: {colors['text']};
-                                          border: 2px solid {theme.ACCENT}; border-radius: 4px; }}""")
+                                          border: 2px solid {theme.ACCENT}; border-radius: 4px; }}
+            QFrame#official {{ background: {colors['panel']}; border: 2px solid {colors['border']};
+                               border-radius: 8px; }}
+            QFrame#official[selected="true"] {{ border-color: {theme.ACCENT}; }}
+            QLabel#officialPreview {{ background: {colors['cover_placeholder']};
+                                      border-radius: 4px; }}""")
         root = QVBoxLayout(self)
         root.setContentsMargins(22, 18, 22, 16)
         root.setSpacing(10)
@@ -1210,8 +1282,17 @@ class CoverDialog(QDialog):
         heading.setWordWrap(True)
         heading.setStyleSheet("font-size: 15px; font-weight: 700;")
         root.addWidget(heading)
-        root.addWidget(self._hint(tr("Choisissez une page du tome, ou une image de votre "
-                                     "ordinateur. Le fichier du tome n'est pas modifié.")))
+        root.addWidget(self._hint(
+            tr("La couverture officielle, une page du tome, ou une image de votre ordinateur. "
+               "Le fichier n'est pas modifié.") if official is not None
+            else tr("Choisissez une page du tome, ou une image de votre "
+                    "ordinateur. Le fichier du tome n'est pas modifié.")))
+        self.official = None
+        if official is not None:
+            root.addWidget(self._build_official(official[1]))
+            heading_pages = QLabel(tr("Pages du tome"))
+            heading_pages.setStyleSheet("font-weight: 600;")
+            root.addWidget(heading_pages)
         self.pages = QListWidget()
         self.pages.setViewMode(QListWidget.IconMode)
         self.pages.setIconSize(self.THUMB)
@@ -1235,7 +1316,7 @@ class CoverDialog(QDialog):
         self.use.setObjectName("primary")
         self.use.setDefault(True)
         self.use.setEnabled(False)
-        self.use.clicked.connect(self._use_page)
+        self.use.clicked.connect(self._use_selected)
         row.addWidget(image)
         row.addWidget(reset)
         row.addStretch(1)
@@ -1249,6 +1330,79 @@ class CoverDialog(QDialog):
         self._loader = PagesWorker(path, self.THUMB.height() * 2)
         self._loader.signals.page.connect(self._on_page)
         self._pool.start(self._loader)
+        if official is not None:
+            # couverture officielle : telechargee en arriere-plan
+            self._official_call = CallWorker(official[0])
+            self._official_call.signals.done.connect(self._on_official)
+            QThreadPool.globalInstance().start(self._official_call)
+
+    # ----- couverture officielle -----
+    def _build_official(self, source):
+        frame = _OfficialCover()
+        frame.setObjectName("official")
+        frame.setCursor(Qt.PointingHandCursor)
+        frame.setEnabled(False)   # jusqu'a l'arrivee de l'image
+        row = QHBoxLayout(frame)
+        row.setContentsMargins(12, 12, 12, 12)
+        row.setSpacing(16)
+        self.official_preview = QLabel()
+        self.official_preview.setObjectName("officialPreview")
+        self.official_preview.setFixedSize(self.OFFICIAL)
+        self.official_preview.setAlignment(Qt.AlignCenter)
+        row.addWidget(self.official_preview)
+        texts = QVBoxLayout()
+        texts.setSpacing(6)
+        name = QLabel(tr("Couverture officielle"))
+        name.setStyleSheet("font-size: 14px; font-weight: 600;")
+        texts.addWidget(name)
+        self.official_status = self._hint(tr("Recherche de la couverture officielle…"))
+        self.official_source = source
+        texts.addWidget(self.official_status)
+        texts.addStretch(1)
+        row.addLayout(texts, 1)
+        frame.clicked.connect(self._select_official)
+        self.official = frame
+        return frame
+
+    def _on_official(self, data, err):
+        image = QImage.fromData(data) if data else QImage()
+        if image.isNull():
+            self.official_status.setText(
+                tr("Couverture officielle introuvable : {error}", error=err) if err is not None
+                else tr("MangaDex n'a pas de couverture pour ce tome."))
+            return
+        self._official_image = image
+        pm = QPixmap.fromImage(image).scaled(self.OFFICIAL * self.devicePixelRatioF(),
+                                             Qt.KeepAspectRatio, Qt.SmoothTransformation)
+        pm.setDevicePixelRatio(self.devicePixelRatioF())
+        self.official_preview.setPixmap(pm)
+        self.official_status.setText(self.official_source)
+        self.official.setEnabled(True)
+        self._select_official()
+
+    def _select_official(self, selected=True):
+        if self.official is None or (selected and self._official_image is None):
+            return
+        self.official.setProperty("selected", "true" if selected else "false")
+        self.official.style().unpolish(self.official)
+        self.official.style().polish(self.official)
+        if selected:
+            self.pages.blockSignals(True)
+            self.pages.clearSelection()
+            self.pages.setCurrentRow(-1)
+            self.pages.blockSignals(False)
+            self.use.setEnabled(True)
+            self.use.setText(tr("Utiliser la couverture officielle"))
+
+    def _official_selected(self):
+        return self.official is not None and self.official.property("selected") == "true"
+
+    def _use_selected(self):
+        if self._official_selected():
+            self.choice = ("image", self._official_image)
+            self.accept()
+        else:
+            self._use_page()
 
     @staticmethod
     def _hint(text):
@@ -1268,10 +1422,14 @@ class CoverDialog(QDialog):
             icon.addPixmap(pm, QIcon.Selected)   # page choisie : bordure, sans teinte
             item.setIcon(icon)
         self.pages.addItem(item)
-        if index == self._current:
+        if index == self._current and not self._official_selected():
             self.pages.setCurrentItem(item)
 
     def _on_page_selected(self, row):
+        if row >= 0:
+            self._select_official(False)
+        elif self._official_selected():
+            return
         self.use.setEnabled(row >= 0)
         self.use.setText(tr("Utiliser la page {n}", n=row + 1) if row >= 0
                          else tr("Utiliser cette page"))

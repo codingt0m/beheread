@@ -10,6 +10,7 @@ retour sur « Sur cet ordinateur »."""
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QButtonGroup, QHBoxLayout, QPushButton, QWidget
 
+from beheread.core import units
 from beheread.core.models import LibraryEntry
 from beheread.core.series import normalize_name
 from beheread.i18n import tr
@@ -129,7 +130,7 @@ class SourcesMixin:
             self.btn_back.hide()
         self.search_edit.clear()
         if self._source == LOCAL:
-            self._local_entries = list(self._entries)
+            self._local_entries = list(self._file_entries)
         self._source = source
         self.store.set_ui_pref("library_source", source)
         btn = self._source_buttons.get(source)
@@ -186,7 +187,7 @@ class SourcesMixin:
                 path=b.path, title=b.title, series=series, volume=b.number,
                 kind="volume" if b.number is not None else None, added=added.get(b.path, 0),
                 detached=detached, manual=bool(override) and not detached))
-        if entries != self._entries:
+        if entries != self._file_entries:
             self._set_entries(entries)
             self._rebuild_list(keep_position=keep_position)
         elif not entries:
@@ -209,14 +210,14 @@ class SourcesMixin:
 
     # ----- lecteur -----
     def next_volume(self, path):
-        """Tome suivant d'un tome distant dans sa serie (le plus petit numero
-        superieur), ou None. Les tomes locaux sont trouves par le lecteur
-        dans leur dossier (archive.find_next_volume)."""
+        """Element suivant dans sa serie (voir units.next_in_series : le tome
+        suivant, apres le dernier tome le premier chapitre), ou None. Vaut
+        pour les tomes locaux comme distants de la bibliotheque, chapitres
+        ranges dans un autre dossier compris ; un fichier ouvert hors
+        bibliotheque est cherche par le lecteur dans son dossier
+        (archive.find_next_volume)."""
         e = self._entry_by_path.get(path)
-        if e is None or e.volume is None or e.detached or not remote.is_remote(path):
+        if e is None or e.volume is None or e.detached:
             return None
-        key = normalize_name(e.series)
-        later = [o for o in self._entries
-                 if o.volume is not None and not o.detached and o.volume > e.volume
-                 and normalize_name(o.series) == key and o.kind == e.kind]
-        return min(later, key=lambda o: o.volume).path if later else None
+        grp = self._group_entries(self._entries).get(normalize_name(e.series)) or [e]
+        return units.next_in_series(path, [(o.path, self._unit(o), o.volume) for o in grp])

@@ -28,19 +28,27 @@ VERSION = 1
 # (ajoutes a l'import seulement s'ils manquent localement). Les dossiers
 # sources, propres a chaque PC, n'en font pas partie.
 BACKUP_SETTINGS = ("series_overrides", "series_names", "volume_direction",
-                   "series_direction", "added", "pages", "series_reader")
+                   "series_direction", "added", "pages", "series_reader", "series_nature",
+                   "virtual_volumes", "chapter_ranges_manual", "series_published")
 
 # type attendu des valeurs de chaque reglage repris (voir Store) : une
 # sauvegarde est un fichier quelconque choisi par l'utilisateur, une valeur
 # d'un autre type casserait durablement la bibliotheque une fois enregistree
 _SETTING_TYPES: dict[str, type | tuple[type, ...]] = {"series_overrides": str, "series_names": str,
                   "volume_direction": bool, "series_direction": bool,
-                  "added": (int, float), "pages": int, "series_reader": dict}
+                  "added": (int, float), "pages": int, "series_reader": dict,
+                  "series_nature": str, "virtual_volumes": dict,
+                  "chapter_ranges_manual": dict, "series_published": int}
+
+
+# cles de progression reprises : empreintes de contenu, et chemins des tomes
+# virtuels (identifiant stable, repris avec leur definition « virtual_volumes »)
+_PORTABLE_PREFIXES = ("c1:", "beheread-virtual:")
 
 
 def _content_keys(d):
     return {k: v for k, v in (d or {}).items()
-            if isinstance(k, str) and k.startswith("c1:") and isinstance(v, dict)}
+            if isinstance(k, str) and k.startswith(_PORTABLE_PREFIXES) and isinstance(v, dict)}
 
 
 def build_backup(store_settings, progress, stats, meta_cache, dismissed, device_id,

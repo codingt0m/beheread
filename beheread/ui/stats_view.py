@@ -57,7 +57,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from beheread.core import stats
+from beheread.core import stats, units
 from beheread.core.reading_session import MIN_DWELL, PAUSE_CAP
 from beheread.i18n import fmt_decimal, tr, trn
 from beheread.ui import theme
@@ -529,14 +529,21 @@ class StatsDialog(QDialog):
 
         delta, tip = _delta(t.pages, prev and prev.pages, _fmt_int,
                             lambda n: trn(n, "{n} page", "{n} pages"), report, measured)
-        pages.set_content(_fmt_int(t.pages), delta,
-                          trn(t.volumes, "dans {n} tome", "dans {n} tomes") if t.volumes else "", tip)
+        if t.chapters:   # « dans 5 tomes · 12 chapitres »
+            within = tr("dans {items}", items=units.count_text(t.volumes - t.chapters, t.chapters))
+        else:
+            within = trn(t.volumes, "dans {n} tome", "dans {n} tomes") if t.volumes else ""
+        pages.set_content(_fmt_int(t.pages), delta, within, tip)
         self.pages_spark.set_values(b.pages for b in report.buckets)
 
-        delta, tip = _delta(t.finished, prev and prev.finished, _fmt_int,
+        # tomes seuls ; les chapitres termines en sous-titre
+        volumes = t.finished - t.finished_chapters
+        delta, tip = _delta(volumes, prev and prev.finished - prev.finished_chapters, _fmt_int,
                             lambda n: trn(n, "{n} tome", "{n} tomes"), report, report.first_day)
-        finished.set_content(_fmt_int(t.finished), delta, "", tip)
-        self.finished_spark.set_values(b.finished for b in report.buckets)
+        finished.set_content(_fmt_int(volumes), delta,
+                             trn(t.finished_chapters, "+ {n} chapitre", "+ {n} chapitres")
+                             if t.finished_chapters else "", tip)
+        self.finished_spark.set_values(b.finished - b.finished_chapters for b in report.buckets)
 
         delta, tip = _delta(t.active_days, prev and prev.active_days, _fmt_int,
                             lambda n: trn(n, "{n} jour", "{n} jours"), report, measured)
@@ -551,8 +558,12 @@ class StatsDialog(QDialog):
             # la valeur d'abord, puis ce qui la situe
             detail = (f"{_bucket_name(b, grain, short=True)} · "
                       + trn(b.pages, "{n} page", "{n} pages"))
-            if b.finished:
-                detail += " · " + trn(b.finished, "{n} tome terminé", "{n} tomes terminés")
+            if b.finished - b.finished_chapters:
+                detail += " · " + trn(b.finished - b.finished_chapters,
+                                      "{n} tome terminé", "{n} tomes terminés")
+            if b.finished_chapters:
+                detail += " · " + trn(b.finished_chapters,
+                                      "{n} chapitre terminé", "{n} chapitres terminés")
             bars.append((label, b.seconds, f"{stats.fmt_duration(b.seconds)}\n{detail}"))
             rows.append((_bucket_name(b, grain), stats.fmt_duration(b.seconds),
                          _fmt_int(b.pages), _fmt_int(b.finished)))
@@ -603,8 +614,12 @@ class StatsDialog(QDialog):
             count = items[unknown[day]][2] + 1
             items[unknown[day]] = (trn(count, "{n} tome absent de la bibliothèque",
                                        "{n} tomes absents de la bibliothèque"), date, count)
-        total = report.totals.finished
+        total, chapters = report.totals.finished, report.totals.finished_chapters
         self.finished_list.set_items(items, total)
-        self.finished_card.set_subtitle(
-            trn(total, "{n} tome lu jusqu'à la dernière page",
-                "{n} tomes lus jusqu'à la dernière page") if total else "")
+        if chapters:
+            subtitle = tr("{items} lus jusqu'à la dernière page",
+                          items=units.count_text(total - chapters, chapters))
+        else:
+            subtitle = trn(total, "{n} tome lu jusqu'à la dernière page",
+                           "{n} tomes lus jusqu'à la dernière page") if total else ""
+        self.finished_card.set_subtitle(subtitle)

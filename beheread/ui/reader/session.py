@@ -9,7 +9,7 @@ import time
 from beheread.core.library_model import is_started
 from beheread.core.series import parse_path
 from beheread.i18n import tr
-from beheread.infra import servers
+from beheread.infra import servers, virtual
 from beheread.infra.storage import Store
 from beheread.ui.reader.constants import TIME_MIN_SAMPLES
 
@@ -23,12 +23,26 @@ class SessionMixin:
             if prev and prev[2]:
                 finished = True  # ne pas "determiner" un manga deja fini
         self.store.set_progress(self.path, self.page, self.total, finished)
+        self._mark_virtual_chapters(finished)
         if finished and not (prev and prev[2]):
             # fin de tome journalisee sur-le-champ (et non a la fermeture) :
             # elle est datee du bon jour et survit a un arret brutal
             self.store.record_reading(self.path, 0, 0, True, servers.display_name(self.path),
                                       self._series_label())
             self.volume_finished.emit(self.path)
+
+    def _mark_virtual_chapters(self, finished):
+        """Tome virtuel : chaque chapitre lu en entier est marque termine,
+        pour que les chapitres, les statistiques de la serie et AniList
+        suivent la lecture du tome."""
+        spans = getattr(self.archive, "spans", None)
+        if not spans:
+            return
+        pages = {chapter: last - first + 1 for first, last, chapter in spans}
+        for chapter in virtual.chapters_read(spans, self.page, finished):
+            prog = self.store.get_progress(chapter)
+            if not (prog and prog[2]):
+                self.store.set_progress(chapter, pages[chapter] - 1, pages[chapter], True)
 
     # ------------------------------------------------------------ mesure de la seance
     def _now(self):

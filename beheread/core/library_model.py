@@ -11,6 +11,7 @@ from __future__ import annotations
 import re
 from typing import Iterable, List, Optional, Tuple, Union
 
+from beheread.core import units
 from beheread.core.models import SeriesInfo, VolumeInfo
 from beheread.i18n import N_
 
@@ -108,7 +109,8 @@ def aggregate_series_info(title: str, infos: Iterable[VolumeInfo]) -> SeriesInfo
 
 
 def _volume_order(info: VolumeInfo):
-    return (info.volume if info.volume is not None else -1, info.title.casefold())
+    """Ordre de lecture : tomes, puis les chapitres qui les completent."""
+    return (units.order_key(info.unit, info.volume), info.title.casefold())
 
 
 def continue_reading(infos: Iterable[VolumeInfo], dismissed: Optional[dict] = None,
@@ -134,7 +136,8 @@ def continue_reading(infos: Iterable[VolumeInfo], dismissed: Optional[dict] = No
 
     groups: dict[str, list[VolumeInfo]] = {}
     for info in infos:
-        if info.series_key:
+        # un chapitre deja contenu dans un tome possede n'est jamais « a suivre »
+        if info.series_key and info.unit != units.COVERED:
             groups.setdefault(info.series_key, []).append(info)
     for vols in groups.values():
         if len(vols) < 2 or any(v.status == READING for v in vols):

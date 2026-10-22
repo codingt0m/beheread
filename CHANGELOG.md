@@ -2,6 +2,27 @@
 
 Les numéros de version suivent [SemVer](https://semver.org/lang/fr/). Chaque section ci-dessous sert aussi de notes à la release GitHub du même numéro.
 
+## [Non publié]
+
+### Tomes et chapitres
+
+* Les séries qui mélangent tomes et chapitres sont mieux gérées : les chapitres complètent les tomes. La bibliothèque compte les tomes et les chapitres à part (« 22 tomes · 22 chapitres »), l'avancement suit l'ordre de lecture (« Tome 6/22 · puis ch. 211 à 232 », « Tomes lus · chapitre 213 en cours ») et la lecture enchaîne du dernier tome au premier chapitre qui le suit.
+* Dans une série ouverte, les chapitres forment une section à part, « Suite en chapitres », en cases plus petites. Chaque chapitre indique le tome officiel qui le contient, quand on le connaît.
+* Le découpage officiel en tomes (MangaDex) masque les chapitres déjà contenus dans un tome possédé, et signale les chapitres manquants à partir de la fin du dernier tome.
+* **Tomes virtuels** : des chapitres peuvent être regroupés en un tome, lu d'une traite, sans modifier les fichiers (sélection de chapitres › « Regrouper en tome… »). Quand tous les chapitres d'un tome officiel sont là, le tome virtuel est créé tout seul, avec sa couverture officielle ; quand le tome officiel arrive, il prend sa place et la lecture est conservée.
+* Clic droit sur une série › « Publiée en » : tomes, chapitres ou détection automatique.
+* Les statistiques comptent les chapitres à part des tomes.
+
+### Bibliothèque
+
+* Nouveau : déplacer des tomes, des chapitres ou une série vers un autre dossier de la bibliothèque (par exemple vers iCloud Drive), sous-dossier, lecture et réglages conservés.
+* « Choisir la couverture… » propose la couverture officielle du tome (MangaDex).
+* Les éditions au découpage différent (Perfect, Deluxe, Intégrale, tomes doubles…) ne sont plus comparées au nombre de tomes de l'édition courante : plus de faux tomes manquants. Le nombre de tomes parus de votre édition peut aussi être saisi dans « Modifier les informations… ».
+* Séries en cours : les tomes parus au Japon après votre dernier tome, et les chapitres parus depuis votre dernier chapitre, apparaissent dans la grille.
+* Le bandeau « Il vous manque… » est retiré : les manquants se voient dans la grille, et leur affichage se règle dans les préférences.
+* **Corrigé** : l'auteur trouvé sur AniList pouvait être un assistant (Fire Punch attribué à Tatsuya Endo).
+* **Corrigé** : la fenêtre des préférences pouvait dépasser de l'écran ; ses onglets défilent désormais.
+
 ## [1.2.0] - 2026-10-15
 
 ### Quel fichier télécharger

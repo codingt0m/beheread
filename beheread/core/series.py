@@ -132,6 +132,29 @@ _LANGUAGE_TERMS = re.compile(
 _EDITION_PATTERNS = (_EDITION_PHRASE, _EDITION_TERMS, _LANGUAGE_TERMS)
 
 
+# Editions dont le decoupage en tomes differe de l'edition courante (Perfect,
+# Deluxe, Kanzenban, Intégrale, « 2-en-1 »...) : le nombre de tomes parus
+# trouve en ligne, celui de l'edition courante, ne vaut pas pour elles. Les
+# mots ambigus (« Perfect World », « Double Arts ») ne comptent qu'accoles
+# a « edition ».
+_REGROUPED_EDITION = re.compile(
+    # bornes : ni lettre ni chiffre autour (« _ » compris, « Perfect_Edition_T01 »)
+    r"(?i)(?<![a-z0-9])(?:(?:perfect|double|ultimate|master)[\s_.]+edition"
+    r"|edition[\s_.]+(?:perfect|double|ultimate|master)"
+    r"|deluxe|kanzen-?ban|kanzembam|integrale|omnibus|wideban|bunko"
+    r"|\d\s*-?\s*(?:en|in)\s*-?\s*1)(?![a-z0-9])")
+
+
+def edition_label(stem: str) -> str:
+    """Mention d'une edition au decoupage different dans un nom de fichier
+    (« Perfect Edition »), telle qu'ecrite, ou ""."""
+    m = _REGROUPED_EDITION.search(_remove_accents(stem or ""))
+    if not m:
+        return ""
+    label = re.sub(r"[\s_.]+", " ", stem[m.start():m.end()]).strip()
+    return label[:1].upper() + label[1:]
+
+
 def _strip_edition_terms(name: str) -> str:
     """Retire les mentions d'edition/format du nom. La recherche se fait sur la
     version sans accents (pour matcher "Édition", "Spéciale"...) et les memes
@@ -400,25 +423,25 @@ def series_key(stem: str) -> str:
 
 
 def next_volume(path: str, siblings):
-    """Parmi `siblings` (chemins des fichiers du meme dossier), le tome de
-    numero immediatement superieur appartenant a la meme serie que `path`.
-    Renvoie son chemin ou None. Logique pure : la liste des fichiers est
-    fournie par l'appelant (voir infra.archive.find_next_volume)."""
+    """Parmi `siblings` (chemins des fichiers du meme dossier), l'element
+    suivant `path` dans sa serie : le tome de numero immediatement
+    superieur, apres le dernier tome le premier chapitre (voir
+    units.next_in_series). Renvoie son chemin ou None. Logique pure : la
+    liste des fichiers est fournie par l'appelant (voir
+    infra.archive.find_next_volume) ; la bibliotheque, qui connait aussi la
+    nature forcee d'une serie, a la priorite (LibraryWidget.next_volume)."""
+    from beheread.core.units import classifier, next_in_series
+
     p = Path(path)
-    name, volume = parse_series(p.stem, p.parent.name)
+    name, volume, _kind = parse_series_ex(p.stem, p.parent.name)
     if volume is None:
         return None
     key = normalize_name(name)
 
-    candidates = []
-    for sib in siblings:
-        if sib == str(p):
-            continue
-        sname, svolume = parse_series(Path(sib).stem, Path(sib).parent.name)
+    members = []   # (chemin, numero, nature) de la serie
+    for sib in dict.fromkeys([str(p), *siblings]):
+        sname, svolume, skind = parse_series_ex(Path(sib).stem, Path(sib).parent.name)
         if svolume is not None and normalize_name(sname) == key:
-            candidates.append((svolume, sib))
-
-    better = [c for c in candidates if c[0] > volume]
-    if not better:
-        return None
-    return min(better)[1]
+            members.append((sib, svolume, skind))
+    unit = classifier(k for _p, _n, k in members)
+    return next_in_series(str(p), [(sp, unit(k), n) for sp, n, k in members])

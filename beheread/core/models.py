@@ -67,6 +67,7 @@ class VolumeInfo:
     added: float = 0.0
     author: str = ""
     year: Optional[int] = None
+    unit: Optional[str] = None        # "volume", "chapter"... (voir units.py)
 
 
 @dataclass(frozen=True)

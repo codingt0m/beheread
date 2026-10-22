@@ -319,3 +319,19 @@ def test_find_next_volume_stays_in_the_volume_folder(tmp_path):
     sub.mkdir()
     (sub / "Naruto Tome 2.cbz").write_bytes(b"PK\x03\x04dummy")
     assert find_next_volume(str(tmp_path / "Naruto Tome 1.cbz")) is None
+
+
+@pytest.mark.parametrize("stem, expected", [
+    ("20th Century Boys - Perfect Edition - T01 (URASAWA)", "Perfect Edition"),
+    ("Fullmetal Alchemist Perfect_Edition_T01", "Perfect Edition"),
+    ("Dragon Ball Kanzenban T3", "Kanzenban"),
+    ("One Piece 3-en-1 T2", "3-en-1"),
+    ("Monster Deluxe 1", "Deluxe"),
+    ("Perfect World T01", ""),          # vrais titres : seulement accoles a « edition »
+    ("Double Arts T02", ""),
+    ("Berserk_T41", ""),
+])
+def test_edition_with_another_split(stem, expected):
+    from beheread.core.series import edition_label
+    assert edition_label(stem) == expected
+

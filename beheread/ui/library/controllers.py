@@ -4,6 +4,7 @@ un etat propre, extraites de LibraryWidget et reliees a lui par signaux.
 * ScanController     : scan des dossiers sources, telechargement des tomes
                        cloud, surveillance des dossiers ;
 * MetadataController : recuperation des metadonnees (par tome et par serie) ;
+* ChapterMapController : decoupage officiel tomes/chapitres (MangaDex) ;
 * CoverCache         : generation et cache memoire des couvertures.
 """
 
@@ -25,8 +26,9 @@ from PySide6.QtGui import QPixmap
 
 from beheread.core.series import author_hint, normalize_name
 from beheread.i18n import tr
-from beheread.infra import metadata, servers
+from beheread.infra import mangadex, metadata, servers, virtual
 from beheread.ui.library.workers import (
+    CallWorker,
     HydrateWorker,
     MetaWorker,
     ScanWorker,
@@ -40,6 +42,10 @@ MAX_WATCHED_DIRS = 2000
 # au-dela, plus rien avant le prochain lancement
 RETRY_DELAYS = (5 * 60, 15 * 60, 60 * 60)
 RETRY_CHECK_MS = 60 * 1000
+# decoupage officiel tomes/chapitres : redemande apres ce delai (un tome
+# qui parait range de nouveaux chapitres), ou apres un echec
+CHAPTER_MAP_TTL = 7 * 24 * 3600
+CHAPTER_MAP_RETRY = 24 * 3600
 
 
 class ScanController(QObject):
@@ -169,6 +175,70 @@ class ScanController(QObject):
             logging.warning("Echec de la surveillance des dossiers sources", exc_info=True)
 
 
+class ChapterMapController(QObject):
+    """Decoupage officiel tomes/chapitres et dernieres parutions (dernier tome,
+    dernier chapitre) des series qui ont des chapitres ou dont le nombre de
+    tomes parus est inconnu (serie en cours), demandes a MangaDex une serie a
+    la fois et gardes en cache (Store.chapter_map)."""
+
+    updated = Signal(str)   # cle de serie dont le decoupage vient d'arriver
+
+    def __init__(self, store, online, parent=None):
+        """online() -> bool : la recherche en ligne est-elle autorisee ?"""
+        super().__init__(parent)
+        self.store = store
+        self.online = online
+        self._queue = OrderedDict()   # cle -> (nom, indices d'auteur)
+        self._call = None             # (cle, CallWorker) en cours
+        self._now = time.time         # remplace dans les tests
+
+    def ensure(self, key, name, hints=None):
+        """Demande le decoupage de la serie s'il manque ou date."""
+        if not self.online() or key in self._queue or (self._call and self._call[0] == key):
+            return
+        cached = self.store.chapter_map(key)
+        if cached and cached.get("v") == mangadex.RANGES_VERSION:
+            age = self._now() - float(cached.get("at") or 0)
+            if age < (CHAPTER_MAP_RETRY if cached.get("failed") else CHAPTER_MAP_TTL):
+                return
+        self._queue[key] = (name, hints)
+        self._next()
+
+    def _next(self):
+        if self._call is not None or not self._queue:
+            return
+        key, (name, hints) = self._queue.popitem(last=False)
+        known = (self.store.chapter_map(key) or {}).get("id")
+        if not known:
+            sm = self.store.series_meta(key) or {}
+            known = sm.get("mangadex_id")
+
+        def fetch():
+            if known:
+                return known, mangadex.aggregate(known)
+            return mangadex.series_aggregate(name, hints)
+        call = CallWorker(fetch)
+        call.signals.done.connect(lambda result, err: self._on_done(key, result, err))
+        self._call = (key, call)
+        QThreadPool.globalInstance().start(call)
+
+    def _on_done(self, key, result, err):
+        self._call = None
+        if err is not None:
+            logging.info("Decoupage MangaDex indisponible pour %s : %s", key, err)
+            self.store.set_chapter_map(key, {"at": self._now(), "failed": True,
+                                             "v": mangadex.RANGES_VERSION})
+        else:
+            manga_id, data = result if result else (None, {})
+            self.store.set_chapter_map(key, {
+                "at": self._now(), "id": manga_id, "ranges": data.get("ranges") or {},
+                "last_volume": data.get("last_volume"), "last_chapter": data.get("last_chapter"),
+                "v": mangadex.RANGES_VERSION})
+            if data.get("ranges") or data.get("last_volume") or data.get("last_chapter"):
+                self.updated.emit(key)
+        self._next()
+
+
 class MetadataController(QObject):
     """Metadonnees auteur/date : cascade ComicInfo.xml -> Google Books ->
     AniList -> MangaDex -> BnF par tome, et recherche au niveau serie pour que
@@ -278,9 +348,10 @@ class MetadataController(QObject):
         par une cascade plus ancienne (voir metadata.is_stale) est retente ;
         un resultat perime reste affiche en attendant le nouveau."""
         path = entry.path
-        if servers.is_remote(path):
+        if servers.is_remote(path) or virtual.is_virtual(path):
             # tome d'un serveur de lecture : auteur et annee donnes par le
-            # serveur (voir ServerManager), rien n'est cherche en ligne
+            # serveur (voir ServerManager) ; tome virtuel : ceux de sa serie.
+            # Rien n'est cherche en ligne.
             cached = self.store.volume_meta(path)
             return None if not cached or cached.get("not_found") else cached
         cached = self.store.volume_meta(path)

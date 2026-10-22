@@ -17,11 +17,12 @@ from PySide6.QtWidgets import (
 )
 
 from beheread import i18n
+from beheread.core import units
 from beheread.core.anilist_track import ONESHOT
 from beheread.core.library_model import FINISHED
 from beheread.core.series import normalize_name, parse_path
 from beheread.i18n import tr, trn
-from beheread.infra import anilist, archive, metadata, updates
+from beheread.infra import anilist, archive, metadata, updates, virtual
 from beheread.ui import theme
 
 # modules extraits (voir chacun) : constantes de rendu, delegates, dialogues et
@@ -110,8 +111,11 @@ class ServicesMixin:
                 return None
             return key, metadata.fold_accents(e.series), [(None, ONESHOT, finished(path))]
         name = self._series_raw_name.get(key, e.series)
-        return key, metadata.fold_accents(name), [(x.volume, x.kind, finished(x.path))
-                                                   for x in grp]
+        # nature retenue pour la serie (un numero nu peut y etre un chapitre) ;
+        # un tome virtuel n'est pas publie : ses chapitres le sont deja
+        return key, metadata.fold_accents(name), [
+            (x.volume, units.label_kind(x.kind, self._unit(x)), finished(x.path)) for x in grp
+            if not virtual.is_virtual(x.path)]
 
     def _associate_anilist(self, key, path):
         """Association manuelle d'une serie a une oeuvre AniList (adresse de sa

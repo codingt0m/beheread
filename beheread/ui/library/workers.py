@@ -13,7 +13,7 @@ from PySide6.QtGui import QImage
 from beheread.config import THUMB_SCALE
 from beheread.core.library_model import natural_key as _natural_key
 from beheread.i18n import tr
-from beheread.infra import metadata
+from beheread.infra import metadata, relocate
 from beheread.infra.archive import Archive, scan_tree
 from beheread.infra.storage import Store, is_cloud_stat
 from beheread.ui.library.constants import THUMB_H, THUMB_W
@@ -309,6 +309,43 @@ class HydrateWorker(QRunnable):
             logging.warning("Telechargement cloud impossible pour %s",
                             self.path, exc_info=True)
         self.signals.done.emit(self.path, ok)
+
+
+# ---------------------------------------------------------- deplacement de fichiers
+
+class _MoveSignals(QObject):
+    step = Signal(int, str)     # indice du fichier en cours, son nom
+    done = Signal(object)       # bilan (voir MoveWorker.run)
+
+
+class MoveWorker(QRunnable):
+    """Deplace des fichiers d'un dossier source a un autre (voir
+    infra/relocate.py), un a la fois, hors du thread UI. `cancel` : evenement
+    qui arrete apres le fichier en cours."""
+
+    def __init__(self, pairs, cancel):
+        super().__init__()
+        self.pairs = list(pairs)
+        self.cancel = cancel
+        self.signals = _MoveSignals()
+
+    def run(self):
+        result = {"moved": [], "exists": [], "busy": [], "errors": [], "left": []}
+        for i, (src, dst) in enumerate(self.pairs):
+            if self.cancel.is_set():
+                result["left"] = self.pairs[i:]
+                break
+            self.signals.step.emit(i, Path(src).stem)
+            try:
+                status = relocate.move(src, dst)
+            except OSError as e:
+                logging.warning("Deplacement impossible : %s -> %s", src, dst, exc_info=True)
+                result["errors"].append((src, str(e)))
+                continue
+            key = {relocate.MOVED: "moved", relocate.EXISTS: "exists",
+                   relocate.BUSY: "busy"}[status]
+            result[key].append((src, dst))
+        self.signals.done.emit(result)
 
 
 # ---------------------------------------------------------- appel ponctuel

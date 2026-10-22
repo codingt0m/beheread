@@ -9,23 +9,30 @@ from PySide6.QtCore import QPoint, QRect, QRectF, QSize, Qt
 from PySide6.QtGui import QColor, QFont, QPainter, QPainterPath, QPen, QPixmap
 from PySide6.QtWidgets import QStyle, QStyledItemDelegate, QStyleOptionViewItem
 
+from beheread.core import units
 from beheread.i18n import tr
 from beheread.infra.storage import Store
 from beheread.ui import theme
 from beheread.ui.library.constants import (
     CELL_W,
+    GRID_GAP,
     LIST_ROW_H,
     LIST_THUMB_H,
     LIST_THUMB_W,
     ROLE_AUTHOR_TEXT,
     ROLE_FINISHED,
     ROLE_FRACTION,
+    ROLE_IN_VOLUME,
     ROLE_IS_SERIES,
     ROLE_MISSING,
     ROLE_PATH,
     ROLE_PROG_TEXT,
+    ROLE_SECTION,
     ROLE_SERIES_COUNT,
     ROLE_SERIES_PATHS,
+    ROLE_SMALL,
+    ROLE_VIRTUAL,
+    SECTION_H,
     STACK_PEEK,
     THUMB_H,
     THUMB_W,
@@ -205,6 +212,57 @@ def _draw_unreadable(painter, rect, c, font):
                          tr("Archive abîmée ou incomplète"))
 
 
+def _draw_virtual_chip(painter, cover, c, font):
+    """Mention « virtuel » d'un tome compose de chapitres : pastille a bord
+    pointille en haut a gauche de la couverture."""
+    small = QFont(font)
+    small.setPointSizeF(small.pointSizeF() * 0.8)
+    painter.save()
+    painter.setFont(small)
+    label = tr("virtuel")
+    w = painter.fontMetrics().horizontalAdvance(label) + 14
+    chip = QRect(cover.x() + 8, cover.y() + 8, w, 20)
+    painter.setOpacity(1.0)
+    painter.setBrush(QColor(c["panel"]))
+    painter.setPen(QPen(QColor(c["text_dim"]), 1, Qt.DashLine))
+    painter.drawRoundedRect(chip, 10, 10)
+    painter.setPen(QColor(c["text"]))
+    painter.drawText(chip, Qt.AlignCenter, label)
+    painter.restore()
+
+
+def _paint_section(painter, option, index, store, left_pad):
+    """En-tete de section d'un dossier de serie ouvert (« Tomes »,
+    « Suite en chapitres ») : filet en haut, titre en gras et sous-titre
+    estompe sur une ligne."""
+    c = theme.colors(store.ui_pref("theme", "dark"))
+    title, subtitle = index.data(ROLE_SECTION)
+    rect = option.rect
+    painter.save()
+    painter.setPen(QPen(QColor(c["border"]), 1))
+    top = rect.top() + 8
+    painter.drawLine(rect.left() + left_pad, top, rect.right() - left_pad, top)
+    font = QFont(option.font)
+    font.setBold(True)
+    font.setPointSizeF(font.pointSizeF() * 1.15)
+    painter.setFont(font)
+    painter.setPen(QColor(c["text"]))
+    text_rect = QRect(rect.left() + left_pad, top, rect.width() - 2 * left_pad, rect.bottom() - top)
+    painter.drawText(text_rect, Qt.AlignLeft | Qt.AlignVCenter, title)
+    width = painter.fontMetrics().horizontalAdvance(title)
+    if subtitle:
+        small = QFont(font)
+        small.setBold(False)
+        small.setPointSizeF(font.pointSizeF() / 1.15 * 0.95)
+        painter.setFont(small)
+        painter.setPen(QColor(c["text_dim"]))
+        sub_rect = text_rect.adjusted(width + 12, 0, 0, 0)
+        painter.drawText(sub_rect, Qt.AlignLeft | Qt.AlignVCenter,
+                         painter.fontMetrics().elidedText(subtitle, Qt.ElideRight,
+                                                          sub_rect.width()))
+    painter.restore()
+
+
 class MangaDelegate(QStyledItemDelegate):
     """Dessine la vignette, le titre, la barre de progression et le badge.
     La taille des couvertures est pilotee par un facteur d'echelle (curseur de
@@ -222,11 +280,19 @@ class MangaDelegate(QStyledItemDelegate):
     # taille (_render_cell), ce qui depasse est coupe.
     CAPTION_H_COMPACT = 54
 
-    def __init__(self, store: Store, parent=None, compact=False, covers=None):
+    def __init__(self, store: Store, parent=None, compact=False, covers=None, side=None):
         super().__init__(parent)
         self.store = store
         self.covers = covers   # CoverCache : couvertures demandees a la peinture
         self.compact = compact
+        # marges laterales de la case autour de la couverture (plus serrees
+        # pour les petites cases des chapitres)
+        self.side = CELL_W - THUMB_W if side is None else side
+        # vue « en flux » (dossier de serie a sections, voir
+        # LibraryWidget._apply_view_mode) : chaque case porte son jeu
+        # inter-case, que la grille fixe integrait sinon
+        self.flow_gap = 0
+        self.small = None   # delegate des chapitres en petite case (ROLE_SMALL)
         self.set_scale(1.0)
 
     def set_scale(self, scale: float):
@@ -235,17 +301,40 @@ class MangaDelegate(QStyledItemDelegate):
         self.thumb_w = round(THUMB_W * scale)
         self.thumb_h = round(THUMB_H * scale)
         caption_h = self.CAPTION_H_COMPACT if self.compact else self.CAPTION_H
-        self.cell_w = self.thumb_w + (CELL_W - THUMB_W)   # + marges laterales fixes
+        self.cell_w = self.thumb_w + self.side   # + marges laterales fixes
         self.cell_h = self.thumb_h + caption_h            # + hauteur de legende fixe
 
     def sizeHint(self, option, index):
-        return QSize(self.cell_w, self.cell_h)
+        if index.data(ROLE_SECTION):
+            size = index.data(Qt.SizeHintRole)
+            return size if isinstance(size, QSize) else QSize(self.cell_w, SECTION_H)
+        if self.small is not None and index.data(ROLE_SMALL):
+            # petites cases : autant qu'il en tient dans une rangee de tomes,
+            # elargies pour la remplir exactement - alignees sur les tomes,
+            # centrees comme eux
+            size = self.small.sizeHint(option, index)
+            row = getattr(self.parent(), "flow_row_width", 0)
+            if row:
+                size.setWidth(row // max(1, row // size.width()))
+            return size
+        return QSize(self.cell_w + self.flow_gap, self.cell_h + self.flow_gap)
 
     def paint(self, painter: QPainter, option, index):
         """Recopie l'image de la case, rendue une fois (_render_cell) puis
         gardee en cache : pendant un defilement, une meme case est repeinte
         a chaque pas (bande sous le degrade du haut, deplacement de l'en-tete)
         et refaire tout son rendu en Python a chaque fois saccadait l'image."""
+        if index.data(ROLE_SECTION):
+            _paint_section(painter, option, index, self.store, left_pad=GRID_GAP // 2)
+            return
+        if self.small is not None and index.data(ROLE_SMALL):
+            self.small.paint(painter, option, index)
+            return
+        if self.flow_gap:
+            # la case dessinee garde la taille de la grille fixe, centree
+            gap = self.flow_gap
+            option = QStyleOptionViewItem(option)
+            option.rect = option.rect.adjusted(gap // 2, 0, -(gap - gap // 2), -gap)
         theme_mode = self.store.ui_pref("theme", "dark")
         mode = theme.colors(theme_mode)
         vp = option.widget.viewport() if option.widget is not None else None
@@ -270,7 +359,8 @@ class MangaDelegate(QStyledItemDelegate):
             content = ("missing", tuple(index.data(ROLE_MISSING)))
         else:
             path = index.data(ROLE_PATH)
-            content = (False, _cover_key(_cover(self.covers, path)),
+            content = (False, bool(index.data(ROLE_VIRTUAL)), index.data(ROLE_IN_VOLUME),
+                       _cover_key(_cover(self.covers, path)),
                        _cover_error(self.covers, path), index.data(ROLE_FRACTION),
                        index.data(ROLE_PROG_TEXT))
         author = None if self.compact else index.data(ROLE_AUTHOR_TEXT)
@@ -369,6 +459,8 @@ class MangaDelegate(QStyledItemDelegate):
 
         if finished:
             self._draw_finished_badge(painter, cover)
+        if index.data(ROLE_VIRTUAL):
+            _draw_virtual_chip(painter, cover, c, option.font)
 
         # titre + progression + auteur (bloc commun aux tomes et aux series)
         if finished:
@@ -382,7 +474,8 @@ class MangaDelegate(QStyledItemDelegate):
         pointilles, numero, « Non possede » ; une longue suite de tomes
         manquants tient dans une seule case."""
         r = option.rect
-        first, last = index.data(ROLE_MISSING)
+        first, last, unit, *rest = index.data(ROLE_MISSING)
+        japan = bool(rest and rest[0])   # paru au Japon, pas encore en France
         cover = QRect(r.x() + (r.width() - self.thumb_w) // 2, r.y() + 10,
                       self.thumb_w, self.thumb_h)
         dim = QColor(c["text_dim"])
@@ -394,14 +487,29 @@ class MangaDelegate(QStyledItemDelegate):
         painter.setPen(QPen(dim, 2))
         painter.drawRoundedRect(book, 2, 2)
         painter.drawLine(book.x() + 5, book.center().y(), book.right() - 4, book.center().y())
-        label = (tr("Tome {n}", n=first) if first == last
-                 else tr("Tomes {first} à {last}", first=first, last=last))
-        detail = (tr("Non possédé") if first == last
-                  else tr("{n} tomes non possédés", n=last - first + 1))
+        if unit == units.CHAPTER:
+            label = (tr("Chapitre {n}", n=first) if first == last
+                     else tr("Chapitres {first} à {last}", first=first, last=last))
+            detail = (tr("Non possédé") if first == last
+                      else tr("{n} chapitres non possédés", n=last - first + 1))
+        else:
+            label = (tr("Tome {n}", n=first) if first == last
+                     else tr("Tomes {first} à {last}", first=first, last=last))
+            if japan:
+                detail = (tr("Paru au Japon") if first == last
+                          else tr("{n} tomes parus au Japon", n=last - first + 1))
+            else:
+                detail = (tr("Non possédé") if first == last
+                          else tr("{n} tomes non possédés", n=last - first + 1))
         bold = QFont(option.font)
         bold.setBold(True)
         painter.setFont(bold)
         painter.setPen(dim)
+        if painter.fontMetrics().horizontalAdvance(label) > cover.width() - 8:
+            # petite case : forme courte (« Ch. 374 à 382 »)
+            label = (tr("Ch. {first} à {last}", first=first, last=last)
+                     if unit == units.CHAPTER and first != last
+                     else painter.fontMetrics().elidedText(label, Qt.ElideRight, cover.width() - 8))
         painter.drawText(QRect(cover.x(), cover.center().y() - 8, cover.width(), 20),
                          Qt.AlignHCenter | Qt.AlignTop, label)
         small = QFont(option.font)
@@ -443,6 +551,9 @@ class MangaDelegate(QStyledItemDelegate):
                          fm.elidedText(name, Qt.ElideRight, title_rect.width()))
 
         prog_text = index.data(ROLE_PROG_TEXT)
+        in_volume = index.data(ROLE_IN_VOLUME)   # chapitre : son tome officiel
+        if in_volume:
+            prog_text = " · ".join(p for p in (in_volume, prog_text) if p)
         warning = (not index.data(ROLE_IS_SERIES)
                    and _cover_error(self.covers, index.data(ROLE_PATH)) is not None)
         if warning:
@@ -546,9 +657,14 @@ class ListDelegate(QStyledItemDelegate):
         self.covers = covers
 
     def sizeHint(self, option, index):
+        if index.data(ROLE_SECTION):
+            return QSize(0, SECTION_H)
         return QSize(0, LIST_ROW_H)
 
     def paint(self, painter: QPainter, option, index):
+        if index.data(ROLE_SECTION):
+            _paint_section(painter, option, index, self.store, left_pad=10)
+            return
         c = theme.colors(self.store.ui_pref("theme", "dark"))
         painter.save()
         painter.setRenderHint(QPainter.Antialiasing)
@@ -569,7 +685,9 @@ class ListDelegate(QStyledItemDelegate):
             painter.setPen(QColor(c["text_dim"]))
             painter.drawText(r.adjusted(18 + LIST_THUMB_W, 0, -10, 0),
                              Qt.AlignVCenter | Qt.AlignLeft,
-                             f"{index.data(Qt.DisplayRole)}  ·  " + tr("non possédé"))
+                             f"{index.data(Qt.DisplayRole)}  ·  "
+                             + (tr("paru au Japon") if index.data(ROLE_MISSING)[3:4] == (True,)
+                                else tr("non possédé")))
             painter.restore()
             return
 

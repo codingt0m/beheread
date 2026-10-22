@@ -198,13 +198,31 @@ def test_series_paths_gathers_all_volumes(store):
 
 
 def _progress(store, group):
-    return LibraryWidget._series_progress(_FakeLibrary(store), group)
+    fake = _FakeLibrary(store)
+    fake._unit_by_path = {}
+    fake._unit = LibraryWidget._unit.__get__(fake)
+    c = LibraryWidget._series_counts(fake, group)
+    return c.read, c.total, c.read / c.total, c.read == c.total
 
 
 def test_series_progress_none_read(store, tmp_path):
     group = [_entry("T01", "S", 1), _entry("T02", "S", 2), _entry("T03", "S", 3)]
     read, count, frac, finished = _progress(store, group)
     assert (read, count, frac, finished) == (0, 3, 0.0, False)
+
+
+def test_series_progress_counts_chapters_apart(store, tmp_path):
+    a = _make_manga(tmp_path, "a.cbz", b"A")
+    c = _make_manga(tmp_path, "c.cbz", b"C")
+    store.set_progress(a, 9, 10, True)
+    store.set_progress(c, 4, 10, False)
+    fake = _FakeLibrary(store)
+    fake._unit_by_path = {}
+    fake._unit = LibraryWidget._unit.__get__(fake)
+    group = [dataclasses.replace(_at(a), volume=22, kind="volume"),
+             dataclasses.replace(_at(c), volume=211, kind="chapter")]
+    counts = LibraryWidget._series_counts(fake, group)
+    assert (counts.volumes, counts.chapters, counts.current_chapter) == (1, 1, 211)
 
 
 def test_series_progress_partial(store, tmp_path):

@@ -116,14 +116,15 @@ class NextVolumeProbe(QRunnable):
     L'enchainement (touche Entree / fiche de fin) devient ainsi instantane :
     ni scan ni premier acces disque a payer au moment ou l'utilisateur agit."""
 
-    def __init__(self, path: str):
+    def __init__(self, path: str, known=None):
         super().__init__()
         self.path = path
+        self.known = known   # suivant deja donne par la bibliotheque : seulement a prechauffer
         self.signals = _NextVolumeSignals()
 
     def run(self):
         try:
-            nxt = find_next_volume(self.path)
+            nxt = self.known or find_next_volume(self.path)
         except Exception:
             logging.warning("Recherche du tome suivant a %s en echec",
                             self.path, exc_info=True)

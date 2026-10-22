@@ -34,8 +34,24 @@ ROLE_SERIES_KEY = Qt.UserRole + 8
 ROLE_SERIES_COUNT = Qt.UserRole + 9
 # Qt.UserRole + 10, + 11 : anciennes 2e et 3e couvertures de la pile
 ROLE_SERIES_PATHS = Qt.UserRole + 12   # chemins des tomes dont on empile la couverture
-# case « non possede » d'un dossier de serie ouvert : (premier, dernier) numero
+# case « non possede » d'un dossier de serie ouvert : (premier, dernier, unite)
 ROLE_MISSING = Qt.UserRole + 13
+# en-tete de section d'un dossier de serie ouvert (« Tomes », « Suite en
+# chapitres ») : (titre, sous-titre), sur toute la largeur de la grille
+ROLE_SECTION = Qt.UserRole + 14
+# chapitre affiche en petite case (dossier de serie ouvert, vue grille)
+ROLE_SMALL = Qt.UserRole + 15
+# tome virtuel (chapitres regroupes, voir infra/virtual.py) : mention « virtuel »
+ROLE_VIRTUAL = Qt.UserRole + 16
+# chapitre : tome officiel qui le contient (« Tome 43 »), quand on le sait
+ROLE_IN_VOLUME = Qt.UserRole + 17
+SECTION_H = 56
+# taille des couvertures des chapitres par rapport a celle des tomes
+CHAPTER_SCALE = 0.62
+# marges laterales d'une petite case de chapitre, et jeu entre deux d'entre
+# elles (les cases de tome : CELL_W - THUMB_W et GRID_GAP)
+CHAPTER_SIDE = 6
+CHAPTER_GAP = 6
 
 # decalage de l'empilement des couvertures d'un dossier de serie (pixels)
 STACK_PEEK = 9

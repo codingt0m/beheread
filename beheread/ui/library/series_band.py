@@ -1,11 +1,8 @@
 """Bandeau d'un dossier de serie ouvert, au-dessus de ses tomes : nom,
-auteur, tomes possedes sur tomes parus et tomes manquants, avec le choix de
-les montrer dans la grille."""
+auteur, tomes possedes sur tomes parus et chapitres qui les completent."""
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
-    QCheckBox,
-    QFrame,
     QHBoxLayout,
     QLabel,
     QProgressBar,
@@ -18,7 +15,6 @@ from beheread.ui import theme
 
 
 class SeriesBand(QWidget):
-    showMissingToggled = Signal(bool)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -54,26 +50,13 @@ class SeriesBand(QWidget):
         top.addWidget(self.count, 0, Qt.AlignVCenter)
         v.addLayout(top)
 
-        self.note = QFrame()
-        self.note.setObjectName("bandNote")
-        nh = QHBoxLayout(self.note)
-        nh.setContentsMargins(14, 8, 14, 8)
-        nh.setSpacing(10)
-        self.missing = QLabel()
-        self.missing.setObjectName("bandMissing")
-        self.missing.setTextFormat(Qt.RichText)   # seuls des numeros (voir set_content)
-        self.missing.setWordWrap(True)
-        nh.addWidget(self.missing, 1)
-        self.show_missing = QCheckBox(tr("Afficher les tomes manquants dans la grille"))
-        self.show_missing.toggled.connect(self.showMissingToggled.emit)
-        nh.addWidget(self.show_missing)
-        v.addWidget(self.note)
 
-    def set_content(self, name, subtitle, owned, published, missing_text, missing_count,
-                    show_missing):
-        """`missing_text` : numeros manquants deja mis en forme (« 6, 12,
-        29 a 36 ») - uniquement des chiffres, d'ou le texte enrichi sans
-        risque pour le gras."""
+    def set_content(self, name, subtitle, owned, published, chapters=0, chapter_range=""):
+        """`chapters` : nombre de chapitres de la serie ; `chapter_range`
+        (« ch. 211 a 232 ») : ceux qui completent les tomes d'une serie mixte,
+        vide pour une serie faite de chapitres seuls. Les tomes et chapitres
+        manquants se voient dans la grille (cases « Non possede », voir les
+        preferences)."""
         self.name.setText(name)
         self.sub.setText(subtitle)
         self.sub.setVisible(bool(subtitle))
@@ -81,19 +64,15 @@ class SeriesBand(QWidget):
             self.bar.setRange(0, published)
             self.bar.setValue(min(owned, published))
             self.bar.show()
-            self.count.setText(trn(owned, "<b>{n}</b> possédé sur {published}",
-                                   "<b>{n}</b> possédés sur {published}", published=published))
+            count = trn(owned, "<b>{n}</b> possédé sur {published}",
+                        "<b>{n}</b> possédés sur {published}", published=published)
         else:
             self.bar.hide()
-            self.count.setText(trn(owned, "<b>{n}</b> tome", "<b>{n}</b> tomes"))
-        self.note.setVisible(missing_count > 0)
-        if missing_count:
-            self.missing.setText(trn(missing_count, "Il vous manque {n} tome : <b>{numbers}</b>.",
-                                     "Il vous manque {n} tomes : <b>{numbers}</b>.",
-                                     numbers=missing_text))
-        self.show_missing.blockSignals(True)
-        self.show_missing.setChecked(show_missing)
-        self.show_missing.blockSignals(False)
+            count = (trn(owned, "<b>{n}</b> tome", "<b>{n}</b> tomes") if owned or not chapters
+                     else trn(chapters, "<b>{n}</b> chapitre", "<b>{n}</b> chapitres"))
+        if chapter_range:
+            count += " · + <b>" + chapter_range + "</b>"
+        self.count.setText(count)
 
     def apply_colors(self, c):
         self.setStyleSheet(f"""
@@ -101,10 +80,6 @@ class SeriesBand(QWidget):
             #bandName {{ color: {c['text']}; font-size: 18px; font-weight: 700; }}
             #bandSub, #bandCount {{ color: {c['text_dim']}; font-size: 13px; }}
             #bandCount b {{ color: {c['text']}; }}
-            #bandNote {{ background: {c['panel']}; border: 1px solid {c['border']};
-                         border-radius: 8px; }}
-            #bandMissing {{ color: {c['text']}; font-size: 13px; }}
-            QCheckBox {{ color: {c['text_dim']}; }}
             QProgressBar#bandBar {{ background: {c['button']}; border: none; border-radius: 4px; }}
             QProgressBar#bandBar::chunk {{ background: {theme.FINISHED}; border-radius: 4px; }}
         """)

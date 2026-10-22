@@ -91,6 +91,7 @@ def test_search_series_parses_full_response(monkeypatch):
         "genres": [],
         "volumes": None,
         "match_score": 1.0,
+        "mangadex_id": None,
     }
 
 
@@ -172,3 +173,58 @@ def test_search_series_prefers_the_french_summary(monkeypatch):
     r = mangadex.search_series("Vagabond")
     assert r["description"] == "Le voyage de Musashi."
     assert r["genres"] == ["Historique"] and r["volumes"] == 37
+
+
+def test_aggregate_gives_the_chapters_of_each_volume(monkeypatch):
+    """Decoupage officiel : premier et dernier chapitre de chaque tome ; les
+    chapitres hors tome, les numeros non numeriques, les chapitres egares
+    dans un tome et un tome qui chevauche le precedent sont ignores."""
+    chapters = lambda *ns: {str(n): {} for n in ns}   # noqa: E731
+    payload = {"result": "ok", "volumes": {
+        # « 232 » egare dans le tome 1 (cas reel de Chainsaw Man sur MangaDex)
+        "1": {"volume": "1", "chapters": chapters(1, 2, 3, 3.5, 232)},
+        "2": {"volume": "2", "chapters": chapters(4, 5, 6)},
+        "3": {"volume": "3", "chapters": chapters(5, 6)},     # chevauche le 2
+        "none": {"volume": "none", "chapters": chapters(233)},
+        "bonus": {"volume": "bonus", "chapters": {"x": {}}},
+    }}
+    seen = []
+
+    def fake_urlopen(req, **_k):
+        seen.append(req.full_url)
+        return _fake_response(payload)
+
+    monkeypatch.setattr(mangadex, "_throttle", lambda: None)
+    monkeypatch.setattr(mangadex.urllib.request, "urlopen", fake_urlopen)
+    assert mangadex.chapter_ranges("abc-123") == {"1": [1, 3.5], "2": [4, 6]}
+    assert seen == ["https://api.mangadex.org/manga/abc-123/aggregate"]
+
+
+def test_aggregate_without_volumes():
+    assert mangadex.parse_aggregate({"result": "ok", "volumes": []}) == {}
+    assert mangadex.parse_aggregate(None) == {}
+
+
+def test_latest_volume_and_chapter():
+    """Dernier tome : le plus grand du decoupage retenu ; dernier chapitre :
+    chapitres hors tome compris, sans un egare isole tres loin."""
+    chapters = lambda *ns: {str(n): {} for n in ns}   # noqa: E731
+    payload = {"volumes": {
+        "1": {"chapters": chapters(1, 2, 3)},
+        "2": {"chapters": chapters(4, 5, 6)},
+        "none": {"chapters": chapters(7, 8, 8.5, 9, 400)},
+    }}
+    assert mangadex.parse_latest(payload) == (2, 9)
+    assert mangadex.parse_latest({"volumes": []}) == (None, None)
+
+
+def test_cover_prefers_french_then_english_then_japanese():
+    def cover(volume, locale, name):
+        return {"attributes": {"volume": volume, "locale": locale, "fileName": name}}
+    payload = {"data": [cover("23", "ja", "ja23.jpg"), cover("23", "en", "en23.jpg"),
+                        cover("22", "fr", "fr22.jpg"), cover("24", "zh", "zh24.jpg")]}
+    assert mangadex.pick_cover(payload, 23) == "en23.jpg"
+    assert mangadex.pick_cover(payload, 22) == "fr22.jpg"
+    assert mangadex.pick_cover(payload, 24) == "zh24.jpg"    # faute de mieux
+    assert mangadex.pick_cover(payload, 25) == ""
+

@@ -55,10 +55,21 @@ def test_buckets_by_day_and_by_month(log):
     _add(log, dt.date(2026, 9, 2), "k2", 5, 100, finished=True)
     _add(log, dt.date(2026, 8, 30), "k1", 1, 10)
     start = dt.date(2026, 8, 1)
-    assert log.buckets(start, TODAY) == [("2026-08-30", 1, 10.0, 0), ("2026-09-02", 5, 100.0, 1),
-                                         ("2026-09-27", 10, 300.0, 0)]
-    assert log.buckets(start, TODAY, "month") == [("2026-08", 1, 10.0, 0),
-                                                  ("2026-09", 15, 400.0, 1)]
+    assert log.buckets(start, TODAY) == [("2026-08-30", 1, 10.0, 0, 0),
+                                         ("2026-09-02", 5, 100.0, 1, 0),
+                                         ("2026-09-27", 10, 300.0, 0, 0)]
+    assert log.buckets(start, TODAY, "month") == [("2026-08", 1, 10.0, 0, 0),
+                                                  ("2026-09", 15, 400.0, 1, 0)]
+
+
+def test_chapters_are_counted_apart(log):
+    """Un chapitre (reconnu a son titre) est compte a part des tomes."""
+    _add(log, TODAY, "Berserk T41", 200, 3000, finished=True)
+    _add(log, TODAY, "Berserk Chapitre 383", 20, 300, finished=True)
+    _add(log, TODAY, "Enigmatica - ch.12", 10, 100)
+    t = log.totals(TODAY, TODAY)
+    assert (t.finished, t.finished_chapters, t.volumes, t.chapters) == (2, 1, 3, 2)
+    assert log.buckets(TODAY, TODAY)[0][3:] == (2, 1)
 
 
 def test_volumes_carry_their_latest_title_and_series(log):

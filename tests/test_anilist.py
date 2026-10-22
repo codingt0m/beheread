@@ -45,6 +45,23 @@ def test_search_series_returns_id_and_match_score(monkeypatch):
     assert r["match_score"] >= 0.9
 
 
+def test_author_is_chosen_by_role_not_by_staff_order(monkeypatch):
+    """Fire Punch : AniList cite d'abord des assistants ; l'auteur est le
+    membre au role « Story & Art »."""
+    edge = lambda role, name: {"role": role, "node": {"name": {"full": name}}}   # noqa: E731
+    media = {"id": 1, "title": {"romaji": "Fire Punch"}, "synonyms": [],
+             "staff": {"edges": [edge("Assistant", "Tatsuya Endou"),
+                                 edge("Assistant (vols 1-7)", "Yuuji Kaku"),
+                                 edge("Story & Art", "Tatsuki Fujimoto"),
+                                 edge("Translator (Spanish)", "Carlos Mingo")]},
+             "startDate": {"year": 2016}, "volumes": 8}
+    monkeypatch.setattr(anilist.urllib.request, "urlopen", _fake_urlopen({"data": {"Media": media}}))
+    assert anilist.search_series("Fire Punch")["authors"] == ["Tatsuki Fujimoto"]
+    # sans role d'auteur reconnu : le premier qui n'est ni assistant ni traducteur
+    media["staff"] = {"edges": [edge("Assistant", "A"), edge("", "B")]}
+    assert anilist.search_series("Fire Punch")["authors"] == ["B"]
+
+
 def test_search_series_low_score_for_unrelated_title(monkeypatch):
     media = {"id": 1, "title": {"romaji": "Tokyo Ghoul"}, "synonyms": [],
              "staff": {"nodes": []}, "startDate": {}, "volumes": 14}

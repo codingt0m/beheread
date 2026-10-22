@@ -57,6 +57,22 @@ def test_backup_roundtrip_adds_missing_settings_and_manual_meta():
     assert added == 1
 
 
+def test_virtual_volume_progress_and_definition_are_backed_up():
+    vpath = "beheread-virtual:abc/Berserk - Tome 44.cbz"
+    definition = {"abc": {"series": "berserk", "name": "Berserk", "number": 44,
+                          "chapters": ["c1:x", "c1:y"]}}
+    data = backup.build_backup({"virtual_volumes": definition},
+                               {vpath: {"page": 12, "ts": 10}, "/old/path.cbz": {"page": 1}},
+                               {}, {}, {}, "me", "PC")
+    assert list(data["progress"]) == [vpath]               # pas un ancien chemin de fichier
+    assert data["settings"]["virtual_volumes"] == definition
+    local = {}
+    assert backup.merge_progress(local, data["progress"]) == [vpath]
+    settings = {}
+    backup.merge_extras(settings, {}, json.loads(json.dumps(data)))
+    assert settings["virtual_volumes"] == definition
+
+
 def test_invalid_files_are_rejected():
     assert not backup.is_valid({"hello": 1})
     assert not backup.is_valid({"format": "beheread-backup", "version": 99})

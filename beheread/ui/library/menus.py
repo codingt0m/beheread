@@ -8,8 +8,11 @@ responsabilite pour garder chaque fichier lisible."""
 from PySide6.QtWidgets import QMenu
 
 from beheread import platforms
+from beheread.core import units
 from beheread.core.library_model import FINISHED
+from beheread.core.series import normalize_name
 from beheread.i18n import tr
+from beheread.infra import virtual
 from beheread.infra.storage import Store
 
 # modules extraits (voir chacun) : constantes de rendu, delegates, dialogues et
@@ -18,6 +21,7 @@ from beheread.ui.library.constants import (
     ROLE_IS_SERIES,
     ROLE_MISSING,
     ROLE_PATH,
+    ROLE_SECTION,
     ROLE_SERIES_KEY,
 )
 
@@ -26,7 +30,7 @@ class MenusMixin:
     # ----- menu contextuel (clic droit), simple ou multi-selection -----
     def _show_context_menu(self, pos):
         item = self.list.itemAt(pos)
-        if item is None or item.data(ROLE_MISSING):
+        if item is None or item.data(ROLE_MISSING) or item.data(ROLE_SECTION):
             return
         # dossier de serie : pas d'action par tome (il en represente plusieurs),
         # mais on permet de supprimer la serie entiere d'un coup.
@@ -40,11 +44,24 @@ class MenusMixin:
 
         items = [it for it in self.list.selectedItems()
                  if not it.data(ROLE_IS_SERIES)]
+        global_pos = self.list.viewport().mapToGlobal(pos)
+        # tome virtuel : son propre menu (ce n'est pas un fichier)
+        if len(items) == 1 and virtual.is_virtual(items[0].data(ROLE_PATH)):
+            self._show_virtual_menu(items[0].data(ROLE_PATH), global_pos)
+            return
+        items = [it for it in items if not virtual.is_virtual(it.data(ROLE_PATH))]
         if not items:
             return
         n = len(items)
 
         menu = QMenu(self)
+        # plusieurs chapitres d'une meme serie : les regrouper en tome virtuel
+        act_group = None
+        chapters = [self._entry_by_path.get(it.data(ROLE_PATH)) for it in items]
+        if (n >= 2 and all(e is not None and self._unit(e) == units.CHAPTER for e in chapters)
+                and len({normalize_name(e.series) for e in chapters}) == 1):
+            act_group = menu.addAction(tr("Regrouper en tome…"))
+            menu.addSeparator()
         act_reset = menu.addAction(
             tr("Réinitialiser la progression") if n == 1
             else tr("Réinitialiser la progression ({n})", n=n))
@@ -68,6 +85,7 @@ class MenusMixin:
         act_cover = menu.addAction(tr("Choisir la couverture…")) if n == 1 else None
         act_move = menu.addAction(
             tr("Déplacer vers une série…") if n == 1 else tr("Déplacer {n} mangas vers une série…", n=n))
+        folder_actions = self._add_move_menu(menu, paths)
         act_rename = menu.addAction(tr("Renommer le fichier…")) if n == 1 and not remote else None
         act_explorer = (menu.addAction(tr(platforms.REVEAL_LABEL))
                         if n == 1 and not remote else None)
@@ -92,10 +110,14 @@ class MenusMixin:
             act_delete = menu.addAction(
                 tr("Supprimer le manga…") if n == 1 else tr("Supprimer {n} mangas…", n=n))
 
-        chosen = menu.exec(self.list.viewport().mapToGlobal(pos))
+        chosen = menu.exec(global_pos)
         if chosen is None:
             return
-        if chosen == act_detach:
+        if chosen in folder_actions:
+            self._move_paths(paths, folder_actions[chosen])
+        elif act_group is not None and chosen == act_group:
+            self._group_chapters([it.data(ROLE_PATH) for it in items])
+        elif chosen == act_detach:
             for p in paths:
                 if self._is_grouped_in_series(p):
                     self.store.set_series_override(p, Store.SERIES_DETACHED)
@@ -151,12 +173,24 @@ class MenusMixin:
         act_edit = menu.addAction(tr("Modifier les informations…"))
         act_rename = menu.addAction(tr("Renommer la série…"))
         act_merge = menu.addAction(tr("Fusionner avec une autre série…"))
+        # nature de publication : tomes, chapitres, ou detection automatique
+        nature_menu = menu.addMenu(tr("Publiée en"))
+        current_nature = self.store.series_nature(key)
+        nature_actions = {}
+        for nature, label in units.NATURES:
+            act = nature_menu.addAction(tr(label))
+            act.setCheckable(True)
+            act.setChecked(nature == current_nature)
+            nature_actions[act] = nature
         act_anilist = (menu.addAction(tr("Associer à AniList…"))
                        if self.tracker is not None and self.tracker.connected() else None)
+        folder_actions = self._add_move_menu(menu, paths, series=True)
         act_delete = None
         if not any(self._is_remote(p) for p in paths):
             menu.addSeparator()
-            act_delete = menu.addAction(tr("Supprimer la série ({n} tomes)…", n=n))
+            chapters = sum(1 for p in paths if units.is_chapter(self._unit_by_path.get(p)))
+            act_delete = menu.addAction(tr("Supprimer la série ({count})…",
+                                           count=units.count_text(n - chapters, chapters)))
         chosen = menu.exec(self.list.viewport().mapToGlobal(pos))
         if chosen is None:
             return
@@ -172,6 +206,11 @@ class MenusMixin:
             self._associate_anilist(key, paths[0])
         elif chosen == act_merge:
             self._merge_series(key)
+        elif chosen in folder_actions:
+            self._move_paths(paths, folder_actions[chosen])
+        elif chosen in nature_actions:
+            self.store.set_series_nature(key, nature_actions[chosen])
+            self._rebuild_list()
         elif act_delete is not None and chosen == act_delete:
             self._delete_many(paths, series_label=display)
 

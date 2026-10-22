@@ -483,17 +483,179 @@ def test_open_series_shows_owned_and_missing_volumes(window, qtbot, mangas, stor
     lib._enter_series("vagabond")
     band = lib.series_band
     assert band.isVisibleTo(lib) and "4</b> possédés sur 8" in band.count.text()
-    assert "3, 6 à 8" in band.missing.text()          # « 6 à 8 » : suite courte
     missing = [lib.list.item(i).data(ROLE_MISSING) for i in range(lib.list.count())
                if lib.list.item(i).data(ROLE_MISSING)]
-    assert missing == [(3, 3), (6, 6), (7, 7), (8, 8)]
+    assert missing == [(3, 3, "volume", False), (6, 6, "volume", False), (7, 7, "volume", False),
+                       (8, 8, "volume", False)]
     titles = visible_titles(lib)
     assert titles.index("Vagabond · Tome 3") == titles.index("Vagabond · Tome 2") + 1
     lib._on_activated(lib.list.item(titles.index("Vagabond · Tome 3")))   # sans effet
-    band.show_missing.setChecked(False)
+    store.set_library_pref("show_missing", False)    # option des preferences
+    lib._rebuild_list()
     assert not any(lib.list.item(i).data(ROLE_MISSING) for i in range(lib.list.count()))
     lib._exit_series()
     assert not band.isVisibleTo(lib)
+
+
+def test_mixed_series_chapters_complete_the_volumes(window, qtbot, mangas, store):
+    """Serie mixte : les chapitres completent les tomes. La pile et le
+    compteur les distinguent, la serie ouverte les range apres les tomes,
+    le tome publie au-dela des chapitres reste compte et l'enchainement
+    passe du dernier tome au premier chapitre."""
+    from beheread.ui.library.constants import ROLE_MISSING, ROLE_PROG_TEXT
+
+    for i, name in enumerate(("Chainsaw Man T01", "Chainsaw Man T02", "Chainsaw Man 3",
+                              "Chainsaw Man Chapitre 211", "Chainsaw Man Chapitre 213")):
+        make_cbz(mangas, name, seed=i + 1)
+    store.set_series_meta("chainsaw man", {"volumes": 4, "source": "anilist",
+                                           "cascade_version": 99})
+    store.set_folders([str(mangas)])
+    lib = window.library
+    lib.refresh()
+    scanned(qtbot, lib, 5)
+    lib._set_group_series(True)
+    assert lib.count_label.text() == "3 tomes · 2 chapitres"
+    pile = next(lib.list.item(i) for i in range(lib.list.count())
+                if lib.list.item(i).text() == "Chainsaw Man")
+    assert pile.data(ROLE_PROG_TEXT) == "3 tomes + 2 chapitres"
+
+    lib._enter_series("chainsaw man")
+    titles = visible_titles(lib)
+    # sections : les tomes, puis la suite en chapitres (petites cases)
+    assert titles.index("Suite en chapitres") > titles.index("Chainsaw Man · Tome 3")
+    assert titles.index("Chapitre 211") > titles.index("Suite en chapitres")
+    assert titles[0] == "Tomes"
+    assert lib._sectioned and not lib.list.gridSize().isValid()
+    band = lib.series_band
+    assert "3</b> possédés sur 4" in band.count.text()      # 4 parus : pas ecarte par le ch. 213
+    assert "ch. 211 à 213" in band.count.text()
+    missing = [lib.list.item(i).data(ROLE_MISSING) for i in range(lib.list.count())
+               if lib.list.item(i).data(ROLE_MISSING)]
+    # le tome 4 paru ne « manque » pas : les chapitres prennent la suite
+    assert missing == [(212, 212, "chapter", False)]
+
+    by_title = {lib._display_title(e): e.path for e in lib._entries}
+    assert lib.next_volume(by_title["Chainsaw Man · Tome 3"]) == by_title["Chainsaw Man · Chapitre 211"]
+    assert lib.next_volume(by_title["Chainsaw Man · Chapitre 211"]) == by_title["Chainsaw Man · Chapitre 213"]
+    lib._exit_series()
+    assert not lib._sectioned and lib.list.gridSize().isValid()
+
+    # « Publiée en » chapitres : tout devient chapitre
+    store.set_series_nature("chainsaw man", "chapters")
+    lib._rebuild_list()
+    assert lib.count_label.text() == "5 chapitres"
+
+
+def test_chapters_already_in_an_owned_volume_are_hidden(window, qtbot, mangas, store):
+    """Decoupage officiel connu : un chapitre contenu dans un tome possede
+    est masque (pile, compteur, enchainement), affichable depuis le bandeau ;
+    les chapitres manquants se comptent a partir de la fin du dernier tome."""
+    from beheread.ui.library.constants import ROLE_PROG_TEXT
+
+    for i, name in enumerate(("Berserk T41", "Berserk T42", "Berserk Chapitre 380",
+                              "Berserk Chapitre 383", "Berserk Chapitre 384")):
+        make_cbz(mangas, name, seed=i + 1)
+    store.set_chapter_map("berserk", {"at": time.time(), "id": "x", "v": 3,
+                                      "ranges": {"41": [365, 373], "42": [374, 380]}})
+    store.set_folders([str(mangas)])
+    lib = window.library
+    lib.refresh()
+    scanned(qtbot, lib, 5)
+    lib._set_group_series(True)
+    assert lib.count_label.text() == "2 tomes · 2 chapitres"
+    pile = next(lib.list.item(i) for i in range(lib.list.count())
+                if lib.list.item(i).text() == "Berserk")
+    assert pile.data(ROLE_PROG_TEXT) == "2 tomes + 2 chapitres"
+
+    lib._enter_series("berserk")
+    titles = visible_titles(lib)
+    assert "Chapitre 380" not in titles and "Chapitre 383" in titles
+    from beheread.ui.library.constants import ROLE_MISSING
+    missing = [lib.list.item(i).data(ROLE_MISSING) for i in range(lib.list.count())
+               if lib.list.item(i).data(ROLE_MISSING)]
+    # tomes 1 a 40 ; chapitres apres le ch. 380, fin du tome 42
+    assert missing == [(1, 40, "volume", False), (381, 381, "chapter", False),
+                       (382, 382, "chapter", False)]
+    by_title = {lib._display_title(e): e.path for e in lib._entries}
+    assert lib.next_volume(by_title["Berserk · Tome 42"]) == by_title["Berserk · Chapitre 383"]
+
+    store.set_library_pref("show_covered_chapters", True)   # option des preferences
+    lib._rebuild_list()
+    assert "Chapitre 380" in visible_titles(lib)
+
+
+def test_edition_with_another_split_ignores_the_online_count(window, qtbot, mangas, store):
+    """Perfect Edition : les 22 tomes trouves en ligne sont ceux de l'edition
+    courante ; rien ne « manque ». Un nombre saisi a la main l'emporte."""
+    from beheread.ui.library.constants import ROLE_MISSING
+
+    for n in (1, 2, 3):
+        make_cbz(mangas, f"Boys - Perfect Edition - T0{n}", seed=n)
+    store.set_series_meta("boys", {"volumes": 22, "source": "anilist", "cascade_version": 99})
+    store.set_folders([str(mangas)])
+    lib = window.library
+    lib.refresh()
+    scanned(qtbot, lib, 3)
+    lib._set_group_series(True)
+    lib._enter_series("boys")
+    band = lib.series_band
+    assert "Perfect Edition" in band.sub.text() and "sur" not in band.count.text()
+    missing = lambda: [lib.list.item(i).data(ROLE_MISSING) for i in range(lib.list.count())   # noqa: E731
+                       if lib.list.item(i).data(ROLE_MISSING)]
+    assert missing() == []
+    store.set_series_published("boys", 5)
+    lib._rebuild_list()
+    assert "3</b> possédés sur 5" in band.count.text()
+    assert missing() == [(4, 4, "volume", False), (5, 5, "volume", False)]
+
+
+def test_thick_volumes_are_an_edition_with_another_split(window, qtbot, mangas, store):
+    """Tomes de plus de 320 pages en moyenne (integrale, tomes doubles) : le
+    nombre de tomes parus en ligne n'est pas celui de cette edition."""
+    from beheread.ui.library.constants import ROLE_MISSING
+
+    for n in (1, 2):
+        make_cbz(mangas, f"Pong T0{n}", seed=n)
+    store.set_series_meta("pong", {"volumes": 5, "source": "anilist", "cascade_version": 99})
+    store.set_folders([str(mangas)])
+    lib = window.library
+    lib.refresh()
+    scanned(qtbot, lib, 2)
+    lib._set_group_series(True)
+    lib._enter_series("pong")
+    assert "2</b> possédés sur 5" in lib.series_band.count.text()   # pages inconnues
+    for e in lib._entries:
+        store.set_page_count(e.path, 530)
+    lib._rebuild_list()
+    assert "Gros volumes (~530 pages)" in lib.series_band.sub.text()
+    assert not any(lib.list.item(i).data(ROLE_MISSING) for i in range(lib.list.count()))
+
+
+def test_ongoing_series_shows_what_was_released_since(window, qtbot, mangas, store):
+    """Serie en cours (nombre de tomes parus inconnu) : les tomes parus au
+    Japon apres le dernier possede, et les chapitres parus depuis le dernier
+    possede (MangaDex)."""
+    from beheread.ui.library.constants import ROLE_MISSING
+
+    for i, name in enumerate(("Kaiju T01", "Kaiju T02", "Webtoon Chapitre 1",
+                              "Webtoon Chapitre 2")):
+        make_cbz(mangas, name, seed=i + 1)
+    store.set_chapter_map("kaiju", {"at": time.time(), "id": "k", "v": 3, "ranges": {},
+                                    "last_volume": 4, "last_chapter": 30})
+    store.set_chapter_map("webtoon", {"at": time.time(), "id": "w", "v": 3, "ranges": {},
+                                      "last_volume": None, "last_chapter": 4})
+    store.set_folders([str(mangas)])
+    lib = window.library
+    lib.refresh()
+    scanned(qtbot, lib, 4)
+    lib._set_group_series(True)
+    missing = lambda: [lib.list.item(i).data(ROLE_MISSING) for i in range(lib.list.count())   # noqa: E731
+                       if lib.list.item(i).data(ROLE_MISSING)]
+    lib._enter_series("kaiju")
+    assert missing() == [(3, 3, "volume", True), (4, 4, "volume", True)]
+    lib._exit_series()
+    lib._enter_series("webtoon")
+    assert missing() == [(3, 3, "chapter", False), (4, 4, "chapter", False)]
 
 
 def test_published_count_below_owned_volumes_is_ignored(window, qtbot, mangas, store):
@@ -511,7 +673,7 @@ def test_published_count_below_owned_volumes_is_ignored(window, qtbot, mangas, s
     lib._enter_series("leviathan")
     band = lib.series_band
     assert band.count.text() == "<b>3</b> tomes" and not band.bar.isVisibleTo(lib)
-    assert "parus" not in band.sub.text() and not band.note.isVisibleTo(lib)
+    assert "parus" not in band.sub.text()
 
     # nombre plausible (au moins le plus grand tome possede) : de nouveau affiche
     store.set_series_meta("leviathan", {"volumes": 3, "source": "anilist", "cascade_version": 99})

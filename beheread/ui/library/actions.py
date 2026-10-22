@@ -15,7 +15,7 @@ from beheread import platforms
 from beheread.core.library_model import FINISHED, aggregate_series_info
 from beheread.core.series import normalize_name
 from beheread.i18n import tr
-from beheread.infra import metadata
+from beheread.infra import metadata, virtual
 from beheread.infra.archive import Archive
 from beheread.ui import theme
 
@@ -135,9 +135,11 @@ class ActionsMixin:
         infos = [self._info.get(e.path) or self._entry_info(e) for e in grp]
         agg = aggregate_series_info(name, infos)
         c = theme.colors(self.store.ui_pref("theme", "dark"))
-        dlg = EditInfoDialog(tr("Série « {name} »", name=name), agg.author, agg.year, c, self)
+        dlg = EditInfoDialog(tr("Série « {name} »", name=name), agg.author, agg.year, c, self,
+                             published=self.store.series_published(key) or 0)
         if dlg.exec() != QDialog.Accepted:
             return
+        self.store.set_series_published(key, dlg.published.value())
         authors, year = dlg.values()
         self.store.set_series_meta(key, self._manual_meta(self.store.series_meta(key), authors, year))
         # l'auteur de la serie s'applique a chacun de ses tomes (qui ont pu
@@ -236,7 +238,8 @@ class ActionsMixin:
         title = self._display_title(e) if e is not None else Path(path).stem
         current = (self.store.custom_cover(path) or {}).get("page", 0)
         dialog = CoverDialog(title, path, current,
-                             theme.colors(self.store.ui_pref("theme", "dark")), self)
+                             theme.colors(self.store.ui_pref("theme", "dark")), self,
+                             official=self._official_cover_option(path))
         if dialog.exec() != QDialog.Accepted or dialog.choice is None:
             return
         kind, value = dialog.choice
@@ -308,12 +311,15 @@ class ActionsMixin:
                 self.store.remove_series_meta(normalize_name(e.series))
         self._rebuild_list()
 
-    def _delete_many(self, paths, series_label=None):
+    def _delete_many(self, paths, series_label=None, confirm=True):
         """Supprime les fichiers donnes (corbeille du systeme si possible,
         sinon suppression definitive). `series_label` : si fourni, la
-        confirmation annonce la suppression de toute une serie. Les tomes
-        d'un serveur de lecture ne sont jamais supprimes d'ici."""
-        paths = [p for p in paths if not self._is_remote(p)]
+        confirmation annonce la suppression de toute une serie. `confirm` :
+        False quand l'utilisateur vient deja de choisir la corbeille (la
+        suppression definitive, sans corbeille, est toujours confirmee). Les
+        tomes d'un serveur de lecture ne sont jamais supprimes d'ici, ni un
+        tome virtuel, qui n'est pas un fichier."""
+        paths = [p for p in paths if not self._is_remote(p) and not virtual.is_virtual(p)]
         if not paths:
             return
         # corbeille du systeme si elle est utilisable (voir
@@ -346,10 +352,11 @@ class ActionsMixin:
             message += "\n\n" + tr("Les fichiers seront supprimés du disque. "
                                     "Cette action est irréversible.")
 
-        confirm = QMessageBox.question(self, title, plain(message),
-                                       QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
-        if confirm != QMessageBox.Yes:
-            return
+        if confirm or not to_trash:
+            answer = QMessageBox.question(self, title, plain(message),
+                                          QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+            if answer != QMessageBox.Yes:
+                return
 
         deleted, errors = [], []
         for p in paths:
@@ -379,8 +386,8 @@ class ActionsMixin:
 
         if deleted:
             deleted_set = set(deleted)
-            self._set_entries([e for e in self._entries if e.path not in deleted_set])
-            self.store.save_library_index([e.to_dict() for e in self._entries])
+            self._set_entries([e for e in self._file_entries if e.path not in deleted_set])
+            self.store.save_library_index([e.to_dict() for e in self._file_entries])
             self.covers.forget(deleted_set)
             self._rebuild_list()
         if errors:

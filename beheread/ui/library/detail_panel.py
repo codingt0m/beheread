@@ -10,18 +10,19 @@ import time
 from PySide6.QtGui import QPixmap
 
 from beheread import platforms
+from beheread.core import units
 from beheread.core.library_model import (
     FINISHED,
     READING,
     STATUS_LABELS,
     aggregate_series_info,
     describe_numbers,
-    missing_volumes,
     owned_numbers,
 )
 from beheread.core.series import normalize_name
 from beheread.i18n import N_, fmt_decimal, tr, trn
 from beheread.infra import servers as remote
+from beheread.infra import virtual
 
 # modules extraits (voir chacun) : constantes de rendu, delegates, dialogues et
 # taches d'arriere-plan. LibraryWidget (ci-dessous) orchestre le tout.
@@ -124,6 +125,10 @@ class DetailPanelMixin:
             # le chemin peut revenir a la ligne au lieu d'elargir le panneau
             (tr("Fichier"), breakable(path)) if not server else (tr("Serveur"), server),
         ]
+        is_virtual = virtual.is_virtual(path)
+        if is_virtual:   # pas de fichier : ses chapitres
+            rows[-1] = (tr("Chapitres"),
+                        self._members_text(self._virtual_members.get(path) or []))
         primary = {READING: tr("Reprendre la lecture"), FINISHED: tr("Relire")}.get(status, tr("Lire"))
         actions = [(primary, lambda: self.mangaActivated.emit(path), True)]
         if status == FINISHED:
@@ -132,11 +137,19 @@ class DetailPanelMixin:
         else:
             actions.append((tr("Marquer comme lu"),
                             lambda: (self._mark_finished(path), self._rebuild_list()), False))
-        actions += [
-            (tr("Modifier les informations…"), lambda: self._edit_volume_info(path), False),
-            (tr("Déplacer vers une série…"), lambda: self._move_to_series([path]), False),
-        ]
-        if not server:
+        if is_virtual:
+            actions += [
+                (tr("Ajouter ou retirer des chapitres…"),
+                 lambda: self._edit_virtual_chapters(path), False),
+                (tr("Dissocier (garder les chapitres)"),
+                 lambda: self._dissolve_virtual(path), False),
+            ]
+        else:
+            actions += [
+                (tr("Modifier les informations…"), lambda: self._edit_volume_info(path), False),
+                (tr("Déplacer vers une série…"), lambda: self._move_to_series([path]), False),
+            ]
+        if not server and not is_virtual:
             actions.append((tr(platforms.REVEAL_LABEL), lambda: self._show_in_explorer(path), False))
         if info.series_key and not e.detached:
             self._add_anilist_detail(info.series_key, path, rows, actions)
@@ -154,16 +167,25 @@ class DetailPanelMixin:
 
     def _series_counts_text(self, key):
         """« 41 tomes parus · 38 possédés » (ou « 38 tomes possédés » si le
-        nombre de tomes parus est inconnu)."""
+        nombre de tomes parus est inconnu), suivi des chapitres qui
+        completent les tomes (« · 22 chapitres »)."""
         grp = self._group_entries(self._entries).get(key) or []
-        owned = len(owned_numbers(e.volume for e in grp)) or len(grp)
         if len(grp) < 2:
             return ""
+        counts = self._series_counts(grp)
+        chapters = (trn(counts.chapters, "{n} chapitre", "{n} chapitres")
+                    if counts.chapters else "")
+        if not counts.volumes:
+            return chapters
+        owned = len(owned_numbers(e.volume for e in grp if self._unit(e) == units.VOLUME))
+        owned = owned or counts.volumes
         published = self._series_published(key)
         if published:
-            return (trn(published, "{n} tome paru", "{n} tomes parus") + " · "
+            text = (trn(published, "{n} tome paru", "{n} tomes parus") + " · "
                     + trn(owned, "{n} possédé", "{n} possédés"))
-        return tr("{n} tomes possédés", n=owned)
+        else:
+            text = tr("{n} tomes possédés", n=owned)
+        return " · ".join(p for p in (text, chapters) if p)
 
     def _metadata_notice(self, e):
         """Avertissement du panneau quand la recherche d'auteur et d'annee de
@@ -194,16 +216,18 @@ class DetailPanelMixin:
         name = self._series_display_name.get(key, grp[0].series)
         infos = [self._info.get(v.path) or self._entry_info(v) for v in vols]
         agg = aggregate_series_info(name, infos)
-        read = sum(1 for i in infos if i.status == FINISHED)
         started = any(i.status != "unread" for i in infos)
         author = agg.author or self._series_author(vols)
         byline = " · ".join(p for p in (author, str(agg.year) if agg.year else "") if p)
-        owned = owned_numbers(v.volume for v in vols)
-        missing = missing_volumes(owned, self._series_published(key))
+        _owned, missing, chapters, missing_ch, _published, _japan = self._series_holdings(key, vols)
+        missing_text = describe_numbers(missing)
+        if missing_ch:
+            missing_text = " · ".join(p for p in (
+                missing_text, tr("ch. {numbers}", numbers=describe_numbers(missing_ch))) if p)
         rows = [
-            (tr("Tomes"), self._series_counts_text(key)),
-            (tr("Manquants"), describe_numbers(missing)),
-            (tr("Lus"), tr("{read} sur {count}", read=read, count=len(vols))),
+            (tr("Contenu") if chapters else tr("Tomes"), self._series_counts_text(key)),
+            (tr("Manquants"), missing_text),
+            (tr("Lus"), units.progress_text(self._series_counts(vols))),
             (tr("Statut"), tr(STATUS_LABELS[agg.status])),
             (tr("Ajoutée le"), self._fmt_date(agg.added)),
             (tr("Lue le"), self._fmt_date(agg.last_read)),
@@ -211,7 +235,7 @@ class DetailPanelMixin:
         fpath = featured.path
         if featured.volume is not None:
             # libelle court et propre plutot que le nom de fichier complet
-            if featured.kind == "chapter":
+            if self._unit(featured) == units.CHAPTER:
                 label = (tr("Continuer le chapitre {n}", n=featured.volume) if started
                          else tr("Commencer le chapitre {n}", n=featured.volume))
             else:

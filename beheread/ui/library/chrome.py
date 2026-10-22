@@ -26,14 +26,15 @@ from PySide6.QtWidgets import (
 )
 
 from beheread import platforms
+from beheread.core import units
 from beheread.core.library_model import SORTS, STATUS_FILTERS
-from beheread.i18n import tr, trn
+from beheread.i18n import tr
 from beheread.infra.archive import SUPPORTED_EXTS
 from beheread.ui import appicon, icons, keys, theme
 
 # modules extraits (voir chacun) : constantes de rendu, delegates, dialogues et
 # taches d'arriere-plan. LibraryWidget (ci-dessous) orchestre le tout.
-from beheread.ui.library.constants import GRID_GAP
+from beheread.ui.library.constants import CHAPTER_GAP, CHAPTER_SCALE, GRID_GAP
 from beheread.ui.library.dialogs import FolderManagerDialog
 from beheread.ui.library.views import _ClickableContainer
 from beheread.version import __version__
@@ -322,11 +323,28 @@ class ChromeMixin:
             self.list.setWrapping(True)
             self.list.setResizeMode(QListWidget.Adjust)
             self.list.setMovement(QListWidget.Static)
-            self.list.setUniformItemSizes(True)
             self.list.setSpacing(0)
-            self.list.setGridSize(self._grid_cell_size())
+            self._apply_grid_layout()
             self.list.setItemDelegate(self.grid_delegate)
             self.list._center_grid()
+
+    def _apply_grid_layout(self):
+        """Grille fixe, ou - dossier de serie a sections (tomes, puis
+        chapitres en petites cases) - mise en page en flux, ou chaque case
+        donne sa taille : les en-tetes de section prennent toute une ligne et
+        les petites cases se serrent davantage. Chaque case y porte le jeu
+        inter-case que la grille fixe integrait (voir MangaDelegate.flow_gap)."""
+        self.grid_delegate.flow_gap = GRID_GAP if self._sectioned else 0
+        self.chapter_delegate.flow_gap = CHAPTER_GAP if self._sectioned else 0
+        if self._sectioned:
+            self.list.setUniformItemSizes(False)
+            self.list.flow_column_w = self.grid_delegate.cell_w + GRID_GAP
+            self.list.setGridSize(QSize())
+            self.list.doItemsLayout()
+        else:
+            self.list.flow_column_w = 0
+            self.list.setUniformItemSizes(True)
+            self.list.setGridSize(self._grid_cell_size())
 
     def _set_view_mode(self, mode):
         """Vue grille ou liste (choisie dans les preferences)."""
@@ -343,8 +361,9 @@ class ChromeMixin:
         self._grid_scale_pct = self._clamp_scale(pct)
         self.store.set_library_pref("grid_scale_pct", self._grid_scale_pct)
         self.grid_delegate.set_scale(self._grid_scale_pct / 100.0)
+        self.chapter_delegate.set_scale(self._grid_scale_pct / 100.0 * CHAPTER_SCALE)
         if self._view_mode == "grid":
-            self.list.setGridSize(self._grid_cell_size())
+            self._apply_grid_layout()
             self.list._center_grid()
             self.list.viewport().update()
 
@@ -477,11 +496,12 @@ class ChromeMixin:
         return tr(dict(STATUS_FILTERS).get(self._status_filter, ""))
 
     def _update_count(self):
-        """Nombre de tomes affiches, compte par _apply_filter : un dossier de
-        serie compte ses tomes - pendant une recherche, ceux qui y
-        correspondent."""
+        """Nombre de tomes et de chapitres affiches, comptes par
+        _apply_filter : un dossier de serie compte ses elements - pendant une
+        recherche, ceux qui y correspondent."""
         n = self._visible_count
-        text = trn(n, "{n} tome", "{n} tomes") if self._entries else ""
+        chapters = self._visible_chapters
+        text = units.count_text(n - chapters, chapters) if self._entries else ""
         approx = bool(text) and n > 0 and self._search_approx
         if approx:
             text += " · " + tr("résultats approchants")

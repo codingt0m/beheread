@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
 )
 
+from beheread.core.series import parse_path, volume_label
 from beheread.i18n import tr
 from beheread.ui.reader.components import PageLoader
 from beheread.ui.reader.constants import (
@@ -212,6 +213,9 @@ class HudMixin:
 
         percent = round((pages[-1] + 1) / self.total * 100) if self.total else 0
         sub = [f"{percent}%"]
+        chapter = self._current_chapter_label(pages[0])
+        if chapter:   # tome virtuel : le chapitre en cours
+            sub.insert(0, chapter)
         remaining = self._time_remaining_text()
         if remaining:
             sub.append(remaining)
@@ -239,6 +243,17 @@ class HudMixin:
         self.hud_info.adjustSize()
         self.hud_bar.adjustSize()
         self._place_hud()
+
+    def _current_chapter_label(self, page):
+        """« Chapitre 213 » : chapitre de la page dans un tome virtuel (voir
+        infra/virtual.py), ou "" pour un tome ordinaire."""
+        chapter_at = getattr(self.archive, "chapter_at", None)
+        path = chapter_at(page) if chapter_at is not None else None
+        if not path:
+            return ""
+        # un tome virtuel ne regroupe que des chapitres
+        number = parse_path(path)[1]
+        return volume_label(number, "chapter") if number is not None else ""
 
     def _place_slider(self):
         y = self.height() - SLIDER_BOTTOM_MARGIN - SLIDER_H

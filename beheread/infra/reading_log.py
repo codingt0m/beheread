@@ -122,16 +122,34 @@ class ReadingLog:
                       COUNT(DISTINCT CASE WHEN pages > 0 THEN day END),
                       COUNT(DISTINCT CASE WHEN pages > 0 THEN volume END)
                FROM reading_log WHERE day BETWEEN ? AND ?""", (_iso(start), _iso(end)))[0]
-        return stats.Totals(*row)
+        # chapitres parmi les tomes lus : reconnus a leur titre (voir
+        # stats.is_chapter_title), un titre par tome
+        finished_chapters = chapters = 0
+        for title, finished, pages in self._query(
+                """SELECT title, SUM(finished), SUM(pages) FROM reading_log
+                   WHERE day BETWEEN ? AND ? GROUP BY volume""", (_iso(start), _iso(end))):
+            if stats.is_chapter_title(title):
+                finished_chapters += finished or 0
+                chapters += 1 if pages else 0
+        return stats.Totals(*row, finished_chapters=finished_chapters, chapters=chapters)
 
     def buckets(self, start, end, grain="day"):
         """[(cle, pages, secondes, fins)] par jour (« AAAA-MM-JJ ») ou par
         mois (« AAAA-MM ») ; seuls les jours ou mois avec une ligne y figurent."""
         key = "substr(day, 1, 7)" if grain == "month" else "day"
-        return self._query(
+        rows = self._query(
             f"""SELECT {key} AS bucket, SUM(pages), SUM(seconds), SUM(finished)
                 FROM reading_log WHERE day BETWEEN ? AND ?
                 GROUP BY bucket ORDER BY bucket""", (_iso(start), _iso(end)))
+        # fins de chapitres par barre (titre de chaque tome termine)
+        chapters: dict = {}
+        for bucket, title, finished in self._query(
+                f"""SELECT {key} AS bucket, title, SUM(finished) FROM reading_log
+                    WHERE finished > 0 AND day BETWEEN ? AND ?
+                    GROUP BY bucket, volume""", (_iso(start), _iso(end))):
+            if stats.is_chapter_title(title):
+                chapters[bucket] = chapters.get(bucket, 0) + (finished or 0)
+        return [(*row, chapters.get(row[0], 0)) for row in rows]
 
     def volumes(self, start, end):
         """[(tome, titre, serie, pages, secondes, fins)] par tome, du plus

@@ -1,9 +1,11 @@
 """Vues de base de la bibliotheque : liste a defilement doux (grille
 centree) et conteneur cliquable (logo de l'en-tete)."""
 
-from PySide6.QtCore import QEasingCurve, QEvent, Qt, QVariantAnimation, Signal
+from PySide6.QtCore import QEasingCurve, QEvent, QSize, Qt, QVariantAnimation, Signal
 from PySide6.QtGui import QColor, QLinearGradient, QPainter
 from PySide6.QtWidgets import QListWidget, QStyle, QWidget
+
+from beheread.ui.library.constants import ROLE_SECTION, SECTION_H
 
 
 class _TopFade(QWidget):
@@ -46,6 +48,14 @@ class SmoothListWidget(QListWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.host = None   # ScrollingHeaderHost eventuel (en-tete qui defile avec la liste)
+        # vue en flux (sans grille fixe, voir LibraryWidget._apply_view_mode) :
+        # largeur d'une colonne de tomes, base du centrage et de la largeur
+        # des en-tetes de section ; 0 avec la grille fixe
+        self.flow_column_w = 0
+        # vue en flux : largeur exacte d'une rangee de tomes (colonnes x
+        # largeur d'une colonne), que les petites cases des chapitres
+        # remplissent elles aussi exactement (voir MangaDelegate.sizeHint)
+        self.flow_row_width = 0
         self._wheel_anim = QVariantAnimation(self)
         self._wheel_anim.setDuration(140)
         self._wheel_anim.setEasingCurve(QEasingCurve.OutCubic)
@@ -177,7 +187,7 @@ class SmoothListWidget(QListWidget):
         suite - les couvertures clignotaient dans un dossier de serie."""
         if self.viewMode() != QListWidget.IconMode:
             return
-        grid_w = self.gridSize().width()
+        grid_w = self.gridSize().width() if self.gridSize().isValid() else self.flow_column_w
         if grid_w <= 0:
             return
         m = self.viewportMargins()
@@ -190,9 +200,35 @@ class SmoothListWidget(QListWidget):
         visible = layout_w if bar_shown else base
         left = max(0, min(total, (visible - cols * grid_w) // 2))
         right = total - left
+        row_width = 0 if self.gridSize().isValid() else cols * grid_w
+        relayout = row_width != self.flow_row_width
+        self.flow_row_width = row_width
         if (left, right) != (m.left(), m.right()):
             self.setViewportMargins(left, 0, right, 0)
             self._place_top_fade()
+        self.fit_sections()
+        if relayout and row_width:
+            self.doItemsLayout()
+
+    def fit_sections(self):
+        """Vue en flux : chaque en-tete de section prend toute la largeur
+        utile, barre de defilement deduite qu'elle soit affichee ou non. Il
+        reste moins de place a cote de lui qu'une case n'en demande : il est
+        toujours seul sur sa ligne, quelle que soit la facon dont Qt range les
+        cases."""
+        if self.gridSize().isValid():
+            return
+        # largeur du viewport hors marges et hors barre de defilement
+        width = self.maximumViewportSize().width() - self._scrollbar_reserve() - 1
+        size = QSize(max(1, width), SECTION_H)
+        changed = False
+        for i in range(self.count()):
+            item = self.item(i)
+            if item.data(ROLE_SECTION) and item.sizeHint() != size:
+                item.setSizeHint(size)
+                changed = True
+        if changed:
+            self.doItemsLayout()
 
     def _scrollbar_reserve(self):
         """Largeur que QListView retranche pour la barre verticale lors de la

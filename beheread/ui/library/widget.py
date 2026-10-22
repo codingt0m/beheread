@@ -18,13 +18,15 @@ from PySide6.QtWidgets import (
 )
 
 from beheread.config import THUMB_SCALE
+from beheread.core import units
 from beheread.core.library_model import (
     ALL,
+    FINISHED,
+    READING,
     SORT_KEYS,
     STATUS_FILTERS,
     aggregate_series_info,
     continue_reading,
-    describe_numbers,
     is_started,
     matches_status,
     missing_cells,
@@ -35,8 +37,15 @@ from beheread.core.library_model import (
 )
 from beheread.core.models import LibraryEntry, VolumeInfo
 from beheread.core.search import SearchIndex, known_titles
-from beheread.core.series import clean_title, normalize_name, parse_path, volume_label
+from beheread.core.series import (
+    clean_title,
+    edition_label,
+    normalize_name,
+    parse_path,
+    volume_label,
+)
 from beheread.i18n import N_, tr, trn
+from beheread.infra import virtual
 from beheread.infra.storage import Store, is_cloud_placeholder
 from beheread.ui import keys
 from beheread.ui.help_overlay import LIBRARY_SHORTCUTS, ShortcutOverlay
@@ -46,20 +55,28 @@ from beheread.ui.help_overlay import LIBRARY_SHORTCUTS, ShortcutOverlay
 from beheread.ui.library.actions import ActionsMixin
 from beheread.ui.library.chrome import ChromeMixin
 from beheread.ui.library.constants import (
+    CHAPTER_SCALE,
+    CHAPTER_SIDE,
     ROLE_AUTHOR_TEXT,
     ROLE_FINISHED,
     ROLE_FRACTION,
+    ROLE_IN_VOLUME,
     ROLE_IS_SERIES,
     ROLE_MISSING,
     ROLE_PATH,
     ROLE_PROG_TEXT,
+    ROLE_SECTION,
     ROLE_SERIES_COUNT,
     ROLE_SERIES_KEY,
     ROLE_SERIES_PATHS,
+    ROLE_SMALL,
+    ROLE_VIRTUAL,
+    SECTION_H,
     THUMB_H,
     THUMB_W,
 )
 from beheread.ui.library.controllers import (
+    ChapterMapController,
     CoverCache,
     MetadataController,
     ScanController,
@@ -68,17 +85,19 @@ from beheread.ui.library.delegates import ListDelegate, MangaDelegate
 from beheread.ui.library.detail import DetailPanel
 from beheread.ui.library.detail_panel import DetailPanelMixin
 from beheread.ui.library.menus import MenusMixin
+from beheread.ui.library.relocate_ui import RelocateMixin
 from beheread.ui.library.series_band import SeriesBand
 from beheread.ui.library.services import ServicesMixin
 from beheread.ui.library.shelf import ContinueShelf
 from beheread.ui.library.sources import SourcesMixin
 from beheread.ui.library.views import ScrollingHeaderHost, SmoothListWidget
+from beheread.ui.library.virtual_ui import VirtualMixin
 from beheread.ui.safe_text import plain
 
 # ---------------------------------------------------------------- widget
 
 class LibraryWidget(ChromeMixin, DetailPanelMixin, ActionsMixin, MenusMixin,
-                    ServicesMixin, SourcesMixin, QWidget):
+                    ServicesMixin, SourcesMixin, VirtualMixin, RelocateMixin, QWidget):
     mangaActivated = Signal(str)
     preferencesChanged = Signal()   # preferences modifiees (theme, raccourci global...)
     restartRequested = Signal()     # langue changee : l'interface doit etre reconstruite
@@ -99,12 +118,26 @@ class LibraryWidget(ChromeMixin, DetailPanelMixin, ActionsMixin, MenusMixin,
         super().__init__(parent)
         self.store = store
         self._entries = []              # LibraryEntry (voir core/models.py)
+        # fichiers seuls (sans les tomes virtuels, voir _set_entries)
+        self._file_entries = []
+        # tomes virtuels (voir virtual_ui.py) : chapitres regroupes (masques),
+        # chapitres de chaque tome, tomes remplaces par leur tome officiel
+        self._grouped_chapters = set()
+        self._virtual_members = {}
+        self._superseded = []
+        self._replacements_offered = set()
+        self._cover_calls = {}   # couvertures officielles en cours (virtual_ui.py)
+        # deplacements vers un autre dossier (relocate_ui.py) : en cours, et
+        # fichiers tenus par le lecteur, deplaces a sa fermeture
+        self._move_jobs = []
+        self._deferred_moves = []
         self._path_to_item = {}         # path -> QListWidgetItem (tome, acces O(1))
         # chemin -> dossiers de serie interesses par ses metadonnees (auteur)
         self._meta_subscribers = {}
         # serie ouverte (drill-in) : None au niveau racine, sinon cle de serie
         self._current_series = None
         self._series_display_name = {}   # cle normalisee -> nom affiche (vote)
+        self._unit_by_path = {}   # chemin -> unite (tome, chapitre...), voir _compute_units
         self._entry_by_path = {}         # path -> entree (acces O(1))
         self._paths_by_series = {}       # cle de serie -> chemins (voir _set_entries)
 
@@ -122,6 +155,7 @@ class LibraryWidget(ChromeMixin, DetailPanelMixin, ActionsMixin, MenusMixin,
         self._row_paths = []
         self._row_visible = []
         self._visible_count = 0
+        self._visible_chapters = 0   # dont chapitres (compteur « 22 tomes · 22 chapitres »)
         self._shelf_has_picks = False
         self._group_series =bool(store.library_pref("group_series", False))
         self._view_mode = store.library_pref("view_mode", "grid")
@@ -139,6 +173,9 @@ class LibraryWidget(ChromeMixin, DetailPanelMixin, ActionsMixin, MenusMixin,
         self.meta = MetadataController(store, self._online_meta, self)
         self.meta.volumeUpdated.connect(self._update_item_meta)
         self.meta.seriesUpdated.connect(self._on_series_meta_updated)
+        # decoupage officiel tomes/chapitres (chapitres deja dans un tome)
+        self.chapter_maps = ChapterMapController(store, self._online_meta, self)
+        self.chapter_maps.updated.connect(self._on_chapter_map)
         self.covers = CoverCache(store, self._cover_size, self)
         self.covers.coverReady.connect(self._on_cover_ready)
         # tri et filtre de statut (barre d'outils), panneaux optionnels
@@ -185,7 +222,6 @@ class LibraryWidget(ChromeMixin, DetailPanelMixin, ActionsMixin, MenusMixin,
         self.shelf.hide()
         # bandeau d'un dossier de serie ouvert (tomes possedes, manquants)
         self.series_band = SeriesBand()
-        self.series_band.showMissingToggled.connect(self._set_show_missing)
         self.series_band.hide()
 
         self.list = SmoothListWidget()
@@ -214,11 +250,19 @@ class LibraryWidget(ChromeMixin, DetailPanelMixin, ActionsMixin, MenusMixin,
         top_layout.addWidget(self.series_band)
         top_layout.addWidget(self.shelf)
         self.list_host = ScrollingHeaderHost(top, self.list)
+        self._build_group_bar()   # chapitres selectionnes -> tome virtuel
         content.addWidget(self.list_host, 1)
 
         self.grid_delegate = MangaDelegate(self.store, self.list, covers=self.covers)
         self.grid_delegate.set_scale(self._grid_scale_pct / 100.0)
+        # chapitres d'un dossier de serie ouvert : petites cases (ROLE_SMALL)
+        self.chapter_delegate = MangaDelegate(self.store, self.list, compact=True,
+                                              covers=self.covers, side=CHAPTER_SIDE)
+        self.chapter_delegate.set_scale(self._grid_scale_pct / 100.0 * CHAPTER_SCALE)
+        self.grid_delegate.small = self.chapter_delegate
         self.list_delegate = ListDelegate(self.store, self.list, covers=self.covers)
+        self._sectioned = False   # dossier de serie a sections : mise en page en flux
+        self._want_sections = False
         self._apply_view_mode()
 
         content.addWidget(self._build_empty_panel(), 1)
@@ -349,7 +393,7 @@ class LibraryWidget(ChromeMixin, DetailPanelMixin, ActionsMixin, MenusMixin,
                 area = area.adjusted(0, -area.height() // 2, 0, area.height())
             for row in self._rows_in(lst, area):
                 item = lst.item(row)
-                if item.data(ROLE_MISSING):
+                if item.data(ROLE_MISSING) or item.data(ROLE_SECTION):
                     continue
                 if item.data(ROLE_IS_SERIES):
                     paths = (item.data(ROLE_SERIES_PATHS) or [])[:3]
@@ -424,7 +468,7 @@ class LibraryWidget(ChromeMixin, DetailPanelMixin, ActionsMixin, MenusMixin,
         # reveille la surveillance des dossiers, qui relance un scan : sans ce
         # garde, la grille entiere etait videe et re-remplie a chaque scan
         # (clignotement permanent) alors que rien de visible n'avait change.
-        changed = entries != self._entries
+        changed = entries != self._file_entries
         if changed:
             self._set_entries(entries)
             self.store.save_library_index([e.to_dict() for e in entries])
@@ -454,6 +498,10 @@ class LibraryWidget(ChromeMixin, DetailPanelMixin, ActionsMixin, MenusMixin,
         return self._entry_by_path.get(path)
 
     def _set_entries(self, entries):
+        """Entrees de la bibliotheque : les fichiers, plus les tomes virtuels
+        composes de leurs chapitres (voir VirtualMixin._virtual_entries)."""
+        self._file_entries = [e for e in entries if not virtual.is_virtual(e.path)]
+        entries = self._file_entries + self._virtual_entries(self._file_entries)
         self._entries = entries
         self._entry_by_path = {e.path: e for e in entries}
         # cle de serie -> tomes (arrivee des metadonnees d'une serie)
@@ -484,7 +532,11 @@ class LibraryWidget(ChromeMixin, DetailPanelMixin, ActionsMixin, MenusMixin,
         pendant la seance ; seuls ceux-ci sont mis a jour (progression,
         statut, bande « Continuer la lecture »), sans reconstruire la grille
         - sauf si leur lecture peut changer l'ordre ou la composition de la
-        vue (tri par lecture recente, filtre de statut, dossiers de serie)."""
+        vue (tri par lecture recente, filtre de statut, dossiers de serie).
+        Les fichiers que le lecteur tenait et qu'il fallait deplacer le sont
+        maintenant (voir RelocateMixin)."""
+        if self._deferred_moves:
+            QTimer.singleShot(500, self._retry_deferred_moves)
         if (paths is None or self._group_series or self._sort == "read"
                 or self._status_filter != ALL):
             self._rebuild_list()
@@ -606,6 +658,73 @@ class LibraryWidget(ChromeMixin, DetailPanelMixin, ActionsMixin, MenusMixin,
         return {key: self.store.series_name(key) or raw
                 for key, raw in self._series_raw_name.items()}
 
+    def _compute_units(self, entries):
+        """Unite de chaque tome (tome relie, chapitre, cycle...), d'apres les
+        natures des fichiers de sa serie et la nature de publication choisie
+        par l'utilisateur (voir core/units.py)."""
+        by_path = {}
+        for key, grp in self._group_entries(entries).items():
+            unit = units.classifier((e.kind for e in grp), self.store.series_nature(key))
+            for e in grp:
+                by_path[e.path] = (units.COVERED if e.path in self._grouped_chapters
+                                   else unit(e.kind))
+            self._mark_covered_chapters(key, grp, by_path)
+            self._ensure_latest_releases(key, grp, by_path)
+        for e in entries:
+            if e.detached:
+                by_path[e.path] = units.classifier([e.kind])(e.kind)
+        return by_path
+
+    def _mark_covered_chapters(self, key, grp, by_path):
+        """Les chapitres deja contenus dans un tome possede (decoupage
+        officiel, demande a MangaDex en arriere-plan) passent en
+        units.COVERED - hors du parcours de lecture, masques par defaut. Le
+        decoupage sert aussi a proposer un tome virtuel (serie en chapitres)."""
+        chapters = [e for e in grp if by_path[e.path] == units.CHAPTER and e.volume is not None]
+        if not chapters:
+            return
+        self.chapter_maps.ensure(key, self._series_raw_name.get(key, grp[0].series))
+        # tomes reels seulement : un tome virtuel cache deja ses chapitres
+        volumes = [e.volume for e in grp if by_path[e.path] == units.VOLUME
+                   and e.volume is not None and not virtual.is_virtual(e.path)]
+        if not volumes:
+            return
+        ranges = self.store.chapter_ranges(key)
+        covered = units.covered_chapters([e.volume for e in chapters], volumes, ranges)
+        for e in chapters:
+            if e.volume in covered:
+                by_path[e.path] = units.COVERED
+
+    def _ensure_latest_releases(self, key, grp, by_path):
+        """Serie en tomes seuls dont le nombre de tomes parus est inconnu
+        (serie en cours : AniList ne le donne pas) : son dernier tome paru
+        est demande a MangaDex (voir Store.latest_releases). Une serie qui a
+        des chapitres l'obtient deja avec son decoupage."""
+        if any(units.is_chapter(by_path[e.path]) for e in grp):
+            return
+        if not any(by_path[e.path] == units.VOLUME and e.volume is not None for e in grp):
+            return
+        sm = self.store.series_meta(key) or {}
+        if isinstance(sm.get("volumes"), int) or self.store.series_published(key):
+            return
+        if self._series_edition(key):
+            return   # MangaDex suit l'edition courante, pas celle-ci
+        self.chapter_maps.ensure(key, self._series_raw_name.get(key, grp[0].series))
+
+    def _on_chapter_map(self, key):
+        """Decoupage ou dernieres parutions d'une serie arrives : la grille
+        n'est reconstruite que si cela peut changer ce qu'elle montre (serie
+        ouverte, ou serie avec chapitres dont la pile compte les chapitres
+        deja dans un tome)."""
+        paths = self._paths_by_series.get(key, ())
+        if key == self._current_series or any(
+                units.is_chapter(self._unit_by_path.get(p)) for p in paths):
+            self._rebuild_list()
+
+    def _unit(self, e):
+        unit = self._unit_by_path.get(e.path, False)
+        return units.classifier([e.kind])(e.kind) if unit is False else unit
+
     def _rebuild_list(self, keep_position=True):
         """Reconstruit la grille (et la bande « Continuer la lecture »).
         keep_position : conserve le defilement et l'element courant (retour du
@@ -620,8 +739,10 @@ class LibraryWidget(ChromeMixin, DetailPanelMixin, ActionsMixin, MenusMixin,
         entries = self._entries
 
         self._series_display_name = self._compute_display_names(self._entries)
+        self._unit_by_path = self._compute_units(self._entries)
         self._info = {e.path: self._entry_info(e) for e in self._entries}
         self.series_band.hide()   # remontre par _rebuild_series_contents
+        self._want_sections = False   # mis par _rebuild_series_contents
         self._search_index_dirty = True
 
         # la recherche ne change pas la structure de la vue : comme le filtre
@@ -640,6 +761,7 @@ class LibraryWidget(ChromeMixin, DetailPanelMixin, ActionsMixin, MenusMixin,
                             key=lambda e: sort_key(self._sort, self._info[e.path])):
                 if matches_status(self._info[e.path].status, wanted):
                     self._add_item(e)
+        self._apply_sections()
         self._rebuild_shelf()
         self._run_search()
         self._apply_filter()
@@ -648,6 +770,8 @@ class LibraryWidget(ChromeMixin, DetailPanelMixin, ActionsMixin, MenusMixin,
         self._visible_soon()
         self.list._center_grid()
         self._update_consent_banner()
+        # tomes officiels dont tous les chapitres sont la : tome virtuel
+        QTimer.singleShot(0, self._auto_virtual_volumes)
         if keep_position:
             self.list.doItemsLayout()   # calcule la plage de defilement
             self._restore_current(current)
@@ -739,7 +863,7 @@ class LibraryWidget(ChromeMixin, DetailPanelMixin, ActionsMixin, MenusMixin,
         sont touchees. Met a jour le compteur, l'etat vide et la bande
         « Continuer la lecture » (masquee pendant une recherche)."""
         hits = self._search_hits
-        count = 0
+        count = chapters = 0
         for i, paths in enumerate(self._row_paths):
             if not paths:   # case « non possede » : seulement hors recherche
                 n = 0
@@ -749,17 +873,20 @@ class LibraryWidget(ChromeMixin, DetailPanelMixin, ActionsMixin, MenusMixin,
                     self._row_visible[i] = visible
                 continue
             if hits is None:
-                n = len(paths)
+                matched = paths
             elif len(paths) == 1:
-                n = 1 if paths[0] in hits else 0
+                matched = paths if paths[0] in hits else ()
             else:
-                n = len(hits.intersection(paths))
+                matched = hits.intersection(paths)
+            n = len(matched)
+            chapters += sum(1 for p in matched if units.is_chapter(self._unit_by_path.get(p)))
             visible = n > 0
             if visible != self._row_visible[i]:
                 self.list.setRowHidden(i, not visible)
                 self._row_visible[i] = visible
             count += n
         self._visible_count = count
+        self._visible_chapters = chapters
         self._visible_soon()
         searching = hits is not None
         self.shelf.setVisible(self._shelf_has_picks and not searching)
@@ -812,6 +939,7 @@ class LibraryWidget(ChromeMixin, DetailPanelMixin, ActionsMixin, MenusMixin,
     def resizeEvent(self, event):
         super().resizeEvent(event)
         self._visible_soon()
+        self._update_group_bar()
         if self._help.isVisible():
             self._help.show_centered()
 
@@ -859,9 +987,10 @@ class LibraryWidget(ChromeMixin, DetailPanelMixin, ActionsMixin, MenusMixin,
                 self._add_series_item(*payload)
 
     def _rebuild_series_contents(self, entries):
-        """Contenu d'un dossier de serie ouvert : son bandeau (tomes possedes
-        et manquants), puis ses tomes tries par numero, les tomes manquants
-        intercales a leur place si on le demande."""
+        """Contenu d'un dossier de serie ouvert : son bandeau (tomes et
+        chapitres possedes, manquants), puis ses tomes tries par numero et les
+        chapitres qui les completent, les manquants intercales a leur place si
+        on le demande."""
         key = self._current_series
         grp = self._group_entries(entries).get(key)
         if not grp:
@@ -871,82 +1000,253 @@ class LibraryWidget(ChromeMixin, DetailPanelMixin, ActionsMixin, MenusMixin,
             return
         vols = sorted(grp, key=self._volume_sort_key)
         name = self._series_display_name.get(key, grp[0].series)
-        # seuls des tomes relies se comptent (pas des chapitres ni des cycles)
-        kinds = {e.kind for e in vols if e.volume is not None}
-        owned = owned_numbers(e.volume for e in vols) if kinds <= {"volume", "bare"} else set()
-        published = self._series_published(key)
-        missing = missing_volumes(owned, published)
+        owned, missing, chapters, missing_ch, published, japan = self._series_holdings(key, vols)
         show_missing = bool(self.store.library_pref("show_missing", True))
         sm = self.store.series_meta(key) or {}
-        sub = [self._series_author(vols) or self._series_author_text(key)]
-        if published:
+        sub = [self._series_author(vols) or self._series_author_text(key),
+               self._series_edition(key)]
+        if published and self.store.series_published(key):
+            sub.append(trn(published, "{n} tome paru", "{n} tomes parus"))   # saisi a la main
+        elif published:
             source = tr(self._SOURCE_LABELS.get(sm.get("source"), ""))
             sub.append(trn(published, "{n} tome paru ({source})", "{n} tomes parus ({source})",
                            source=source) if source
                        else trn(published, "{n} tome paru", "{n} tomes parus"))
-        self.series_band.set_content(name, " · ".join(p for p in sub if p),
-                                     len(owned) or len(vols), published,
-                                     describe_numbers(missing), len(missing), show_missing)
+        n_volumes = sum(1 for e in vols if not units.is_chapter(self._unit(e)))
+        show_covered = bool(self.store.library_pref("show_covered_chapters", False))
+        # tomes affiches : reels et virtuels (les manquants, eux, ne comptent
+        # que les reels, voir _series_holdings)
+        shown_volumes = len(owned_numbers(e.volume for e in vols if self._unit(e) == units.VOLUME))
+        self.series_band.set_content(
+            name, " · ".join(p for p in sub if p), shown_volumes or n_volumes, published,
+            chapters=len(chapters),
+            chapter_range=(units.chapter_range_text(min(chapters), max(chapters))
+                           if chapters and n_volumes else ""))
         self.series_band.show()
-        cells = (missing_cells(missing)
-                 if show_missing and self._status_filter == ALL else [])
-        # dans une serie, l'ordre des tomes reste l'ordre de lecture (numero)
-        for e in vols:
+
+        # dans une serie, l'ordre des tomes reste l'ordre de lecture : les
+        # tomes par numero, puis - section a part, en petites cases en vue
+        # grille - les chapitres qui les completent
+        wanted = self._status_filter
+        # chapitres d'un tome virtuel : jamais ici (on les lit en ouvrant ce
+        # tome) ; ceux deja dans un tome possede : seulement sur demande
+        shown = [e for e in vols if matches_status(self._info[e.path].status, wanted)
+                 and e.path not in self._grouped_chapters
+                 and (show_covered or self._unit(e) != units.COVERED)]
+        volume_part = [e for e in shown if not units.is_chapter(self._unit(e))]
+        chapter_part = [e for e in shown if units.is_chapter(self._unit(e))]
+        # tous les chapitres sont deja dans des tomes (officiels ou virtuels) :
+        # pas de section « Suite en chapitres », meme quand on les affiche
+        has_chapters = any(self._unit(e) == units.CHAPTER for e in vols)
+        if not has_chapters:
+            chapter_part = []
+        self._want_sections = has_chapters
+        cells = {units.VOLUME: [], units.CHAPTER: []}
+        if show_missing and wanted == ALL:
+            # (premier, dernier, paru au Japon seulement)
+            cells = {units.VOLUME: [(*c, False) for c in missing_cells(missing)]
+                     + [(*c, True) for c in missing_cells(japan)],
+                     units.CHAPTER: [(*c, False) for c in missing_cells(missing_ch)]}
+        both = n_volumes and has_chapters
+        if both:
+            self._add_section_item(tr("Tomes"), self._volumes_section_text(vols))
+        self._add_series_part(volume_part, cells[units.VOLUME], name, units.VOLUME, False)
+        if both:
+            self._add_section_item(tr("Suite en chapitres"), self._chapters_section_text(vols))
+        self._add_series_part(chapter_part, cells[units.CHAPTER], name, units.CHAPTER, True)
+
+    def _add_series_part(self, entries, cells, series_name, unit, small):
+        """Tomes (ou chapitres) d'un dossier de serie ouvert, les cases
+        « non possede » intercalees a leur place."""
+        cells = list(cells)
+        for e in entries:
             while cells and e.volume is not None and cells[0][0] < e.volume:
-                self._add_missing_item(cells.pop(0), name)
-            if matches_status(self._info[e.path].status, self._status_filter):
-                self._add_item(e)
+                self._add_missing_item(cells.pop(0), series_name, unit, small)
+            self._add_item(e, small=small)
         for cell in cells:
-            self._add_missing_item(cell, name)
+            self._add_missing_item(cell, series_name, unit, small)
+
+    def _volumes_section_text(self, vols):
+        """« 22 tomes · 6 lus »."""
+        counts = self._series_counts([e for e in vols if not units.is_chapter(self._unit(e))])
+        text = trn(counts.volumes, "{n} tome", "{n} tomes")
+        if counts.volumes_read:
+            text += " · " + trn(counts.volumes_read, "{n} lu", "{n} lus")
+        return text
+
+    def _chapters_section_text(self, vols):
+        """« ch. 211 à 232 · 20 possédés · chapitre 213 en cours »."""
+        counts = self._series_counts(vols)
+        parts = []
+        if counts.first_chapter is not None:
+            parts.append(units.chapter_range_text(counts.first_chapter, counts.last_chapter))
+        parts.append(trn(counts.chapters, "{n} possédé", "{n} possédés"))
+        if counts.current_chapter is not None:
+            parts.append(tr("chapitre {n} en cours", n=units.fmt_number(counts.current_chapter)))
+        return " · ".join(parts)
+
+    def _add_section_item(self, title, subtitle):
+        """En-tete de section (« Tomes », « Suite en chapitres ») : toute la
+        largeur de la grille (voir SmoothListWidget._fit_sections)."""
+        item = QListWidgetItem(title)
+        item.setData(ROLE_SECTION, (title, subtitle))
+        item.setFlags(Qt.ItemIsEnabled)   # ni selection, ni ouverture
+        item.setSizeHint(QSize(self.grid_delegate.cell_w, SECTION_H))
+        self.list.addItem(item)
+        self._row_paths.append(())
+        self._row_visible.append(True)
+
+    def _apply_sections(self):
+        """Mise en page en flux pour un dossier de serie a sections, grille
+        fixe sinon (voir _apply_grid_layout)."""
+        if self._want_sections != self._sectioned:
+            self._sectioned = self._want_sections
+            if self._view_mode != "list":
+                self._apply_grid_layout()
+        self.list.fit_sections()
+
+    def _series_holdings(self, key, vols):
+        """(numeros de tomes possedes, tomes manquants, numeros de chapitres
+        possedes, chapitres manquants, tomes parus ou None) d'une serie. Seuls
+        des tomes relies se comptent comme tomes (pas les chapitres ni les
+        cycles), et dans une serie qui a des chapitres, seuls les trous entre
+        tomes possedes manquent. Dans une serie mixte, les chapitres manquants se comptent a
+        partir de celui qui suit le dernier tome possede (decoupage officiel
+        connu), sinon du premier possede : ceux d'avant sont dans les tomes.
+        Les chapitres parus apres le dernier possede (MangaDex) manquent aussi.
+        Dernier element : tomes parus au Japon apres le dernier possede, pour
+        une serie en tomes seuls dont le nombre de tomes parus est inconnu
+        (serie en cours, voir Store.latest_releases)."""
+        # un tome virtuel porte un numero choisi par l'utilisateur : il ne
+        # cree pas de « tome manquant » entre les tomes reels et lui
+        owned = owned_numbers(e.volume for e in vols if self._unit(e) == units.VOLUME
+                              and not virtual.is_virtual(e.path))
+        published = self._series_published(key)
+        chapters = [e.volume for e in vols
+                    if self._unit(e) == units.CHAPTER and e.volume is not None]
+        # possedes, pour les manquants : les chapitres masques comptent aussi
+        held = [e.volume for e in vols
+                if units.is_chapter(self._unit(e)) and e.volume is not None]
+        start = None
+        if not any(not units.is_chapter(self._unit(e)) for e in vols):
+            start = 1
+        else:
+            real = owned_numbers(e.volume for e in vols if self._unit(e) == units.VOLUME
+                                 and not virtual.is_virtual(e.path))
+            end = units.coverage_end(real, self.store.chapter_ranges(key))
+            if end is not None:
+                start = int(end) + 1
+        missing_ch = units.missing_chapters(held, start)
+        last_volume, last_chapter = self.store.latest_releases(key)
+        if held and last_chapter is not None and int(last_chapter) > max(held):
+            # chapitres parus depuis le dernier possede (MangaDex)
+            missing_ch += list(range(int(max(held)) + 1, int(last_chapter) + 1))
+        # serie qui a des chapitres : ils prennent la suite des tomes, ceux
+        # parus apres le dernier tome possede ne « manquent » pas
+        missing = missing_volumes(owned, None if held else published)
+        japan = []
+        if (not held and published is None and owned and last_volume
+                and not self._series_edition(key)):
+            japan = list(range(max(owned) + 1, last_volume + 1))
+        return owned, missing, chapters, missing_ch, published, japan
+
+    def _series_edition(self, key):
+        """Edition au decoupage different, ou "" : d'apres les noms de
+        fichiers (« Perfect Edition », voir series.edition_label), sinon
+        d'apres l'epaisseur des tomes (« Gros volumes (~530 pages) » : en
+        moyenne plus de units.LARGE_VOLUME_PAGES pages, nombre connu des que
+        la couverture a ete generee)."""
+        pages = []
+        for path in self._paths_by_series.get(key, ()):
+            e = self._entry_by_path.get(path)
+            if e is None or virtual.is_virtual(path):
+                continue
+            label = edition_label(e.title)
+            if label:
+                return label
+            if e.kind in ("volume", "bare") and self.store.page_count(path):
+                pages.append(self.store.page_count(path))
+        if pages and sum(pages) / len(pages) > units.LARGE_VOLUME_PAGES:
+            return tr("Gros volumes (~{n} pages)", n=int(round(sum(pages) / len(pages), -1)))
+        return ""
 
     def _series_published(self, key):
         """Nombre de tomes parus de la serie (base en ligne), ou None. Un
         nombre inferieur au plus grand tome possede est ecarte : il est faux
         pour cette edition (oeuvre parue en un volume au Japon, decoupee en
-        trois en France ; fiche de la mauvaise oeuvre)."""
+        trois en France ; fiche de la mauvaise oeuvre). Les chapitres, qui
+        vont au-dela des tomes parus, n'entrent pas dans la comparaison."""
+        manual = self.store.series_published(key)
+        if manual:
+            return manual
+        if self._series_edition(key):
+            return None   # le nombre trouve en ligne est celui d'une autre edition
         sm = self.store.series_meta(key)
         volumes = (sm or {}).get("volumes") if not (sm or {}).get("not_found") else None
         if not isinstance(volumes, int) or volumes <= 0:
             return None
         entries = (self._entry_by_path.get(p) for p in self._paths_by_series.get(key, ()))
-        owned = owned_numbers(e.volume for e in entries if e is not None and not e.detached)
+        # un tome virtuel peut devancer les tomes parus : il n'entre pas en compte
+        owned = owned_numbers(e.volume for e in entries
+                              if e is not None and not e.detached
+                              and self._unit(e) == units.VOLUME
+                              and not virtual.is_virtual(e.path))
         return None if owned and max(owned) > volumes else volumes
 
-    def _add_missing_item(self, cell, series_name):
-        first, last = cell
-        label = (tr("Tome {n}", n=first) if first == last
-                 else tr("Tomes {first} à {last}", first=first, last=last))
-        item = QListWidgetItem(f"{series_name} · {label}")
-        item.setData(ROLE_MISSING, cell)
+    def _add_missing_item(self, cell, series_name, unit=units.VOLUME, small=False):
+        """`cell` : (premier, dernier[, paru au Japon seulement])."""
+        first, last, *rest = cell
+        japan = bool(rest and rest[0])
+        if unit == units.CHAPTER:
+            label = (tr("Chapitre {n}", n=first) if first == last
+                     else tr("Chapitres {first} à {last}", first=first, last=last))
+        else:
+            label = (tr("Tome {n}", n=first) if first == last
+                     else tr("Tomes {first} à {last}", first=first, last=last))
+        # petite case d'un chapitre : sans le nom de la serie, comme ses voisines
+        item = QListWidgetItem(label if small else f"{series_name} · {label}")
+        item.setData(ROLE_MISSING, (first, last, unit, japan))
+        item.setData(ROLE_SMALL, small)
         item.setFlags(Qt.ItemIsEnabled)   # ni selection, ni ouverture
-        item.setToolTip(plain(f"{series_name} · {label}\n" + tr("Non possédé")))
+        item.setToolTip(plain(f"{series_name} · {label}\n"
+                              + (tr("Paru au Japon, pas encore dans votre langue") if japan
+                                 else tr("Non possédé"))))
         self.list.addItem(item)
         self._row_paths.append(())
         self._row_visible.append(True)
 
-    def _set_show_missing(self, show):
-        self.store.set_library_pref("show_missing", bool(show))
-        self._rebuild_list()
-
     def _volume_sort_key(self, e):
-        return (e.volume if e.volume is not None else -1, e.title.casefold())
+        """Ordre de lecture : tomes par numero, puis les chapitres."""
+        return (units.order_key(self._unit(e), e.volume), e.title.casefold())
 
     def _display_title(self, e):
         """Titre affiche d'un tome : « Berserk · Tome 1 » plutot que le nom de
         fichier brut (« Berserk T01 (Miura) (2004) [Digital-1699] ... »),
         qui reste visible dans l'info-bulle et le panneau d'informations. Sans
         numero reconnu (one-shot, plage de tomes) : le nom de fichier, debarrasse
-        des groupes de release."""
+        des groupes de release. Un numero nu range parmi les chapitres
+        s'affiche « Chapitre »."""
         if e.volume is None or e.kind == "range":
             return clean_title(e.title)
         name = e.series
         if not e.detached:
             name = self._series_display_name.get(normalize_name(e.series), e.series)
-        return f"{name} · {volume_label(e.volume, e.kind)}"
+        return f"{name} · {volume_label(e.volume, units.label_kind(e.kind, self._unit(e)))}"
 
-    def _add_item(self, e):
-        item = QListWidgetItem(self._display_title(e))
+    def _add_item(self, e, small=False):
+        """`small` : chapitre d'un dossier de serie ouvert, en petite case et
+        sans le nom de la serie (« Chapitre 211 »)."""
+        if small and e.volume is not None:
+            title = volume_label(e.volume, units.label_kind(e.kind, self._unit(e)))
+        else:
+            title = self._display_title(e)
+        item = QListWidgetItem(title)
         item.setData(ROLE_PATH, e.path)
+        item.setData(ROLE_SMALL, small)
+        item.setData(ROLE_VIRTUAL, virtual.is_virtual(e.path))
+        if units.is_chapter(self._unit(e)):
+            volume = units.volume_of(e.volume, self.store.chapter_ranges(normalize_name(e.series)))
+            item.setData(ROLE_IN_VOLUME, tr("Tome {n}", n=volume) if volume else None)
         # declenche (ou reutilise) la recherche de metadonnees pour toute la
         # bibliotheque, pas seulement quand on trie par auteur/date : l'info
         # se remplit progressivement en arriere-plan des l'affichage, sans
@@ -993,6 +1293,8 @@ class LibraryWidget(ChromeMixin, DetailPanelMixin, ActionsMixin, MenusMixin,
         return ""
 
     def _add_series_item(self, key, group):
+        # les chapitres deja contenus dans un tome possede ne comptent pas
+        group = [e for e in group if self._unit(e) != units.COVERED] or group
         display = self._series_display_name.get(key, group[0].series)
         item = QListWidgetItem(display)
         item.setData(ROLE_IS_SERIES, True)
@@ -1007,15 +1309,10 @@ class LibraryWidget(ChromeMixin, DetailPanelMixin, ActionsMixin, MenusMixin,
         cover_paths = [v.path for v in rotated[:3]]
         item.setData(ROLE_SERIES_PATHS, cover_paths)
 
-        read, count, frac, finished = self._series_progress(group)
-        item.setData(ROLE_FRACTION, frac)
-        item.setData(ROLE_FINISHED, finished)
-        if finished:
-            item.setData(ROLE_PROG_TEXT, tr("Série terminée"))
-        elif read > 0:
-            item.setData(ROLE_PROG_TEXT, tr("{read}/{count} tomes lus", read=read, count=count))
-        else:
-            item.setData(ROLE_PROG_TEXT, tr("{n} tomes", n=count))
+        counts = self._series_counts(group)
+        item.setData(ROLE_FRACTION, counts.read / counts.total if counts.total else 0.0)
+        item.setData(ROLE_FINISHED, counts.total > 0 and counts.read == counts.total)
+        item.setData(ROLE_PROG_TEXT, units.progress_text(counts))
 
         # auteur : depuis le cache des tomes ; la recherche est declenchee pour
         # le tome vedette et l'item s'abonne au resultat (voir _update_item_meta)
@@ -1024,7 +1321,7 @@ class LibraryWidget(ChromeMixin, DetailPanelMixin, ActionsMixin, MenusMixin,
         item.setData(ROLE_AUTHOR_TEXT, author)
         self._meta_subscribers.setdefault(rotated[0].path, []).append(item)
 
-        tooltip = f"{display}  ·  " + tr("{n} tomes", n=count)
+        tooltip = f"{display}  ·  " + units.count_text(counts.volumes, counts.chapters)
         if author:
             tooltip += "\n" + tr("Auteur : {author}", author=author)
         item.setToolTip(plain(tooltip))
@@ -1033,17 +1330,13 @@ class LibraryWidget(ChromeMixin, DetailPanelMixin, ActionsMixin, MenusMixin,
         self._row_paths.append(tuple(e.path for e in group))
         self._row_visible.append(True)
 
-    def _series_progress(self, group):
-        """Agrege la progression d'une serie : nombre de tomes termines,
-        total, fraction lue, et si toute la serie est terminee."""
-        count = len(group)
-        read = 0
-        for e in group:
-            prog = self.store.get_progress(e.path)
-            if prog and prog[2]:
-                read += 1
-        frac = read / count if count else 0.0
-        return read, count, frac, (read == count and count > 0)
+    def _series_counts(self, group):
+        """Contenu et avancement d'une serie, tomes et chapitres a part (voir
+        units.SeriesCounts)."""
+        def item(e):
+            status = volume_status(self.store.get_progress(e.path))
+            return (self._unit(e), e.volume, status == FINISHED, status == READING)
+        return units.series_counts(item(e) for e in group)
 
 
     # ----- navigation dans les dossiers de serie -----
@@ -1154,7 +1447,7 @@ class LibraryWidget(ChromeMixin, DetailPanelMixin, ActionsMixin, MenusMixin,
             path=path, key=self.store.key_for(path), title=self._display_title(e),
             series_key=series_key, volume=e.volume,
             status=volume_status(prog), last_read=self.store.progress_ts(path),
-            added=e.added, author=self._authors_text(e), year=year)
+            added=e.added, author=self._authors_text(e), year=year, unit=self._unit(e))
 
     @staticmethod
     def _item_identity(item):

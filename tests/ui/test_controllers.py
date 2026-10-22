@@ -2,9 +2,12 @@
 extraits de LibraryWidget. Reseau simule : aucune requete reelle."""
 
 from beheread.core.models import LibraryEntry
-from beheread.infra import metadata
+from beheread.infra import mangadex, metadata
 from beheread.ui.library.constants import ROLE_PATH
 from beheread.ui.library.controllers import (
+    CHAPTER_MAP_RETRY,
+    CHAPTER_MAP_TTL,
+    ChapterMapController,
     CoverCache,
     MetadataController,
     ScanController,
@@ -281,3 +284,51 @@ def test_watched_folder_change_triggers_an_incremental_scan(qtbot, store, mangas
     scanner._on_directory_changed(str(sub))
     qtbot.waitUntil(lambda: len(results) == 2 and not scanner.scanning, timeout=10000)
     assert added in results[1] and len(results[1]) == 2
+
+
+def test_chapter_map_controller_fetches_once_and_retries_late(qtbot, store, monkeypatch):
+    """Decoupage MangaDex : demande une fois, garde en cache, redemande apres
+    le delai ; un echec n'est retente qu'apres CHAPTER_MAP_RETRY ; jamais hors
+    ligne."""
+    calls = []
+
+    def fake(name, hints=None):
+        calls.append(name)
+        if name == "Panne":
+            raise mangadex.MangaDexError("hors service")
+        return "md-1", {"ranges": {"42": [374, 380]}, "last_volume": 42, "last_chapter": 386}
+
+    monkeypatch.setattr(mangadex, "series_aggregate", fake)
+    monkeypatch.setattr(mangadex, "aggregate", lambda mid: {"ranges": {"42": [374, 381]},
+                                                            "last_volume": 42,
+                                                            "last_chapter": 387})
+    online = [False]
+    ctl = ChapterMapController(store, lambda: online[0])
+    now = [1000.0]
+    ctl._now = lambda: now[0]
+    updated = []
+    ctl.updated.connect(updated.append)
+
+    ctl.ensure("berserk", "Berserk")
+    assert ctl._call is None and not calls            # hors ligne : rien
+    online[0] = True
+    ctl.ensure("berserk", "Berserk")
+    qtbot.waitUntil(lambda: updated == ["berserk"], timeout=5000)
+    assert store.chapter_map("berserk")["ranges"] == {"42": [374, 380]}
+    assert store.latest_releases("berserk") == (42, 386)
+    ctl.ensure("berserk", "Berserk")                  # en cache : pas de requete
+    assert calls == ["Berserk"] and ctl._call is None
+    now[0] += CHAPTER_MAP_TTL + 1                     # perime : l'identifiant suffit
+    ctl.ensure("berserk", "Berserk")
+    qtbot.waitUntil(lambda: len(updated) == 2, timeout=5000)
+    assert calls == ["Berserk"] and store.chapter_map("berserk")["ranges"]["42"] == [374, 381]
+
+    ctl.ensure("panne", "Panne")
+    qtbot.waitUntil(lambda: (store.chapter_map("panne") or {}).get("failed") is True,
+                    timeout=5000)
+    ctl.ensure("panne", "Panne")
+    assert calls.count("Panne") == 1
+    now[0] += CHAPTER_MAP_RETRY + 1
+    ctl.ensure("panne", "Panne")
+    qtbot.waitUntil(lambda: calls.count("Panne") == 2 and ctl._call is None, timeout=5000)
+
