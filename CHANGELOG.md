@@ -4,6 +4,8 @@ Les numéros de version suivent [SemVer](https://semver.org/lang/fr/). Chaque se
 
 ## [Non publié]
 
+## [1.3.0] - 2026-10-23
+
 ### Tomes et chapitres
 
 * Les séries qui mélangent tomes et chapitres sont mieux gérées : les chapitres complètent les tomes. La bibliothèque compte les tomes et les chapitres à part (« 22 tomes · 22 chapitres »), l'avancement suit l'ordre de lecture (« Tome 6/22 · puis ch. 211 à 232 », « Tomes lus · chapitre 213 en cours ») et la lecture enchaîne du dernier tome au premier chapitre qui le suit.
