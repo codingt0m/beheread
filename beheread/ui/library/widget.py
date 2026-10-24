@@ -121,6 +121,9 @@ class LibraryWidget(ChromeMixin, DetailPanelMixin, ActionsMixin, MenusMixin,
         # fichiers tenus par le lecteur, deplaces a sa fermeture
         self._move_jobs = []
         self._deferred_moves = []
+        # suppressions en cours (actions.py) : taches et chemins concernes
+        self._delete_jobs = []
+        self._deleting = set()
         self._path_to_item = {}         # path -> QListWidgetItem (tome, acces O(1))
         # chemin -> dossiers de serie interesses par ses metadonnees (auteur)
         self._meta_subscribers = {}

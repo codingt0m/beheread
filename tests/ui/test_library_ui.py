@@ -131,7 +131,35 @@ def test_failed_delete_keeps_progress(window, qtbot, mangas, store, monkeypatch)
         raise OSError("fichier verrouille")
     monkeypatch.setattr(platforms, "trash_function", lambda: refuse)
     lib._delete_many([path])
+    qtbot.waitUntil(lambda: not lib._delete_jobs, timeout=10000)
     assert store.get_progress(path) == (2, 4, False) and len(lib._entries) == 1
+
+
+def test_delete_offers_permanent_removal_when_cloud_refuses_the_trash(window, qtbot, mangas,
+                                                                      store, monkeypatch):
+    """iCloud Drive refuse la corbeille de Windows (WinError 379) : rien n'est
+    efface sans une seconde confirmation, puis suppression definitive."""
+    path = make_cbz(mangas, "Alpha - Tome 1", seed=1)
+    store.set_folders([str(mangas)])
+    lib = window.library
+    lib.refresh()
+    scanned(qtbot, lib, 1)
+    asked = []
+
+    def question(_parent, title, *a, **k):
+        asked.append(title)
+        return QMessageBox.Yes
+    monkeypatch.setattr(QMessageBox, "question", staticmethod(question))
+    from beheread import platforms
+
+    def refuse(_p):
+        error = OSError("non pris en charge par le fournisseur de synchronisation du cloud")
+        error.winerror = 379
+        raise error
+    monkeypatch.setattr(platforms, "trash_function", lambda: refuse)
+    lib._delete_many([path])
+    qtbot.waitUntil(lambda: not lib._delete_jobs and not lib._deleting, timeout=10000)
+    assert len(asked) == 2 and not Path(path).exists() and lib._entries == []
 
 
 def test_deleting_one_copy_keeps_progress_of_identical_copy(window, qtbot, mangas, store,
@@ -154,6 +182,7 @@ def test_deleting_one_copy_keeps_progress_of_identical_copy(window, qtbot, manga
     from beheread import platforms
     monkeypatch.setattr(platforms, "trash_function", lambda: lambda p: Path(p).unlink())
     lib._delete_many([shown])
+    qtbot.waitUntil(lambda: not lib._delete_jobs, timeout=10000)
     assert store.get_progress(other) == (2, 4, False)
 
 
@@ -357,6 +386,7 @@ def test_deletion_waits_for_a_background_read_to_finish(window, qtbot, mangas, s
     monkeypatch.setattr(QMessageBox, "question", staticmethod(lambda *a, **k: QMessageBox.Yes))
     monkeypatch.setattr(platforms, "trash_function", lambda: busy_then_free)
     lib._delete_many([path])
+    qtbot.waitUntil(lambda: not lib._delete_jobs, timeout=10000)
     assert len(attempts) >= 3 and not Path(path).exists() and lib._entries == []
 
 

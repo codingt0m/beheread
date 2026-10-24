@@ -267,6 +267,8 @@ CATALOG = {
     'Supprimer définitivement {n} mangas ?': 'Permanently delete {n} manga?',
     'Les fichiers seront envoyés dans {trash}.': 'The files will be sent to {trash}.',
     'Les fichiers seront supprimés du disque. Cette action est irréversible.': 'The files will be deleted from the disk. This cannot be undone.',
+    "Le dossier de synchronisation de ces fichiers n'accepte pas la corbeille de Windows. Les supprimer définitivement ?": "The sync folder of these files does not accept the Windows recycle bin. Delete them permanently?",
+    'Supprimer définitivement': 'Delete permanently',
     "Certains fichiers n'ont pas pu être supprimés :": 'Some files could not be deleted:',
     'Associer à AniList': 'Link to AniList',
     'Adresse de la page AniList de « {name} »\n(par exemple https://anilist.co/manga/30002/Berserk) ou son numéro :': 'Address of the AniList page of “{name}”\n(for example https://anilist.co/manga/30002/Berserk) or its number:',

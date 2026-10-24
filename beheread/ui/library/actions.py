@@ -9,7 +9,8 @@ import os
 import time
 from pathlib import Path
 
-from PySide6.QtWidgets import QDialog, QMessageBox
+from PySide6.QtCore import Qt, QThreadPool
+from PySide6.QtWidgets import QApplication, QDialog, QMessageBox
 
 from beheread import platforms
 from beheread.core.library_model import FINISHED, aggregate_series_info
@@ -24,6 +25,7 @@ from beheread.ui import theme
 from beheread.ui.library import prompt
 from beheread.ui.library.constants import ROLE_IS_SERIES, ROLE_PATH, ROLE_SERIES_KEY
 from beheread.ui.library.dialogs import CoverDialog, EditInfoDialog, UnreadableDialog
+from beheread.ui.library.workers import CallWorker
 from beheread.ui.safe_text import plain
 
 # Windows refuse de supprimer un fichier ouvert : une tache d'arriere-plan
@@ -34,13 +36,23 @@ from beheread.ui.safe_text import plain
 DELETE_DELAYS = (0.05, 0.1, 0.2, 0.4, 0.8)
 
 
+# WinError 379 : le fournisseur de synchronisation (iCloud Drive) ne prend pas
+# en charge l'operation, ici l'envoi a la corbeille de Windows.
+ERROR_CLOUD_FILE_PROVIDER_UNSUPPORTED = 379
+
+
+def _cloud_refused(error) -> bool:
+    return getattr(error, "winerror", None) == ERROR_CLOUD_FILE_PROVIDER_UNSUPPORTED
+
+
 def _remove_file(remove, path):
     for delay in DELETE_DELAYS + (None,):
         try:
             remove(path)
             return
-        except OSError:
-            if delay is None or not os.path.exists(path):
+        except OSError as e:
+            # un refus du fournisseur cloud ne passe pas en reessayant
+            if delay is None or _cloud_refused(e) or not os.path.exists(path):
                 raise
             time.sleep(delay)
 
@@ -359,25 +371,60 @@ class ActionsMixin:
             if answer != QMessageBox.Yes:
                 return
 
-        deleted, errors = [], []
-        for p in paths:
-            # l'identite par contenu doit lire le fichier encore present : on
-            # resout l'empreinte et le chemin de vignette AVANT la suppression,
-            # mais on n'oublie les donnees liees (progression, metadonnees...)
-            # qu'APRES sa reussite - un echec (fichier verrouille, droits) ne
-            # doit rien effacer.
-            key = self.store.key_for(p)
-            thumb = self.store.thumb_path(p)
-            try:
-                if to_trash:
-                    _remove_file(send2trash, str(Path(p)))
-                else:
-                    _remove_file(os.remove, str(Path(p)))
-            except Exception as e:   # send2trash leve ses propres exceptions
-                logging.warning("Suppression impossible de %s", p, exc_info=True)
-                errors.append(f"{Path(p).name} : {e}")
-                continue
-            deleted.append(p)
+        # les fichiers d'un dossier cloud (iCloud Drive, OneDrive) sont lents a
+        # supprimer : la corbeille passe par le fournisseur de synchronisation,
+        # un fichier apres l'autre. Suppression hors du thread UI.
+        # L'identite par contenu doit lire le fichier encore present : on
+        # resout l'empreinte et le chemin de vignette AVANT la suppression,
+        # mais on n'oublie les donnees liees (progression, metadonnees...)
+        # qu'APRES sa reussite (_on_deleted) - un echec (fichier verrouille,
+        # droits) ne doit rien effacer.
+        self._start_removal(paths, send2trash if to_trash else os.remove, to_trash)
+
+    def _start_removal(self, paths, remove, trashing):
+        paths = [p for p in paths if p not in self._deleting]
+        if not paths:
+            return
+        resolved = {p: (self.store.key_for(p), self.store.thumb_path(p)) for p in paths}
+
+        def run():
+            deleted, errors, refused = [], [], []
+            refused_dirs = set()
+            for p in paths:
+                folder = str(Path(p).parent)
+                if trashing and folder in refused_dirs:
+                    # le dossier a deja refuse la corbeille : inutile de
+                    # reattendre le fournisseur de synchronisation
+                    refused.append(p)
+                    continue
+                try:
+                    _remove_file(remove, str(Path(p)))
+                except Exception as e:   # send2trash leve ses propres exceptions
+                    if trashing and _cloud_refused(e):
+                        refused_dirs.add(folder)
+                        refused.append(p)
+                        continue
+                    logging.warning("Suppression impossible de %s", p, exc_info=True)
+                    errors.append(f"{Path(p).name} : {e}")
+                    continue
+                deleted.append(p)
+            return deleted, errors, refused
+
+        self._deleting.update(paths)
+        QApplication.setOverrideCursor(Qt.BusyCursor)
+        call = CallWorker(run)
+        call.signals.done.connect(
+            lambda result, err: self._on_deleted(paths, resolved, result, err, call))
+        self._delete_jobs.append(call)   # garde une reference (sinon GC)
+        QThreadPool.globalInstance().start(call)
+
+    def _on_deleted(self, paths, resolved, result, err, call):
+        self._delete_jobs = [c for c in self._delete_jobs if c is not call]
+        self._deleting.difference_update(paths)
+        QApplication.restoreOverrideCursor()
+        deleted, errors, refused = result if err is None else ([], [str(err)], [])
+        for p in deleted:
+            key, thumb = resolved[p]
             self.store.forget_content(key, p)
             try:
                 if thumb.exists():
@@ -395,6 +442,23 @@ class ActionsMixin:
             QMessageBox.warning(self, tr("Erreur"),
                                 plain(tr("Certains fichiers n'ont pas pu être supprimés :") + "\n\n"
                                       + "\n".join(errors)))
+        if refused:
+            self._offer_permanent_delete(refused)
+
+    def _offer_permanent_delete(self, paths):
+        """Des fichiers d'un dossier cloud (iCloud Drive...) ont refuse la
+        corbeille de Windows : suppression definitive, seulement si l'utilisateur
+        la confirme."""
+        names = "\n".join(f"- {Path(p).stem}" for p in paths[:10])
+        if len(paths) > 10:
+            names += "\n" + tr("… et {n} de plus", n=len(paths) - 10)
+        message = (tr("Le dossier de synchronisation de ces fichiers n'accepte pas la corbeille "
+                      "de Windows. Les supprimer définitivement ?") + "\n\n" + names + "\n\n"
+                   + tr("Les fichiers seront supprimés du disque. Cette action est irréversible."))
+        answer = QMessageBox.question(self, tr("Supprimer définitivement"), plain(message),
+                                      QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+        if answer == QMessageBox.Yes:
+            self._start_removal(paths, os.remove, False)
 
     def _delete_selected(self):
         """Touche Suppr : supprime les tomes selectionnes (confirmation
