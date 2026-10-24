@@ -100,7 +100,7 @@ def test_library_shows_and_reads_a_server(qtbot, remote_window, fake, store):
     lib.select_source("k1")
     qtbot.waitUntil(lambda: len(lib._entries) == 4, timeout=5000)
     assert store.ui_pref("library_source") == "k1"
-    assert "sans copie sur le disque" in lib.count_label.text()
+    assert "sans copie sur le disque" in lib.count_label.toolTip()   # compteur court
     first = servers.make_path("k1", "B1")
     assert lib.entry(first).series == "Berserk"
     assert lib.next_volume(first) == servers.make_path("k1", "B2")

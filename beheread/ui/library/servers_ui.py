@@ -40,7 +40,7 @@ def _dot(color):
 
 
 class ServersTabMixin:
-    """Onglet « Serveurs » de PreferencesDialog (self.store, self.servers)."""
+    """Carte « Serveurs de lecture » de PreferencesDialog (self.store, self.servers)."""
 
     def _servers_tab(self):
         w, v = self._page()
@@ -178,6 +178,7 @@ class ServersTabMixin:
         if self.servers is not None:
             self.servers.reload()
         self._refresh_server_list()
+        self._refresh_cards()   # etat de la carte « Serveurs de lecture »
 
     def _save_servers(self):
         s = self.store

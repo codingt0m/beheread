@@ -60,7 +60,7 @@ from PySide6.QtWidgets import (
 from beheread.core import stats, units
 from beheread.core.reading_session import MIN_DWELL, PAUSE_CAP
 from beheread.i18n import fmt_decimal, tr, trn
-from beheread.ui import theme
+from beheread.ui import style, theme
 from beheread.ui.charts import (
     BarChart,
     CalendarHeatmap,
@@ -204,7 +204,7 @@ class StatsDialog(QDialog):
             }}
             #statsTitle {{ font-size: 20px; font-weight: 700; }}
             #tile, #card {{
-                background: {c['panel']}; border: 1px solid {c['border']}; border-radius: 10px;
+                background: {c['panel']}; border: 1px solid {c['border']}; border-radius: {style.RADIUS_MD}px;
             }}
             #tileLabel {{ color: {c['text_dim']}; font-size: 12px; }}
             #tileValue {{ font-size: 24px; font-weight: 600; }}

@@ -71,7 +71,7 @@ Get-FileHash .\Beheread-Setup-x.y.z.exe -Algorithm SHA256
 
 ## Passer d'un PC à un autre, ou à un Mac
 
-Dans *Préférences > Données*, **Exporter…** enregistre votre progression, vos statistiques et vos réglages de séries dans un fichier ; sur l'autre ordinateur, **Importer…** le fusionne. Les tomes sont reconnus par leur contenu : peu importe où se trouvent les fichiers sur le nouvel ordinateur, Windows ou Mac.
+Dans *Préférences > Confidentialité et données*, **Exporter…** enregistre votre progression, vos statistiques et vos réglages de séries dans un fichier ; sur l'autre ordinateur, **Importer…** le fusionne. Les tomes sont reconnus par leur contenu : peu importe où se trouvent les fichiers sur le nouvel ordinateur, Windows ou Mac.
 
 ## Dépannage
 

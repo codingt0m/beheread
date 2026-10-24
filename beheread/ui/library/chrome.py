@@ -7,7 +7,7 @@ responsabilite pour garder chaque fichier lisible."""
 from pathlib import Path
 
 from PySide6.QtCore import QSize, Qt, QUrl
-from PySide6.QtGui import QDesktopServices, QKeySequence, QShortcut
+from PySide6.QtGui import QActionGroup, QDesktopServices, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QButtonGroup,
     QComboBox,
@@ -18,11 +18,13 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QListWidget,
+    QMenu,
     QPushButton,
     QSlider,
     QToolButton,
     QVBoxLayout,
     QWidget,
+    QWidgetAction,
 )
 
 from beheread import platforms
@@ -30,7 +32,7 @@ from beheread.core import units
 from beheread.core.library_model import SORTS, STATUS_FILTERS
 from beheread.i18n import tr
 from beheread.infra.archive import SUPPORTED_EXTS
-from beheread.ui import appicon, icons, keys, theme
+from beheread.ui import appicon, icons, keys, style, theme
 
 # modules extraits (voir chacun) : constantes de rendu, delegates, dialogues et
 # taches d'arriere-plan. LibraryWidget (ci-dessous) orchestre le tout.
@@ -124,30 +126,15 @@ class ChromeMixin:
             icons.search("#808080"), QLineEdit.LeadingPosition)
         root.addWidget(self.search_edit)
 
-        # -- a droite : l'essentiel seulement. Theme, vue grille/liste,
-        # regroupement par serie, panneau d'informations et aide des
-        # raccourcis sont dans les preferences.
+        # -- a droite : l'essentiel seulement. Vue grille/liste, taille des
+        # couvertures, regroupement par serie et panneau d'informations sont
+        # dans le menu « Affichage » de la barre d'outils (maquette M3).
         self._header_right = QWidget()
         hl = QHBoxLayout(self._header_right)
         hl.setContentsMargins(0, 0, 0, 0)
         hl.setSpacing(6)
         root.addWidget(self._header_right, 1)
         hl.addStretch(1)
-
-        # -- curseur de taille des couvertures (vue grille)
-        self.size_slider = QSlider(Qt.Horizontal)
-        self.size_slider.setObjectName("sizeSlider")
-        self.size_slider.setFixedWidth(96)
-        self.size_slider.setMinimum(self.GRID_SCALE_MIN)
-        self.size_slider.setMaximum(self.GRID_SCALE_MAX)
-        self.size_slider.setValue(self._grid_scale_pct)
-        self.size_slider.setToolTip(tr("Taille des couvertures"))
-        self.size_slider.setAccessibleName(tr("Taille des couvertures"))
-        self.size_slider.setFocusPolicy(Qt.TabFocus)
-        self.size_slider.valueChanged.connect(self._on_grid_scale_changed)
-        hl.addWidget(self.size_slider)
-
-        hl.addWidget(self._header_separator())
 
         # -- gestion des dossiers (un seul bouton -> panneau facon Plex)
         self.btn_folders = self._icon_button(tr("Gérer les dossiers sources"))
@@ -250,25 +237,6 @@ class ChromeMixin:
             #headerSep {{
                 color: {c['border']};
                 margin: 0 4px;
-            }}
-            QSlider#sizeSlider::groove:horizontal {{
-                height: 4px;
-                background: {c['border']};
-                border-radius: 2px;
-            }}
-            QSlider#sizeSlider::sub-page:horizontal {{
-                background: {theme.ACCENT};
-                border-radius: 2px;
-            }}
-            QSlider#sizeSlider::handle:horizontal {{
-                width: 12px;
-                height: 12px;
-                margin: -5px 0;
-                border-radius: 6px;
-                background: {c['text']};
-            }}
-            QSlider#sizeSlider::handle:horizontal:hover {{
-                background: {theme.ACCENT};
             }}
         """ + self.source_switch_css(c, theme.ACCENT))
 
@@ -390,19 +358,18 @@ class ChromeMixin:
                 self.store.set_folders(new_folders)
                 self.refresh()
 
-    # ----- barre d'outils : tri et filtre de statut -----
+    # ----- barre d'outils : tri, filtre de statut, menu Affichage -----
     def _build_toolbar(self):
         self.toolbar = QWidget()
         self.toolbar.setObjectName("toolBar")
         hl = QHBoxLayout(self.toolbar)
         hl.setContentsMargins(20, 6, 20, 6)
         hl.setSpacing(6)
-        lbl = QLabel(tr("Trier par"))
-        lbl.setObjectName("tbLabel")
-        hl.addWidget(lbl)
+        # « Trier par » : nom accessible et info-bulle (la liste montre le tri)
         self.sort_combo = QComboBox()
         self.sort_combo.setObjectName("sortCombo")
         self.sort_combo.setAccessibleName(tr("Trier par"))
+        self.sort_combo.setToolTip(tr("Trier par"))
         for key, label in SORTS:
             self.sort_combo.addItem(tr(label), key)
         self.sort_combo.setCurrentIndex([k for k, _ in SORTS].index(self._sort))
@@ -428,12 +395,130 @@ class ChromeMixin:
         self.count_label = QLabel()
         self.count_label.setObjectName("tbCount")
         hl.addWidget(self.count_label)
+        hl.addSpacing(6)
+        hl.addWidget(self._build_view_button())
         return self.toolbar
+
+    # ----- menu Affichage (maquette M3) : reglages de vue appliques tout de suite -----
+    # valeurs par defaut des reglages de vue (les memes qu'a la lecture)
+    _VIEW_DEFAULTS = {"group_series": False, "show_continue": True, "show_details": False,
+                      "show_missing": True, "show_covered_chapters": False}
+
+    def _build_view_button(self):
+        self.view_btn = QToolButton()
+        self.view_btn.setObjectName("viewBtn")
+        self.view_btn.setText(tr("Affichage") + " ▾")
+        self.view_btn.setAccessibleName(tr("Affichage"))
+        self.view_btn.setCursor(Qt.PointingHandCursor)
+        self.view_btn.setFocusPolicy(Qt.TabFocus)
+        self.view_btn.setPopupMode(QToolButton.InstantPopup)
+        menu = QMenu(self.view_btn)
+        self.view_menu = menu
+
+        modes = QActionGroup(menu)
+        self._view_actions = {}
+        for mode, label in (("grid", tr("Grille")), ("list", tr("Liste compacte"))):
+            act = menu.addAction(label)
+            act.setCheckable(True)
+            act.setActionGroup(modes)
+            act.triggered.connect(lambda _c=False, m=mode: self._choose_view_mode(m))
+            self._view_actions[mode] = act
+
+        # curseur de taille des couvertures (vue grille), dans le menu
+        size_row = QWidget()
+        row = QHBoxLayout(size_row)
+        row.setContentsMargins(26, 4, 14, 4)
+        row.setSpacing(10)
+        size_label = QLabel(tr("Taille"))
+        size_label.setObjectName("viewSizeLabel")
+        row.addWidget(size_label)
+        self.size_slider = QSlider(Qt.Horizontal)
+        self.size_slider.setObjectName("sizeSlider")
+        self.size_slider.setFixedWidth(120)
+        self.size_slider.setMinimum(self.GRID_SCALE_MIN)
+        self.size_slider.setMaximum(self.GRID_SCALE_MAX)
+        self.size_slider.setValue(self._grid_scale_pct)
+        self.size_slider.setToolTip(tr("Taille des couvertures"))
+        self.size_slider.setAccessibleName(tr("Taille des couvertures"))
+        self.size_slider.valueChanged.connect(self._on_grid_scale_changed)
+        row.addWidget(self.size_slider)
+        size_action = QWidgetAction(menu)
+        size_action.setDefaultWidget(size_row)
+        menu.addAction(size_action)
+        self._size_row = size_row
+        menu.addSeparator()
+
+        # (preference, libelle, fonction qui applique la nouvelle valeur)
+        toggles = [
+            ("group_series", tr("Regrouper par série"), self._set_group_series),
+            ("show_continue", tr("Continuer la lecture"), self._set_show_continue),
+            ("show_details", tr("Panneau d'informations"), self._set_details_visible),
+            None,
+            ("show_missing", tr("Tomes et chapitres manquants"), lambda _v: self._rebuild_list()),
+            ("show_covered_chapters", tr("Chapitres déjà inclus dans un tome"),
+             lambda _v: self._rebuild_list()),
+        ]
+        self._view_toggles = {}
+        for toggle in toggles:
+            if toggle is None:
+                menu.addSeparator()
+                continue
+            key, label, apply = toggle
+            act = menu.addAction(label)
+            act.setCheckable(True)
+            act.toggled.connect(lambda on, k=key, f=apply: self._set_view_pref(k, on, f))
+            self._view_toggles[key] = act
+        # raccourci affiche dans le menu ; le vrai raccourci est pose sur la
+        # grille (voir _install_details_shortcut), pas pendant une saisie
+        self._view_toggles["show_details"].setShortcut(QKeySequence("I"))
+        self._view_toggles["show_details"].setShortcutContext(Qt.WidgetShortcut)
+        menu.aboutToShow.connect(self._sync_view_menu)
+        self._sync_view_menu()
+        self.view_btn.setMenu(menu)
+        return self.view_btn
+
+    def _install_details_shortcut(self):
+        """I : affiche ou masque le panneau d'informations, depuis la grille."""
+        shortcut = QShortcut(QKeySequence("I"), self.list,
+                             lambda: self._view_toggles["show_details"].toggle())
+        shortcut.setContext(Qt.WidgetShortcut)
+
+    def _sync_view_menu(self):
+        """Coches du menu = reglages actuels (ils changent aussi dans les
+        Preferences)."""
+        mode = "list" if self._view_mode == "list" else "grid"
+        self._view_actions[mode].setChecked(True)
+        self._size_row.setEnabled(mode == "grid")
+        for key, act in self._view_toggles.items():
+            act.blockSignals(True)
+            act.setChecked(bool(self.store.library_pref(key, self._VIEW_DEFAULTS[key])))
+            act.blockSignals(False)
+
+    def _set_view_pref(self, key, on, apply):
+        self.store.set_library_pref(key, bool(on))
+        apply(bool(on))
+
+    def _choose_view_mode(self, mode):
+        self.store.set_library_pref("view_mode", mode)
+        self._set_view_mode(mode)
+        self._size_row.setEnabled(mode == "grid")
+
+    def _set_show_continue(self, on):
+        self._show_continue = bool(on)
+        self._rebuild_list()
 
     def _style_toolbar(self, c):
         self.toolbar.setStyleSheet(f"""
             #toolBar {{ background: {c['list_bg']}; border-bottom: 1px solid {c['border']}; }}
-            #tbLabel, #tbCount {{ color: {c['text_dim']}; font-size: 12px; }}
+            #tbCount {{ color: {c['text_dim']}; font-size: 12px; }}
+            QToolButton#viewBtn {{
+                color: {c['text']}; background: transparent;
+                border: 1px solid {c['border']}; border-radius: 12px;
+                padding: 3px 12px; font-size: 12px; font-weight: 600;
+            }}
+            QToolButton#viewBtn:hover, QToolButton#viewBtn:pressed {{ background: {c['button']}; }}
+            QToolButton#viewBtn:focus {{ border: 2px solid {theme.ACCENT}; }}
+            QToolButton#viewBtn::menu-indicator {{ image: none; width: 0; }}
             QComboBox#sortCombo {{ min-width: 130px; }}
             QPushButton#statusChip {{
                 color: {c['text_dim']}; background: transparent;
@@ -449,6 +534,21 @@ class ChromeMixin:
                 border-color: {c['text_dim']};
             }}
             QPushButton#statusChip:focus {{ border: 2px solid {theme.ACCENT}; }}
+        """)
+        self.view_menu.setStyleSheet(f"""
+            #viewSizeLabel {{ color: {c['text_dim']}; }}
+            QSlider#sizeSlider::groove:horizontal {{
+                height: 4px; background: {c['border']}; border-radius: 2px;
+            }}
+            QSlider#sizeSlider::sub-page:horizontal {{
+                background: {theme.ACCENT}; border-radius: 2px;
+            }}
+            QSlider#sizeSlider::handle:horizontal {{
+                width: 12px; height: 12px; margin: -5px 0; border-radius: 6px;
+                background: {c['text']};
+            }}
+            QSlider#sizeSlider::handle:horizontal:hover {{ background: {theme.ACCENT}; }}
+            QSlider#sizeSlider:disabled::sub-page:horizontal {{ background: {c['border']}; }}
         """)
         self.update_icon.setPixmap(icons.download(c["text"]).pixmap(16, 16))
         self.update_banner.setStyleSheet(f"""
@@ -472,11 +572,7 @@ class ChromeMixin:
                 border: 1px solid {c['border']}; border-radius: 8px; padding: 5px 14px;
             }}
             QPushButton:hover {{ background: {c['button_hover']}; }}
-            QPushButton#consentYes {{
-                color: {theme.ON_ACCENT}; background: {theme.ACCENT}; border: none; font-weight: 700;
-            }}
-            QPushButton#consentYes:hover {{ background: {theme.ACCENT_HOVER}; }}
-        """)
+        """ + style.primary_button("QPushButton#consentYes"))
 
     def _on_sort_changed(self, _index):
         self._sort = self.sort_combo.currentData()
@@ -503,13 +599,15 @@ class ChromeMixin:
         chapters = self._visible_chapters
         text = units.count_text(n - chapters, chapters) if self._entries else ""
         approx = bool(text) and n > 0 and self._search_approx
+        tip = ""
         if approx:
             text += " · " + tr("résultats approchants")
+            tip = tr("Aucun résultat exact : les fautes de frappe sont tolérées.")
         elif text and self.is_remote_source():
-            text += " · " + tr("lus en continu depuis le serveur, sans copie sur le disque")
+            # compteur court ; l'explication en info-bulle
+            tip = tr("lus en continu depuis le serveur, sans copie sur le disque")
         self.count_label.setText(text)
-        self.count_label.setToolTip(
-            tr("Aucun résultat exact : les fautes de frappe sont tolérées.") if approx else "")
+        self.count_label.setToolTip(tip)
 
     # ----- nouvelle version disponible -----
     def _build_update_banner(self):
@@ -646,14 +744,9 @@ class ChromeMixin:
             #emptyPanel {{ background: {c['list_bg']}; }}
             #emptyTitle {{ color: {c['text']}; font-size: 20px; font-weight: 700; }}
             #emptyText {{ color: {c['text_dim']}; font-size: 14px; }}
-            QPushButton#emptyBtn {{
-                color: {theme.ON_ACCENT}; background: {theme.ACCENT}; border: none;
-                border-radius: 8px; padding: 9px 20px;
-                font-size: 14px; font-weight: 700;
-            }}
-            QPushButton#emptyBtn:hover {{ background: {theme.ACCENT_HOVER}; }}
             QPushButton#emptyBtn:focus {{ border: 2px solid {c['text']}; }}
-        """)
+        """ + style.primary_button(
+            "QPushButton#emptyBtn", "border-radius: 8px; padding: 9px 20px; font-size: 14px;"))
 
     def _add_folder_dialog(self):
         """Ajout direct d'un dossier source (etat vide du premier lancement),

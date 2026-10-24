@@ -94,7 +94,7 @@ L'empreinte affichée doit être celle de `SHA256SUMS-macos.txt`.
 
 ## Passer d'un PC Windows à un Mac
 
-Sur le PC, dans *Préférences > Données*, cliquez sur **Exporter…** : un fichier de sauvegarde est créé avec votre progression, vos statistiques et vos réglages de séries. Copiez-le sur le Mac, puis dans *Réglages > Données*, cliquez sur **Importer…**. Les tomes sont reconnus par leur contenu : peu importe où se trouvent les fichiers sur le Mac. Ajoutez ensuite vos dossiers de mangas ; les dossiers et les préférences d'affichage ne sont pas repris d'un ordinateur à l'autre.
+Sur le PC, dans *Préférences > Confidentialité et données*, cliquez sur **Exporter…** : un fichier de sauvegarde est créé avec votre progression, vos statistiques et vos réglages de séries. Copiez-le sur le Mac, puis dans *Réglages > Données*, cliquez sur **Importer…**. Les tomes sont reconnus par leur contenu : peu importe où se trouvent les fichiers sur le Mac. Ajoutez ensuite vos dossiers de mangas ; les dossiers et les préférences d'affichage ne sont pas repris d'un ordinateur à l'autre.
 
 ## Dépannage
 

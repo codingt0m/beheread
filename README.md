@@ -46,7 +46,7 @@ En bref :
 
 Ensuite, sur l'écran d'accueil, cliquez sur **Ajouter un dossier** et choisissez le dossier qui contient vos mangas. Ses sous-dossiers sont parcourus aussi, et vos fichiers ne sont ni déplacés ni modifiés. Double-cliquez sur une couverture pour lire ; **F1** affiche la liste des raccourcis.
 
-L'application est la même sur les deux systèmes, et une sauvegarde (*Préférences > Données > Exporter…*) se réimporte de l'un à l'autre : la progression suit vos tomes d'un PC à un Mac.
+L'application est la même sur les deux systèmes, et une sauvegarde (*Préférences > Confidentialité et données > Exporter…*) se réimporte de l'un à l'autre : la progression suit vos tomes d'un PC à un Mac.
 
 ## Lire les fichiers CBR
 

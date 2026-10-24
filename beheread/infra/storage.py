@@ -970,16 +970,20 @@ class Store:
             Database.set_meta(cur, FINISHED_HISTORY_KEY, f"{len(rows)} tome(s)")
 
     # ------------------------------------------------------------ sauvegarde (export / import)
-    def export_backup(self, path):
-        data = backup_model.build_backup(self._backup_settings(), self.progress,
+    def backup_data(self) -> dict:
+        """Contenu d'une sauvegarde de cet appareil (export, synchronisation)."""
+        return backup_model.build_backup(self._backup_settings(), self.progress,
                                          self.reading_log.export(),
                                          self.meta_cache, self.continue_dismissed(),
                                          self.device_id(), self.device_name())
-        backup_model.write_json_atomic(path, data)
 
-    def import_backup(self, path) -> dict:
-        """Fusionne une sauvegarde (voir backup.py). Leve ValueError si le
-        fichier n'en est pas une. Renvoie {"progress": n, "extras": m}."""
+    def export_backup(self, path):
+        backup_model.write_json_atomic(path, self.backup_data())
+
+    @staticmethod
+    def read_backup(path) -> dict:
+        """Lit une sauvegarde sans rien fusionner (sans etat : utilisable hors
+        du thread UI). Leve ValueError si le fichier n'en est pas une."""
         # un fichier quelconque choisi par l'utilisateur : rien n'est charge
         # en memoire au-dela de ce qu'une vraie sauvegarde peut peser
         if os.path.getsize(path) > MAX_BACKUP_BYTES:
@@ -988,6 +992,15 @@ class Store:
             data = json.load(f)
         if not backup_model.is_valid(data):
             raise ValueError(tr("Ce fichier n'est pas une sauvegarde Beheread."))
+        return data
+
+    def import_backup(self, path) -> dict:
+        """Fusionne une sauvegarde (voir backup.py). Leve ValueError si le
+        fichier n'en est pas une. Renvoie {"progress": n, "extras": m}."""
+        return self.merge_backup(self.read_backup(path))
+
+    def merge_backup(self, data) -> dict:
+        """Fusionne le contenu d'une sauvegarde deja validee (read_backup)."""
         progress = len(backup_model.merge_progress(self.progress, data.get("progress", {})))
         if progress:
             self._schedule("progress")
@@ -1077,6 +1090,14 @@ class Store:
         self.flush()
 
     # ------------------------------------------------------------ AniList (suivi)
+    def cloud_sync(self) -> dict:
+        """Etat de la synchronisation par dossier cloud : folder, enabled,
+        seen, signature, peers (voir services/cloud_sync.py)."""
+        return self.settings.setdefault("cloud_sync", {})
+
+    def touch_cloud_sync(self):
+        self._schedule("settings")
+
     def anilist(self) -> dict:
         """Etat AniList de l'utilisateur : user, tracking, token_enc (voir
         anilist_tracker.py) ; les donnees par serie sont dans anilist_series.

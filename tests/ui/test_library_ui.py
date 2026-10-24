@@ -7,13 +7,13 @@ from PySide6.QtCore import QEvent, QMimeData, QPointF, Qt, QUrl
 from PySide6.QtGui import QDropEvent, QKeyEvent
 from PySide6.QtWidgets import (
     QApplication,
-    QInputDialog,
     QMessageBox,
     QPushButton,
     QWidget,
 )
 
 from beheread.core.library_model import SORTS
+from beheread.ui.library import prompt
 from beheread.ui.library.constants import ROLE_PROG_TEXT
 from tests.ui.conftest import make_cbz, scanned, visible_titles
 
@@ -99,17 +99,18 @@ def test_series_detail_and_manual_series_management(window, qtbot, mangas, store
     lib.list.setCurrentRow(visible_titles(lib).index("Alpha"))
     # libelle complet (a l'ecran, un libelle trop long est raccourci avec « … »)
     def buttons():
-        return [b.full_text() for b in lib.detail.findChildren(QPushButton) if b.isVisible()]
+        from beheread.ui.library.detail import ElidedButton
+        return [b.full_text() for b in lib.detail.findChildren(ElidedButton) if b.isVisible()]
     # les boutons ajoutes a un panneau visible s'affichent aux tours suivants
     qtbot.waitUntil(lambda: "Commencer le tome 1" in buttons(), timeout=2000)
     assert lib.detail.title.text() == "Alpha"
 
-    monkeypatch.setattr(QInputDialog, "getText", staticmethod(lambda *a, **k: ("Alpha Deluxe", True)))
+    monkeypatch.setattr(prompt, "ask_text", lambda *a, **k: "Alpha Deluxe")
     lib._rename_series("alpha")
     assert "Alpha Deluxe" in visible_titles(lib)
 
     # fusion : deux « Tome 1 » cohabitent, aucun n'est masque comme doublon
-    monkeypatch.setattr(QInputDialog, "getItem", staticmethod(lambda *a, **k: ("Alpha Deluxe", True)))
+    monkeypatch.setattr(prompt, "ask_choice", lambda *a, **k: "Alpha Deluxe")
     lib._merge_series("beta")
     qtbot.waitUntil(lambda: visible_titles(lib) == ["Alpha Deluxe"], timeout=10000)
     assert len(lib._group_entries(lib._entries)["alpha"]) == 4
@@ -194,15 +195,20 @@ def test_detail_panel_keeps_its_width_with_long_names(window, qtbot, mangas, sto
     # fenetre basse : le contenu defile au lieu de se tasser (aucun chevauchement)
     window.resize(1300, 500)
     qtbot.wait(50)
-    assert host.height() > host.parentWidget().height()
+    qtbot.waitUntil(lambda: host.height() > host.parentWidget().height(), timeout=2000)
     stack = [panel.title, panel.subtitle] + [panel.form.itemAt(i).widget()
                                              for i in range(panel.form.count())]
     stack = [w for w in stack if w is not None and w.isVisible()]
     labels_bottom = max(w.mapTo(host, w.rect().bottomLeft()).y() for w in stack)
-    buttons = sorted((b for b in panel.findChildren(ElidedButton) if b.isVisible()),
-                     key=lambda b: b.y())
-    assert labels_bottom < buttons[0].y()
-    assert all(b2.y() >= b1.y() + b1.height() for b1, b2 in zip(buttons, buttons[1:], strict=False))
+    # boutons : principal en pleine largeur, secondaires cote a cote (maquette
+    # M4) ; aucun ne chevauche les informations ni un autre bouton
+    buttons = [b for b in panel.findChildren(QPushButton)
+               if b.isVisible() and b.objectName() in ("detailPrimary", "detailAction",
+                                                       "detailMore")]
+    rects = [b.rect().translated(b.mapTo(host, b.rect().topLeft())) for b in buttons]
+    assert labels_bottom < min(r.top() for r in rects)
+    assert not any(a.intersects(b) for i, a in enumerate(rects) for b in rects[i + 1:])
+    assert any(b.objectName() == "detailMore" for b in buttons)
 
 
 def test_grid_top_fades_only_once_scrolled(window, qtbot, mangas, store):

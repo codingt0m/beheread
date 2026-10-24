@@ -36,9 +36,10 @@ from beheread.infra.database import DatabaseTooNew
 from beheread.infra.single_instance import SingleInstance, send_to_primary
 from beheread.infra.storage import Store, data_dir
 from beheread.services.anilist_tracker import AniListTracker
+from beheread.services.cloud_sync import CloudSync
 from beheread.services.servers import ServerManager
 from beheread.services.tracking import TrackerSet
-from beheread.ui import appicon, keys, theme
+from beheread.ui import appicon, keys, style, theme
 from beheread.ui.library.widget import LibraryWidget
 from beheread.ui.library.workers import CallWorker
 from beheread.ui.reader.widget import ReaderWidget
@@ -136,8 +137,11 @@ class MainWindow(QMainWindow):
         # serveurs de lecture (Komga, Kavita, OPDS ; desactives par defaut) :
         # la progression de leurs tomes leur est renvoyee comme a un service de suivi
         self.servers = ServerManager(store, self)
-        self.trackers = TrackerSet([self.tracker, self.servers])
-        self.library.set_services(tracker=self.tracker)
+        # synchronisation de la lecture entre appareils par un dossier cloud
+        self.cloud_sync = CloudSync(store, self)
+        self.cloud_sync.synced.connect(lambda _r: self.library.refresh())
+        self.trackers = TrackerSet([self.tracker, self.servers, self.cloud_sync])
+        self.library.set_services(tracker=self.tracker, cloud_sync=self.cloud_sync)
         self.library.set_servers(self.servers)
         self.library.volumesFinished.connect(self.trackers.on_volumes_finished)
         QTimer.singleShot(3000, self.trackers.flush_pending)   # envois restes en attente
@@ -407,6 +411,7 @@ class MainWindow(QMainWindow):
     def closeEvent(self, event):
         if self.reader is not None:
             self.reader.close_reader()
+        self.cloud_sync.push_on_close()
         self.store.flush()   # garantit l'ecriture des dernieres modifications differees
         super().closeEvent(event)
 
@@ -439,7 +444,7 @@ def apply_theme(app: QApplication, mode: str, accent=None):
     app.setPalette(p)
     app.setStyleSheet(
         f"QLineEdit, QComboBox {{ color: {c['text']}; background: {c['panel']};"
-        f" border: 1px solid {c['border']}; border-radius: 5px; padding: 3px 6px; }}")
+        f" border: 1px solid {c['border']}; border-radius: {style.RADIUS_SM}px; padding: 3px 6px; }}")
 
 
 def _initial_file_from_argv(argv) -> str | None:

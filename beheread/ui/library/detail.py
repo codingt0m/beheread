@@ -3,7 +3,9 @@ annee, progression, fichier... de l'element selectionne, avec ses actions
 principales. Jusqu'ici ces informations n'etaient visibles qu'au survol.
 
 Le panneau est passif : la bibliotheque lui fournit un contenu tout pret
-(show_content) et les actions a proposer (libelle + fonction)."""
+(show_content) et les actions a proposer (libelle + fonction). Maquette M4
+validee : une action principale, deux secondaires cote a cote, puis « ⋯ »
+qui ouvre le menu contextuel de l'element (toutes les autres actions)."""
 
 from PySide6.QtCore import QSize, Qt
 from PySide6.QtGui import QPixmap
@@ -21,7 +23,7 @@ from PySide6.QtWidgets import (
 )
 
 from beheread.i18n import tr
-from beheread.ui import theme
+from beheread.ui import style, theme
 from beheread.ui.flow import FlowLayout
 from beheread.ui.safe_text import plain
 
@@ -232,10 +234,78 @@ class DetailPanel(QFrame):
                 w.hide()          # detruit plus tard : ne doit plus s'afficher d'ici la
                 w.deleteLater()
 
+    def _value_widget(self, value, link):
+        """Valeur d'une ligne d'informations, suivie d'un lien (« Changer »)
+        quand `link` = (libelle, fonction(position globale))."""
+        val = QLabel(value)
+        val.setObjectName("detailVal")
+        val.setTextFormat(Qt.PlainText)
+        val.setWordWrap(True)
+        val.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        val.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+        if link is None:
+            return val
+        host = QWidget()
+        row = QHBoxLayout(host)
+        row.setContentsMargins(0, 0, 0, 0)
+        row.setSpacing(8)
+        row.addWidget(val, 1)
+        label, fn = link
+        btn = QPushButton(label)
+        btn.setObjectName("detailLink")
+        btn.setCursor(Qt.PointingHandCursor)
+        btn.clicked.connect(lambda: fn(btn.mapToGlobal(btn.rect().bottomLeft())))
+        row.addWidget(btn, 0, Qt.AlignTop)
+        return host
+
+    def _add_actions(self, actions, more):
+        """Principale(s) en pleine largeur ; secondaires deux par rangee, la
+        derniere rangee finissant par « ⋯ » (more : fonction(position globale)
+        qui ouvre le menu de l'element)."""
+        secondary = []
+        for label, fn, primary in actions:
+            b = ElidedButton(label)
+            b.setObjectName("detailPrimary" if primary else "detailAction")
+            b.setCursor(Qt.PointingHandCursor)
+            b.clicked.connect(fn)
+            if primary:
+                self._actions_box.addWidget(b)
+            else:
+                secondary.append(b)
+        rows = [secondary[i:i + 2] for i in range(0, len(secondary), 2)] or [[]]
+        for i, buttons in enumerate(rows):
+            last = i == len(rows) - 1
+            if not buttons and not (last and more):
+                continue
+            host = QWidget()
+            row = QHBoxLayout(host)
+            row.setContentsMargins(0, 0, 0, 0)
+            row.setSpacing(6)
+            for b in buttons:
+                # marges internes plus etroites (feuille de style) ; la place
+                # se partage selon la longueur des libelles
+                b.PADDING = 16
+                row.addWidget(b, b.fontMetrics().horizontalAdvance(b.full_text()) + b.PADDING)
+            if last and more is not None:
+                dots = QPushButton("⋯")
+                dots.setObjectName("detailMore")
+                dots.setCursor(Qt.PointingHandCursor)
+                dots.setFixedWidth(32)
+                dots.setToolTip(tr("Plus d'actions"))
+                dots.setAccessibleName(tr("Plus d'actions"))
+                dots.clicked.connect(
+                    lambda _c=False, d=dots: more(d.mapToGlobal(d.rect().bottomLeft())))
+                if not buttons:
+                    row.addStretch(1)
+                row.addWidget(dots)
+            self._actions_box.addWidget(host)
+
     def show_content(self, cover: QPixmap, title: str, subtitle: str, rows, actions,
-                     notice=None, genres=(), summary=""):
-        """rows : [(libelle, valeur)] (valeurs vides ignorees) ;
+                     notice=None, genres=(), summary="", more=None):
+        """rows : [(libelle, valeur)] ou [(libelle, valeur, (lien, fonction))]
+        (valeurs vides ignorees) ;
         actions : [(libelle, fonction, principale)] ;
+        more : fonction(position globale) du bouton « ⋯ » (menu de l'element) ;
         notice : (texte, libelle du bouton, fonction) d'un avertissement
         (recherche en echec), affiche apres les informations ;
         genres, summary : genres et resume de l'oeuvre (base en ligne)."""
@@ -248,25 +318,14 @@ class DetailPanel(QFrame):
         self.subtitle.setVisible(bool(subtitle))
         self._set_genres(genres)
         self._set_summary(summary)
-        for label, value in rows:
+        for label, value, *link in rows:
             if not value:
                 continue
             k = QLabel(label)
             k.setObjectName("detailKey")
-            val = QLabel(value)
-            val.setObjectName("detailVal")
-            val.setTextFormat(Qt.PlainText)
-            val.setWordWrap(True)
-            val.setTextInteractionFlags(Qt.TextSelectableByMouse)
-            val.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
-            self.form.addRow(k, val)
+            self.form.addRow(k, self._value_widget(value, link[0] if link else None))
         self._set_notice(notice)
-        for label, fn, primary in actions:
-            b = ElidedButton(label)
-            b.setObjectName("detailPrimary" if primary else "detailAction")
-            b.setCursor(Qt.PointingHandCursor)
-            b.clicked.connect(fn)
-            self._actions_box.addWidget(b)
+        self._add_actions(actions, more)
 
     def _set_genres(self, genres):
         while self.genres.count():
@@ -331,18 +390,21 @@ class DetailPanel(QFrame):
                 padding: 0; font-size: 12px; text-align: left;
             }}
             QPushButton#detailLink:hover {{ text-decoration: underline; }}
-            QPushButton#detailPrimary {{
-                color: {theme.ON_ACCENT}; background: {theme.ACCENT}; border: none;
-                border-radius: 8px; padding: 8px 14px; font-size: 13px; font-weight: 700;
-            }}
-            QPushButton#detailPrimary:hover {{ background: {theme.ACCENT_HOVER}; }}
             QPushButton#detailAction {{
                 color: {c['text']}; background: {c['button']};
                 border: 1px solid {c['border']}; border-radius: 8px;
-                padding: 6px 12px; font-size: 12px; text-align: left;
+                padding: 6px 6px; font-size: 12px;
             }}
             QPushButton#detailAction:hover {{ background: {c['button_hover']}; }}
+            QPushButton#detailMore {{
+                color: {c['text']}; background: {c['button']};
+                border: 1px solid {c['border']}; border-radius: 8px;
+                padding: 2px 0 5px 0; font-size: 18px; font-weight: 700;
+            }}
+            QPushButton#detailMore:hover {{ background: {c['button_hover']}; }}
             QPushButton:focus {{ border: 2px solid {c['text']}; }}
+            {style.primary_button("QPushButton#detailPrimary",
+                                  "border-radius: 8px; padding: 8px 14px; font-size: 13px;")}
             #detailNotice {{
                 background: {c['warning_bg']}; border: 1px solid {c['warning_border']};
                 border-radius: 8px;

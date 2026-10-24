@@ -9,7 +9,7 @@ import os
 import time
 from pathlib import Path
 
-from PySide6.QtWidgets import QDialog, QInputDialog, QLineEdit, QMessageBox
+from PySide6.QtWidgets import QDialog, QMessageBox
 
 from beheread import platforms
 from beheread.core.library_model import FINISHED, aggregate_series_info
@@ -21,6 +21,7 @@ from beheread.ui import theme
 
 # modules extraits (voir chacun) : constantes de rendu, delegates, dialogues et
 # taches d'arriere-plan. LibraryWidget (ci-dessous) orchestre le tout.
+from beheread.ui.library import prompt
 from beheread.ui.library.constants import ROLE_IS_SERIES, ROLE_PATH, ROLE_SERIES_KEY
 from beheread.ui.library.dialogs import CoverDialog, EditInfoDialog, UnreadableDialog
 from beheread.ui.safe_text import plain
@@ -64,9 +65,9 @@ class ActionsMixin:
         if not choices and not editable:
             QMessageBox.information(self, title, tr("Aucune autre série dans la bibliothèque."))
             return None
-        name, ok = QInputDialog.getItem(self, title, label, list(choices), 0, editable)
-        name = (name or "").strip()
-        if not ok or not name:
+        name = (prompt.ask_choice(self, title, label, list(choices), editable=editable,
+                                  ok_label=tr("Déplacer")) or "").strip()
+        if not name:
             return None
         return choices.get(name, name)
 
@@ -92,11 +93,11 @@ class ActionsMixin:
 
     def _rename_series(self, key):
         current = self._series_display_name.get(key, key)
-        name, ok = QInputDialog.getText(
+        name = prompt.ask_text(
             self, tr("Renommer la série"),
-            tr("Nom affiché (laisser vide pour revenir au nom détecté) :"),
-            QLineEdit.Normal, current)
-        if not ok:
+            tr("Nom affiché (laisser vide pour revenir au nom détecté) :"), current,
+            ok_label=tr("Renommer"))
+        if name is None:
             return
         name = name.strip()
         raw = self._series_raw_name.get(key)
@@ -174,40 +175,40 @@ class ActionsMixin:
                        *(f"com{i}" for i in range(1, 10)),
                        *(f"lpt{i}" for i in range(1, 10))}
 
+    def _stem_error(self, path: Path, text: str) -> str:
+        """Pourquoi `text` ne peut pas servir de nom a ce fichier ("" s'il le
+        peut) ; affiche sous le champ de saisie avant toute validation."""
+        stem = text.strip().rstrip(" .")
+        if not stem or stem == path.stem:
+            return ""
+        if (self._INVALID_NAME_CHARS & set(stem)) or any(ord(c) < 32 for c in stem):
+            return (tr("Un nom de fichier ne peut pas contenir les caractères :")
+                    + ' < > : " / \\ | ? *')
+        # "CON", "NUL", "COM1"... sont reserves par Windows, meme avec extension
+        if stem.split(".")[0].lower() in self._RESERVED_NAMES:
+            return tr("« {name} » est un nom réservé par Windows et ne peut pas "
+                      "être utilisé comme nom de fichier.", name=stem)
+        if path.with_name(stem + path.suffix).exists():
+            return tr("Un fichier nommé « {name} » existe déjà dans ce dossier.",
+                      name=stem + path.suffix)
+        return ""
+
     def _rename_tome(self, path: str):
         """Renomme le vrai fichier sur le disque (l'extension est conservee).
         La progression, les metadonnees, la vignette et les regroupements
         manuels sont indexes par contenu : ils suivent le fichier renomme."""
         p = Path(path)
         old_stem = p.stem
-        new_stem, ok = QInputDialog.getText(
+        new_stem = prompt.ask_text(
             self, tr("Renommer le fichier"),
-            tr("Nouveau nom (sans l'extension) :"), QLineEdit.Normal, old_stem)
-        if not ok:
+            tr("Nouveau nom (sans l'extension) :"), old_stem,
+            validate=lambda text: self._stem_error(p, text), ok_label=tr("Renommer"))
+        if new_stem is None:
             return
         new_stem = new_stem.strip().rstrip(" .")   # Windows interdit un nom finissant par espace/point
         if not new_stem or new_stem == old_stem:
             return
-        if (self._INVALID_NAME_CHARS & set(new_stem)) or any(ord(c) < 32 for c in new_stem):
-            QMessageBox.warning(
-                self, tr("Nom invalide"),
-                tr("Un nom de fichier ne peut pas contenir les caractères :")
-                + '\n< > : " / \\ | ? *')
-            return
-        # "CON", "NUL", "COM1"... sont reserves par Windows, meme avec extension
-        if new_stem.split(".")[0].lower() in self._RESERVED_NAMES:
-            QMessageBox.warning(
-                self, tr("Nom invalide"),
-                tr("« {name} » est un nom réservé par Windows et ne peut pas "
-                   "être utilisé comme nom de fichier.", name=new_stem))
-            return
-
         target = p.with_name(new_stem + p.suffix)
-        if target.exists():
-            QMessageBox.warning(
-                self, tr("Renommage impossible"),
-                tr("Un fichier nommé « {name} » existe déjà dans ce dossier.", name=target.name))
-            return
 
         try:
             p.rename(target)

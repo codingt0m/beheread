@@ -142,12 +142,13 @@ def main(out: Path):
     lib.list.setCurrentRow(0)
     grab(window, "03-bibliotheque-details")
 
-    # -- preferences, onglet par onglet
+    # -- preferences, rubrique par rubrique (la carte AniList est depliee)
     prefs = PreferencesDialog(store, theme.colors("dark"), {})
-    _offscreen(prefs, (prefs.sizeHint().width(), prefs.sizeHint().height()))
-    for i in range(prefs.tabs.count()):
-        prefs.tabs.setCurrentIndex(i)
-        grab(prefs, f"04-preferences-{i + 1}-{prefs.tabs.tabText(i).lower()}")
+    _offscreen(prefs, (prefs.width(), prefs.height()))
+    for i in range(prefs.nav.count()):
+        prefs.nav.setCurrentRow(i)
+        label = prefs.nav.item(i).text().lower().replace(" ", "-")
+        grab(prefs, f"04-preferences-{i + 1}-{label}")
     prefs.close()
 
     # -- statistiques

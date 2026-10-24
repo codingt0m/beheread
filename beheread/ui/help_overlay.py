@@ -7,7 +7,7 @@ from PySide6.QtWidgets import QFrame, QGridLayout, QHBoxLayout, QLabel, QVBoxLay
 
 from beheread import platforms
 from beheread.i18n import N_, tr
-from beheread.ui import keys, theme
+from beheread.ui import keys, style, theme
 
 # (titre de section, [(touches, description)]) ; plusieurs touches separees
 # par " / " sont affichees comme des pastilles distinctes. Les touches sont
@@ -56,6 +56,7 @@ LIBRARY_SHORTCUTS = [
         ("Suppr", N_("Supprimer la sélection (avec confirmation)")),
         ("Ctrl + Clic / Maj + Clic", N_("Sélection multiple")),
         ("Clic droit", N_("Actions sur la sélection")),
+        ("I", N_("Afficher / masquer le panneau d'informations")),
         ("F5", N_("Rafraîchir")),
         ("Glisser-déposer", N_("Un dossier pour l'ajouter, un fichier pour l'ouvrir")),
     ]),
@@ -118,7 +119,7 @@ def sections_css(c) -> str:
         #kbd {{
             color: {c['text']}; background: {c['button']};
             border: 1px solid {c['border']}; border-bottom-width: 2px;
-            border-radius: 5px; padding: 1px 7px;
+            border-radius: {style.RADIUS_SM}px; padding: 1px 7px;
             font-size: 12px; font-weight: 600;
         }}
     """

@@ -10,9 +10,7 @@ from pathlib import Path
 from PySide6.QtCore import QLocale, Qt, QThreadPool
 from PySide6.QtWidgets import (
     QApplication,
-    QDialog,
     QFileDialog,
-    QInputDialog,
     QMessageBox,
 )
 
@@ -27,6 +25,7 @@ from beheread.ui import theme
 
 # modules extraits (voir chacun) : constantes de rendu, delegates, dialogues et
 # taches d'arriere-plan. LibraryWidget (ci-dessous) orchestre le tout.
+from beheread.ui.library import prompt
 from beheread.ui.library.dialogs import PreferencesDialog
 from beheread.ui.library.workers import CallWorker
 from beheread.ui.safe_text import plain
@@ -41,29 +40,36 @@ class ServicesMixin:
                    "clear_meta": self._clear_downloaded_meta,
                    "export": self._export_backup, "import": self._import_backup,
                    "export_csv": self._export_reading_csv,
-                   "check_updates": lambda report: self.check_updates(True, report)}
-        dlg = PreferencesDialog(self.store, c, actions, self.tracker, self, servers=self.servers)
-        if dlg.exec() != QDialog.Accepted:
-            return
-        was_online = self._online_meta()
+                   "check_updates": lambda report: self.check_updates(True, report),
+                   "manage_folders": self.manage_folders}
+        dlg = PreferencesDialog(self.store, c, actions, self.tracker, self, servers=self.servers,
+                                cloud_sync=self.cloud_sync)
         system = QLocale.system().name()
         old_language = i18n.resolve(self.store.ui_pref("language", "system"), system)
-        dlg.save()
-        self._show_continue = bool(self.store.library_pref("show_continue", True))
-        self._set_details_visible(bool(self.store.library_pref("show_details", False)))
-        self._set_view_mode(self.store.library_pref("view_mode", "grid"))
-        self._set_group_series(self.store.library_pref("group_series", False))
+        # chaque reglage s'applique des qu'il change (maquette M2)
+        self._applied_prefs = self._prefs_snapshot()
+        dlg.applied.connect(self._apply_preferences)
+        dlg.exec()
+        # langue effectivement differente (« systeme » peut valoir la langue
+        # choisie avant) : redemarrage a la fermeture, les textes etant
+        # traduits a la creation des fenetres
+        if i18n.resolve(self.store.ui_pref("language", "system"), system) != old_language:
+            self.restartRequested.emit()
+
+    def _prefs_snapshot(self):
+        return self._online_meta(), bool(self.store.ui_pref("servers_enabled", False))
+
+    def _apply_preferences(self):
+        """Applique les preferences que le dialogue vient d'enregistrer."""
+        was_online, servers_were_on = self._applied_prefs
+        self._applied_prefs = self._prefs_snapshot()
         if self._online_meta() and not was_online:
             self.meta.forget_failures()
         archive.set_extra_page_words(self.store.library_pref("extra_page_words"))
-        if self.servers is not None:
+        if self.servers is not None and self._applied_prefs[1] != servers_were_on:
             self.servers.reload()   # option activee ou desactivee
         self._rebuild_list()
         self.preferencesChanged.emit()
-        # langue effectivement differente (« systeme » peut valoir la langue
-        # choisie avant) : redemarrage, les textes etant traduits a la creation
-        if i18n.resolve(self.store.ui_pref("language", "system"), system) != old_language:
-            self.restartRequested.emit()
 
     def _clear_thumbnails(self) -> int:
         n = self.store.clear_thumbnails()
@@ -78,9 +84,10 @@ class ServicesMixin:
         self._rebuild_list()
         return n
 
-    # ----- service de suivi AniList, fourni par app.py -----
-    def set_services(self, tracker=None):
+    # ----- services fournis par app.py : suivi AniList, synchronisation -----
+    def set_services(self, tracker=None, cloud_sync=None):
         self.tracker = tracker
+        self.cloud_sync = cloud_sync
         if tracker is not None:
             tracker.seriesUpdated.connect(lambda _key: self._update_detail())
 
@@ -123,19 +130,18 @@ class ServicesMixin:
         if self.tracker is None:
             return
         name = self._series_display_name.get(key, key)
-        text, ok = QInputDialog.getText(
+        text = prompt.ask_text(
             self, tr("Associer à AniList"),
-            plain(tr("Adresse de la page AniList de « {name} »\n"
-                     "(par exemple https://anilist.co/manga/30002/Berserk) ou son numéro :",
-                     name=name)))
-        if not ok or not text.strip():
+            tr("Adresse de la page AniList de « {name} »\n"
+               "(par exemple https://anilist.co/manga/30002/Berserk) ou son numéro :",
+               name=name),
+            validate=lambda t: (tr("Adresse non reconnue : copiez l'adresse d'une page "
+                                   "« anilist.co/manga/… ».")
+                                if t.strip() and anilist.parse_media_ref(t) is None else ""),
+            ok_label=tr("Associer"))
+        if text is None or not text.strip():
             return
         media_id = anilist.parse_media_ref(text)
-        if media_id is None:
-            QMessageBox.warning(self, tr("Associer à AniList"),
-                                tr("Adresse non reconnue : copiez l'adresse d'une page "
-                                   "« anilist.co/manga/… »."))
-            return
         token = self.store.anilist_token()
         if not token:
             QMessageBox.warning(self, tr("Associer à AniList"),

@@ -22,7 +22,7 @@ from PySide6.QtWidgets import (
 
 from beheread.core import stats
 from beheread.i18n import fmt_int, tr, trn
-from beheread.ui import theme
+from beheread.ui import style, theme
 from beheread.ui.safe_text import plain
 
 SIZE = QSize(1080, 1350)
@@ -181,8 +181,7 @@ class RecapDialog(QDialog):
             QPushButton {{ color: {colors['text']}; background: {colors['button']};
                            border: 1px solid {colors['border']}; border-radius: 8px; padding: 6px 14px; }}
             QPushButton:hover {{ background: {colors['button_hover']}; }}
-            QPushButton#primary {{ color: {theme.ON_ACCENT}; background: {theme.ACCENT};
-                                   border: none; font-weight: 700; }}""")
+            """ + style.primary_button("QPushButton#primary"))
         root = QVBoxLayout(self)
         root.setContentsMargins(22, 18, 22, 16)
         root.setSpacing(12)

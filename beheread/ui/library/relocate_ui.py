@@ -136,6 +136,25 @@ class RelocateMixin:
             actions[act] = folder
         return actions
 
+    def _add_folder_actions(self, menu, paths):
+        """Entrees « Dossier « D:\\BD » » du sous-menu Ranger (l'actuel grise),
+        precedees d'un separateur ; {action: dossier}, vide si rien a
+        proposer (voir _add_move_menu)."""
+        paths = self._movable(paths)
+        folders = self.store.folders()
+        if not paths or len(folders) < 2:
+            return {}
+        menu.addSeparator()
+        roots = {relocate.source_root(p, folders) for p in paths}
+        actions = {}
+        for folder in folders:
+            current = roots == {folder}
+            act = menu.addAction(tr("Dossier « {folder} » · actuel", folder=folder) if current
+                                 else tr("Dossier « {folder} »", folder=folder))
+            act.setEnabled(not current)
+            actions[act] = folder
+        return actions
+
     def _movable(self, paths):
         """Fichiers locaux seulement : ni tome d'un serveur, ni tome virtuel
         (ses chapitres, eux, se deplacent)."""

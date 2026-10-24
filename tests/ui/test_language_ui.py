@@ -47,7 +47,7 @@ def test_library_and_preferences_are_built_in_english(qtbot, store):
     dlg = PreferencesDialog(store, theme.colors("dark"), {})
     qtbot.addWidget(dlg)
     assert dlg.windowTitle() == "Preferences"
-    assert "Save" in {b.text() for b in dlg.findChildren(QPushButton)}
+    assert "Close" in {b.text() for b in dlg.findChildren(QPushButton)}
 
 
 def test_statistics_are_built_in_english(qtbot, store):

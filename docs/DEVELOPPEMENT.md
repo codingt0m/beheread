@@ -123,7 +123,7 @@ beheread/
     anilist_tracker.py   Suivi AniList : file d'attente, envois en fin de séance
     servers.py           Serveurs de lecture : clients actifs, listes des tomes, synchronisation de la progression
   ui/
-    theme.py, icons.py, help_overlay.py
+    theme.py, style.py (rayons, tailles, bouton principal communs), icons.py, help_overlay.py
     stats_view.py        Fenêtre des statistiques (assemblage du rapport)
     flow.py              Disposition en flux (pastilles qui passent à la ligne)
     charts.py            Composants graphiques des statistiques (tuiles, histogramme, calendrier…)
@@ -137,9 +137,12 @@ beheread/
       detail_panel.py    Panneau d'informations
       series_band.py     Bandeau d'une série ouverte : tomes possédés et manquants
       sources.py         Source de la bibliothèque (cet ordinateur ou un serveur), sélecteur de l'en-tête
-      servers_ui.py      Préférences > Serveurs et fenêtre d'ajout d'un serveur
+      servers_ui.py      Carte « Serveurs de lecture » des préférences et fenêtre d'ajout d'un serveur
       actions.py         Actions sur les tomes et séries (marquer lu, renommer, supprimer, fusionner…)
-      menus.py           Menus contextuels
+      menus.py           Menus contextuels (ActionMenu : une action, sa fonction ; EXTENSIONS pour perso)
+      prompt.py          Saisies aux couleurs de l'application, avec validation sous le champ
+      search_ui.py       Recherche de la bibliothèque (mixin)
+      series_ui.py       Unités, dossiers de série et leur contenu (mixin)
       services.py        Préférences, statistiques, sauvegarde, AniList
       views.py, delegates.py, shelf.py, detail.py, dialogs.py, workers.py, constants.py
     reader/              Lecteur

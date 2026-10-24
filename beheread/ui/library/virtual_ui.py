@@ -18,7 +18,6 @@ from PySide6.QtWidgets import (
     QLabel,
     QListWidget,
     QListWidgetItem,
-    QMenu,
     QMessageBox,
     QPushButton,
     QSpinBox,
@@ -30,9 +29,10 @@ from beheread.core.models import LibraryEntry
 from beheread.core.series import normalize_name
 from beheread.i18n import tr, trn
 from beheread.infra import mangadex, virtual
-from beheread.ui import theme
+from beheread.ui import style, theme
 from beheread.ui.library.constants import ROLE_PATH
 from beheread.ui.library.dialogs import _dialog_css
+from beheread.ui.library.menus import ActionMenu
 from beheread.ui.library.workers import CallWorker
 from beheread.ui.safe_text import plain
 
@@ -238,8 +238,7 @@ class VirtualMixin:
             QLabel {{ color: {c['text']}; font-size: 14px; }}
             QPushButton {{ color: {c['text']}; background: transparent;
                            border: 1px solid {c['border']}; border-radius: 6px; padding: 6px 14px; }}
-            QPushButton#primary {{ color: {theme.ON_ACCENT}; background: {theme.ACCENT};
-                                   border: none; font-weight: 700; }}""")
+            """ + style.primary_button("QPushButton#primary"))
         bar.adjustSize()
         area = self.list_host.rect()
         bar.move(area.center().x() - bar.width() // 2, area.bottom() - bar.height() - 20)
@@ -360,32 +359,22 @@ class VirtualMixin:
 
     # ------------------------------------------------------------ menu d'un tome virtuel
     def _show_virtual_menu(self, path, global_pos):
-        menu = QMenu(self)
-        act_open = menu.addAction(tr("Lire"))
-        finished = (self.store.get_progress(path) or (0, 0, False))[2]
-        act_read = None if finished else menu.addAction(tr("Marquer comme lu"))
-        menu.addSeparator()
-        act_chapters = menu.addAction(tr("Ajouter ou retirer des chapitres…"))
-        act_number = menu.addAction(tr("Changer le numéro…"))
-        act_cover = menu.addAction(tr("Choisir la couverture…"))
-        menu.addSeparator()
-        act_dissolve = menu.addAction(tr("Dissocier (garder les chapitres)"))
-        chosen = menu.exec(global_pos)
-        if chosen is None:
-            return
-        if chosen == act_open:
-            self.mangaActivated.emit(path)
-        elif act_read is not None and chosen == act_read:
-            self._mark_finished(path)
-            self._rebuild_list()
-        elif chosen == act_chapters:
-            self._edit_virtual_chapters(path)
-        elif chosen == act_number:
-            self._renumber_virtual(path)
-        elif chosen == act_cover:
-            self._choose_cover(path)
-        elif chosen == act_dissolve:
-            self._dissolve_virtual(path)
+        m = ActionMenu(self)
+        m.add(tr("Ouvrir"), lambda: self.mangaActivated.emit(path), default=True)
+        m.separator()
+        if (self.store.get_progress(path) or (0, 0, False))[2]:
+            m.add(tr("Marquer comme non lu"),
+                  lambda: (self._mark_unread(path), self._rebuild_list()))
+        else:
+            m.add(tr("Marquer comme lu"),
+                  lambda: (self._mark_finished(path), self._rebuild_list()))
+        m.separator()
+        m.add(tr("Ajouter ou retirer des chapitres…"), lambda: self._edit_virtual_chapters(path))
+        m.add(tr("Changer le numéro…"), lambda: self._renumber_virtual(path))
+        m.add(tr("Choisir la couverture…"), lambda: self._choose_cover(path))
+        m.separator()
+        m.add(tr("Dissocier (garder les chapitres)"), lambda: self._dissolve_virtual(path))
+        m.exec(global_pos)
 
     # ------------------------------------------------------------ couverture officielle
     def _official_fetcher(self, key, number):

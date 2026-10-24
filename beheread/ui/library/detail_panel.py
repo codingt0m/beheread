@@ -9,7 +9,6 @@ import time
 
 from PySide6.QtGui import QPixmap
 
-from beheread import platforms
 from beheread.core import units
 from beheread.core.library_model import (
     FINISHED,
@@ -33,6 +32,7 @@ from beheread.ui.library.constants import (
     ROLE_SERIES_PATHS,
 )
 from beheread.ui.library.detail import breakable
+from beheread.ui.library.menus import ActionMenu
 
 
 class DetailPanelMixin:
@@ -131,6 +131,8 @@ class DetailPanelMixin:
         if is_virtual:   # pas de fichier : ses chapitres
             rows[-1] = (tr("Chapitres"),
                         self._members_text(self._virtual_members.get(path) or []))
+        # maquette M4 : l'action principale, deux secondaires, puis « ⋯ » (le
+        # menu contextuel du tome : toutes les autres actions)
         primary = {READING: tr("Reprendre la lecture"), FINISHED: tr("Relire")}.get(status, tr("Lire"))
         actions = [(primary, lambda: self.mangaActivated.emit(path), True)]
         if status == FINISHED:
@@ -140,24 +142,15 @@ class DetailPanelMixin:
             actions.append((tr("Marquer comme lu"),
                             lambda: (self._mark_finished(path), self._rebuild_list()), False))
         if is_virtual:
-            actions += [
-                (tr("Ajouter ou retirer des chapitres…"),
-                 lambda: self._edit_virtual_chapters(path), False),
-                (tr("Dissocier (garder les chapitres)"),
-                 lambda: self._dissolve_virtual(path), False),
-            ]
+            actions.append((tr("Chapitres…"), lambda: self._edit_virtual_chapters(path), False))
         else:
-            actions += [
-                (tr("Modifier les informations…"), lambda: self._edit_volume_info(path), False),
-                (tr("Déplacer vers une série…"), lambda: self._move_to_series([path]), False),
-            ]
-        if not server and not is_virtual:
-            actions.append((tr(platforms.REVEAL_LABEL), lambda: self._show_in_explorer(path), False))
+            actions.append((tr("Modifier…"), lambda: self._edit_volume_info(path), False))
         if info.series_key and not e.detached:
-            self._add_anilist_detail(info.series_key, path, rows, actions)
+            self._add_anilist_detail(info.series_key, path, rows)
         genres, summary = self._work_details(meta, info.series_key)
         self.detail.show_content(self._cover_for_detail(path), info.title, subtitle,
-                                 rows, actions, self._metadata_notice(e), genres, summary)
+                                 rows, actions, self._metadata_notice(e), genres, summary,
+                                 more=lambda pos: self._show_volume_menu([path], pos))
 
     def _work_details(self, meta, series_key):
         """(genres, resume) de l'oeuvre : ceux de la serie, sinon du tome."""
@@ -248,32 +241,30 @@ class DetailPanelMixin:
             label = (tr("Continuer : {title}", title=title) if started
                      else tr("Commencer : {title}", title=title))
         actions = [(label, lambda: self.mangaActivated.emit(fpath), True),
-                   (tr("Ouvrir la série"), lambda: self._enter_series(key), False)]
-        if agg.status != FINISHED:
-            actions.append((tr("Marquer la série comme lue"),
-                            lambda: self._mark_series_finished(key), False))
-        actions += [
-            (tr("Modifier les informations…"), lambda: self._edit_series_info(key), False),
-            (tr("Renommer la série…"), lambda: self._rename_series(key), False),
-            (tr("Fusionner avec une autre série…"), lambda: self._merge_series(key), False),
-        ]
-        self._add_anilist_detail(key, fpath, rows, actions)
+                   (tr("Ouvrir la série"), lambda: self._enter_series(key), False),
+                   (tr("Modifier…"), lambda: self._edit_series_info(key), False)]
+        self._add_anilist_detail(key, fpath, rows)
         genres, summary = self._work_details(None, key)
         self.detail.show_content(self._cover_for_detail(fpath), name, byline,
-                                 rows, actions, None, genres, summary)
+                                 rows, actions, None, genres, summary,
+                                 more=lambda pos: self._show_series_menu(key, pos))
 
-    def _add_anilist_detail(self, key, path, rows, actions):
-        """Ligne « AniList » et actions d'association du panneau d'informations
-        (seulement si un compte AniList est connecte)."""
+    def _add_anilist_detail(self, key, path, rows):
+        """Ligne « AniList » du panneau d'informations, avec son lien
+        « Changer » (association, suivi) ; seulement si un compte AniList est
+        connecte."""
         if self.tracker is None or not self.tracker.connected():
             return
         text, mapping = self.tracker.series_state(key)
-        rows.append(("AniList", text))
-        actions.append((tr("Associer à AniList…"), lambda: self._associate_anilist(key, path), False))
+        rows.append(("AniList", text,
+                     (tr("Changer"), lambda pos: self._anilist_menu(key, path, mapping, pos))))
+
+    def _anilist_menu(self, key, path, mapping, global_pos):
+        m = ActionMenu(self)
+        m.add(tr("Associer à une autre fiche AniList…"), lambda: self._associate_anilist(key, path))
         if mapping.get("ignored"):
-            actions.append((tr("Suivre sur AniList"),
-                            lambda: (self.tracker.associate(key), self.tracker.resync_series(key, path)),
-                            False))
+            m.add(tr("Suivre sur AniList"),
+                  lambda: (self.tracker.associate(key), self.tracker.resync_series(key, path)))
         else:
-            actions.append((tr("Ne pas suivre sur AniList"),
-                            lambda: self.tracker.associate(key, ignore=True), False))
+            m.add(tr("Ne pas suivre sur AniList"), lambda: self.tracker.associate(key, ignore=True))
+        m.exec(global_pos)

@@ -33,8 +33,7 @@ def test_choosing_an_accent_recolors_the_whole_window(window, qtbot, store):
     assert dlg._swatches[theme.DEFAULT_ACCENT].isChecked() and not dlg.accent_reset.isEnabled()
     dlg._swatches[GREEN].click()
     assert dlg._swatches[GREEN].isChecked() and dlg.accent_reset.isEnabled()
-    assert store.ui_pref("accent") is None   # rien n'est ecrit avant « Enregistrer »
-    dlg.save()
+    assert store.ui_pref("accent") == GREEN   # applique tout de suite (maquette M2)
     window.apply_preferences()
 
     assert store.ui_pref("accent") == GREEN and theme.ACCENT == GREEN

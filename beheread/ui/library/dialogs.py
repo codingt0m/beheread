@@ -6,8 +6,16 @@ import html
 import time
 from pathlib import Path
 
-from PySide6.QtCore import QSize, Qt, QThreadPool, QTimer, QUrl, Signal
-from PySide6.QtGui import QColor, QDesktopServices, QIcon, QImage, QPixmap
+from PySide6.QtCore import QRectF, QSize, Qt, QThreadPool, QTimer, QUrl, Signal
+from PySide6.QtGui import (
+    QColor,
+    QDesktopServices,
+    QIcon,
+    QImage,
+    QPainter,
+    QPen,
+    QPixmap,
+)
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -29,17 +37,18 @@ from PySide6.QtWidgets import (
     QScrollArea,
     QSizePolicy,
     QSpinBox,
-    QTabWidget,
+    QStackedWidget,
     QToolButton,
     QVBoxLayout,
     QWidget,
 )
 
 from beheread import config, i18n, platforms
+from beheread.core import sync
 from beheread.i18n import N_, fmt_decimal, tr, trn
 from beheread.infra import anilist, archive
 from beheread.infra.anilist_auth import LocalAuthReceiver
-from beheread.ui import icons, theme
+from beheread.ui import icons, style, theme
 from beheread.ui.flow import FlowLayout
 from beheread.ui.help_overlay import (
     LIBRARY_SHORTCUTS,
@@ -320,15 +329,11 @@ def _dialog_css(c):
         QPushButton:hover {{ background: {c['button_hover']}; }}
         QPushButton:focus {{ border: 2px solid {theme.ACCENT}; }}
         QPushButton:disabled {{ color: {c['text_disabled']}; background: transparent; }}
-        QPushButton#primary {{
-            color: {theme.ON_ACCENT}; background: {theme.ACCENT}; border: none; font-weight: 700;
-        }}
-        QPushButton#primary:hover {{ background: {theme.ACCENT_HOVER}; }}
         QSpinBox {{
             color: {c['text']}; background: {c['panel']};
-            border: 1px solid {c['border']}; border-radius: 5px; padding: 3px 6px;
+            border: 1px solid {c['border']}; border-radius: {style.RADIUS_SM}px; padding: 3px 6px;
         }}
-    """
+    """ + style.primary_button("QPushButton#primary")
 
 
 def _buttons_row(dialog, ok_label):
@@ -356,74 +361,206 @@ ACCENT_PRESETS = [(N_("Rouge Behelit"), theme.DEFAULT_ACCENT), (N_("Orange"), "#
                   (N_("Bleu"), "#2f7fd6"), (N_("Violet"), "#8e5bd6"), (N_("Rose"), "#d6457f")]
 
 
+class _Switch(QCheckBox):
+    """Interrupteur des reglages (case a cocher dessinee en glissiere)."""
+
+    W, H = 34, 18
+
+    def __init__(self, accessible_name, colors, parent=None):
+        super().__init__(parent)
+        self.colors = colors
+        self.setAccessibleName(accessible_name)
+        self.setCursor(Qt.PointingHandCursor)
+        self.setFixedSize(self.W + 4, self.H + 4)
+
+    def hitButton(self, pos):
+        return self.rect().contains(pos)
+
+    def paintEvent(self, _event):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing)
+        if not self.isEnabled():
+            p.setOpacity(0.4)
+        on = self.isChecked()
+        track = QRectF(2, 2, self.W, self.H)
+        if self.hasFocus():
+            p.setPen(QPen(QColor(theme.ACCENT), 2))
+            p.setBrush(Qt.NoBrush)
+            p.drawRoundedRect(track.adjusted(-1, -1, 1, 1), self.H / 2 + 1, self.H / 2 + 1)
+        p.setPen(Qt.NoPen)
+        p.setBrush(QColor(theme.ACCENT) if on else theme.qcolor(self.colors["border"]))
+        p.drawRoundedRect(track, self.H / 2, self.H / 2)
+        knob = self.H - 4
+        x = track.right() - knob - 2 if on else track.left() + 2
+        p.setBrush(QColor(theme.ON_ACCENT) if on else theme.qcolor(self.colors["text"]))
+        p.drawEllipse(QRectF(x, track.top() + 2, knob, knob))
+
+
 class PreferencesDialog(ServersTabMixin, QDialog):
-    """Reglages de l'application, en onglets. Les preferences simples ne sont
-    ecrites qu'a la validation (save) ; les actions (vider un cache, exporter,
-    importer, se connecter a AniList) agissent tout de suite, via les
-    fonctions fournies par l'appelant :
+    """Reglages de l'application, en cinq rubriques (maquette M2 validee) :
+    Apparence, Bibliotheque, Lecture, Comptes et synchronisation,
+    Confidentialite et donnees. Chaque reglage s'applique des qu'il change
+    (save() puis le signal applied) ; il n'y a qu'un bouton « Fermer ». Les
+    actions (vider un cache, exporter, importer, se connecter a AniList)
+    agissent elles aussi tout de suite, via les fonctions de l'appelant :
 
-    actions = {"clear_thumbs", "clear_meta", "export", "import"} -> fonctions ;
-    tracker = AniListTracker ou None."""
+    actions = {"clear_thumbs", "clear_meta", "export", "import", "export_csv",
+    "check_updates", "manage_folders"} -> fonctions ;
+    tracker = AniListTracker ou None ; cloud_sync = CloudSync ou None.
 
-    def __init__(self, store, colors, actions, tracker=None, parent=None, servers=None):
+    Les reglages de vue (grille ou liste, regroupement, panneau...) sont dans
+    le menu « Affichage » de la bibliotheque (maquette M3)."""
+
+    applied = Signal()   # un reglage a change et vient d'etre enregistre
+
+    def __init__(self, store, colors, actions, tracker=None, parent=None, servers=None,
+                 cloud_sync=None):
         super().__init__(parent)
         self.store = store
         self.c = colors
         self.actions = actions
         self.tracker = tracker
-        self.servers = servers   # ServerManager (onglet Serveurs), ou None
+        self.servers = servers   # ServerManager (Comptes et synchronisation), ou None
+        self.cloud_sync = cloud_sync
+        self._ready = False      # pas d'enregistrement pendant la construction
+        self._cards = []
+        self._detail_labels = []   # descriptions suivies du lien « Details »
         self.setWindowTitle(tr("Préférences"))
-        self.setMinimumWidth(620)
-        self.setStyleSheet(_dialog_css(colors) + f"""
+        self.setMinimumSize(720, 480)
+
+        root = QVBoxLayout(self)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(0)
+        body = QHBoxLayout()
+        body.setContentsMargins(0, 0, 0, 0)
+        body.setSpacing(0)
+        root.addLayout(body, 1)
+
+        # barre laterale : rubriques, et le lien vers les raccourcis clavier
+        side = QWidget()
+        side.setObjectName("prefSide")
+        side.setFixedWidth(210)
+        sv = QVBoxLayout(side)
+        sv.setContentsMargins(10, 14, 10, 12)
+        sv.setSpacing(4)
+        self.nav = QListWidget()
+        self.nav.setObjectName("prefNav")
+        self.nav.setAccessibleName(tr("Rubriques"))
+        self.nav.setFrameShape(QFrame.NoFrame)
+        sv.addWidget(self.nav, 1)
+        keys_link = QPushButton(tr("Raccourcis clavier"))
+        keys_link.setObjectName("detailsLink")
+        keys_link.setCursor(Qt.PointingHandCursor)
+        keys_link.clicked.connect(lambda: self._shortcuts_dialog().exec())
+        sv.addWidget(keys_link, 0, Qt.AlignLeft)
+        body.addWidget(side)
+
+        self.pages = QStackedWidget()
+        body.addWidget(self.pages, 1)
+        for title, page in ((tr("Apparence"), self._appearance_section()),
+                            (tr("Bibliothèque"), self._library_section()),
+                            (tr("Lecture"), self._reading_section()),
+                            (tr("Comptes et synchronisation"), self._accounts_section()),
+                            (tr("Confidentialité et données"), self._privacy_section())):
+            self.nav.addItem(title)
+            self.pages.addWidget(self._scrolled(page))
+        self.nav.currentRowChanged.connect(self.pages.setCurrentIndex)
+        self.nav.setCurrentRow(0)
+
+        foot = QWidget()
+        foot.setObjectName("prefFoot")
+        fh = QHBoxLayout(foot)
+        fh.setContentsMargins(18, 10, 18, 12)
+        fh.addWidget(self._hint(tr("Les modifications s'appliquent tout de suite.")), 1)
+        close = QPushButton(tr("Fermer"))
+        close.setObjectName("primary")
+        close.setDefault(True)
+        close.clicked.connect(self.accept)
+        fh.addWidget(close)
+        root.addWidget(foot)
+
+        self._mode = self.theme.currentData()
+        self._restyle()
+        for combo in (self.theme, self.language, self.direction, self.fit):
+            combo.currentIndexChanged.connect(self._changed)
+        for box in (self.double_page, self.ambilight, self.page_fade, self.boss_key,
+                    self.global_hotkey, self.babelio, self.online, self.check_updates,
+                    self.tracking, self.servers_enabled, self.servers_sync):
+            box.toggled.connect(self._changed)
+        if self.cloud_sync is not None:
+            self.cloud_sync.statusChanged.connect(self._refresh_cards)
+            self.sync_enabled.toggled.connect(self._refresh_cards)
+        self._refresh_cards()
+        self._ready = True
+
+        screen = (parent.screen() if parent is not None else QApplication.primaryScreen())
+        area = screen.availableGeometry()
+        self.resize(min(880, area.width() - 80), min(640, area.height() - 60))
+
+    # ----- application immediate -----
+    def _changed(self, *_args):
+        """Un reglage vient de changer : il est enregistre et applique."""
+        if not self._ready:
+            return
+        self.save()
+        if self.theme.currentData() != self._mode:
+            self._mode = self.theme.currentData()
+            self.c = theme.colors(self._mode)
+            self._restyle()
+        self._refresh_cards()
+        self.applied.emit()
+
+    def _restyle(self):
+        c = self.c
+        self.setStyleSheet(_dialog_css(c) + f"""
+            #prefSide {{ background: {c['panel']}; border-right: 1px solid {c['border']}; }}
+            #prefFoot {{ border-top: 1px solid {c['border']}; }}
+            QListWidget#prefNav {{ background: transparent; color: {c['text_dim']};
+                                   font-size: 13px; outline: none; }}
+            QListWidget#prefNav::item {{ padding: 7px 10px; border-radius: 6px; }}
+            QListWidget#prefNav::item:hover {{ background: {c['button']}; }}
+            QListWidget#prefNav::item:selected {{ background: {c['button_hover']};
+                                                  color: {c['text']}; font-weight: 600; }}
+            QScrollArea#tabScroll, #tabPage {{ background: {c['window']}; border: none; }}
+            QLabel#prefSection {{ font-size: 20px; font-weight: 700; }}
+            QLabel#prefGroup {{ color: {c['text_dim']}; font-size: 11px; font-weight: 700;
+                                letter-spacing: 1px; }}
+            #settingRow {{ border-bottom: 1px solid {c['border']}; }}
+            QLabel#settingTitle {{ font-weight: 600; }}
+            QPushButton#detailsLink {{ color: {theme.ACCENT}; background: transparent;
+                                       border: none; padding: 0; font-size: 12px; }}
+            QPushButton#detailsLink:hover {{ text-decoration: underline; }}
+            QFrame#card {{ border: 1px solid {c['border']}; border-radius: 8px; }}
+            QPushButton#cardHead {{ background: transparent; border: none; border-radius: 8px;
+                                    text-align: left; padding: 0; }}
+            QPushButton#cardHead:hover {{ background: {c['button']}; }}
+            QLabel#cardTitle {{ font-weight: 700; }}
+            QFrame#card QGroupBox {{ border: none; margin: 0; padding: 0; }}
             QToolButton#accentSwatch {{ background: transparent; border: none;
                                         border-radius: 15px; }}
-            QToolButton#accentSwatch:focus {{ border: 1px solid {colors['text_dim']}; }}
-            QTabWidget::pane {{ border: 1px solid {colors['border']}; border-radius: 8px;
-                                top: -1px; background: {colors['window']}; }}
-            QTabBar::tab {{ color: {colors['text_dim']}; background: transparent;
-                            padding: 6px 14px; border: none; }}
-            QTabBar::tab:selected {{ color: {colors['text']};
-                                     border-bottom: 2px solid {theme.ACCENT}; }}
+            QToolButton#accentSwatch:focus {{ border: 1px solid {c['text_dim']}; }}
             QScrollArea#shortcutScroll, #shortcutHost {{ background: transparent; border: none; }}
-            QScrollArea#tabScroll, #tabPage {{ background: transparent; border: none; }}
-            QPushButton#chip {{ border-radius: 12px; padding: 3px 10px; background: {colors['button']}; }}
+            QPushButton#chip {{ border-radius: 12px; padding: 3px 10px; background: {c['button']}; }}
             QLabel#shortcutGroup {{ font-size: 15px; font-weight: 700; }}
-        """ + sections_css(colors))
-        root = QVBoxLayout(self)
-        root.setContentsMargins(20, 16, 20, 16)
-        tabs = QTabWidget()
-        root.addWidget(tabs)
-        # onglets defilants : sur un petit ecran, la fenetre reste a sa
-        # hauteur (boutons visibles) et l'onglet defile au lieu de deborder
-        tabs.addTab(self._scrolled(self._general_tab()), tr("Général"))
-        tabs.addTab(self._scrolled(self._reader_tab()), tr("Lecteur"))
-        tabs.addTab(self._scrolled(self._data_tab()), tr("Données"))
-        tabs.addTab(self._scrolled(self._anilist_tab()), "AniList")
-        tabs.addTab(self._scrolled(self._servers_tab()), tr("Serveurs"))
-        tabs.addTab(self._shortcuts_tab(), tr("Raccourcis"))
-        self.tabs = tabs
-        root.addSpacing(8)
-        root.addLayout(_buttons_row(self, tr("Enregistrer")))
-        # Qt plafonne la taille initiale d'une fenetre aux 2/3 de l'ecran : sur
-        # un ecran de 900 px de haut, l'onglet General etait ecrase (lignes
-        # rognees). On prend la taille voulue, dans la limite de l'ecran.
-        # Les onglets defilent : leur zone ne reclame plus la taille de son
-        # contenu, prise donc sur les pages elles-memes (la plus grande).
-        self.ensurePolished()
-        wanted = self.sizeHint()
-        pages = [tabs.widget(i).widget() for i in range(tabs.count())
-                 if isinstance(tabs.widget(i), QScrollArea) and tabs.widget(i).objectName() == "tabScroll"]
-        extra_w = wanted.width() - tabs.sizeHint().width()
-        extra_h = wanted.height() - tabs.sizeHint().height() + tabs.tabBar().sizeHint().height() + 16
-        width = max([wanted.width()] + [p.sizeHint().width() + extra_w + 24 for p in pages])
-        height = max([wanted.height()] + [p.sizeHint().height() + extra_h for p in pages])
-        screen = (parent.screen() if parent is not None else QApplication.primaryScreen())
-        self.resize(width, min(height, screen.availableGeometry().height() - 60))
+            QLabel#syncPath {{ background: {c['panel']}; border: 1px solid {c['border']};
+                               border-radius: 6px; padding: 5px 8px; font-size: 12px; }}
+            QLabel#syncPath[empty="true"] {{ color: {c['text_dim']}; font-style: italic; }}
+            QLabel#syncWarning {{ color: {c['warning']}; background: {c['warning_bg']};
+                                  border: 1px solid {c['warning_border']};
+                                  border-radius: 6px; padding: 6px 10px; font-size: 12px; }}
+        """ + sections_css(c))
+        for sw in self.findChildren(_Switch):
+            sw.colors = c
+            sw.update()
+        for label in self._detail_labels:
+            self._set_details_link(label)
+        if hasattr(self, "_swatches"):
+            self._paint_swatches()
 
-    # ----- helpers -----
+    # ----- briques de mise en page -----
     @staticmethod
     def _scrolled(page):
-        """Onglet dans une zone defilante sans cadre (fond de l'onglet)."""
+        """Rubrique dans une zone defilante sans cadre."""
         area = QScrollArea()
         area.setObjectName("tabScroll")
         area.setWidgetResizable(True)
@@ -435,11 +572,32 @@ class PreferencesDialog(ServersTabMixin, QDialog):
 
     @staticmethod
     def _page():
+        """Page sans titre (contenu de la carte des serveurs, servers_ui.py)."""
         w = QWidget()
         v = QVBoxLayout(w)
-        v.setContentsMargins(14, 12, 14, 12)
+        v.setContentsMargins(0, 0, 0, 0)
         v.setSpacing(6)
         return w, v
+
+    @staticmethod
+    def _section(title):
+        page = QWidget()
+        v = QVBoxLayout(page)
+        v.setContentsMargins(24, 18, 24, 18)
+        v.setSpacing(0)
+        head = QLabel(title)
+        head.setObjectName("prefSection")
+        v.addWidget(head)
+        v.addSpacing(8)
+        return page, v
+
+    @staticmethod
+    def _group(v, title):
+        """Intertitre d'une rubrique (« CONFIDENTIALITE »)."""
+        v.addSpacing(18)
+        head = QLabel(title.upper())
+        head.setObjectName("prefGroup")
+        v.addWidget(head)
 
     @staticmethod
     def _hint(text):
@@ -448,114 +606,341 @@ class PreferencesDialog(ServersTabMixin, QDialog):
         lab.setWordWrap(True)
         return lab
 
+    def _switch(self, name, checked):
+        sw = _Switch(name, self.c)
+        sw.setChecked(bool(checked))
+        return sw
+
+    def _setting(self, title, control=None, desc="", details="", wide=False):
+        """Ligne de reglage : titre et description d'une ligne a gauche, le
+        controle a droite (`wide` : sous le texte, sur toute la largeur).
+        `details` : explication complete, depliee par le lien « Details »."""
+        row = QWidget()
+        row.setObjectName("settingRow")
+        row.setAttribute(Qt.WA_StyledBackground)
+        g = QGridLayout(row)
+        g.setContentsMargins(0, 10, 0, 10)
+        g.setHorizontalSpacing(18)
+        g.setVerticalSpacing(3)
+        label = QLabel(title)
+        label.setObjectName("settingTitle")
+        label.setWordWrap(True)
+        g.addWidget(label, 0, 0)
+        line = 1
+        if desc or details:
+            if isinstance(desc, QLabel):
+                hint = desc
+            else:
+                hint = self._hint("")
+                hint.setProperty("desc", desc)
+            g.addWidget(hint, line, 0)
+            line += 1
+            if details:
+                # « Details » : lien a la suite du texte, qui deplie l'explication
+                hint.setTextFormat(Qt.RichText)
+                hint.setTextInteractionFlags(Qt.LinksAccessibleByMouse
+                                             | Qt.LinksAccessibleByKeyboard)
+                self._detail_labels.append(hint)
+                self._set_details_link(hint)
+                full = self._hint(details)
+                full.hide()
+                g.addWidget(full, line, 0, 1, 2)
+                line += 1
+                hint.linkActivated.connect(lambda _l: full.setVisible(not full.isVisible()))
+            elif not isinstance(desc, QLabel):
+                hint.setText(desc)
+        if control is not None:
+            if wide:
+                g.addWidget(control, line, 0, 1, 2)
+            else:
+                g.addWidget(control, 0, 1, line, 1, Qt.AlignRight | Qt.AlignVCenter)
+            if isinstance(control, QWidget) and not wide:
+                label.setBuddy(control)
+                if not control.accessibleName():
+                    control.setAccessibleName(title)
+        g.setColumnStretch(0, 1)
+        return row
+
+    @staticmethod
+    def _set_details_link(label):
+        """Description (texte de Beheread) suivie du lien « Details » a la couleur
+        d'accentuation."""
+        desc = html.escape(label.property("desc") or "")
+        link = (f'<a href="details" style="color: {theme.ACCENT}; text-decoration: none">'
+                f'{html.escape(tr("Détails"))}</a>')
+        label.setText(f"{desc}&nbsp;&nbsp;{link}" if desc else link)
+
+    @staticmethod
+    def _buttons(*buttons):
+        host = QWidget()
+        row = QHBoxLayout(host)
+        row.setContentsMargins(0, 0, 0, 0)
+        row.setSpacing(6)
+        for b in buttons:
+            row.addWidget(b)
+        return host
+
     def _confirm(self, title, text):
         return QMessageBox.question(self, title, text, QMessageBox.Yes | QMessageBox.No,
                                     QMessageBox.No) == QMessageBox.Yes
 
-    # ----- onglets -----
-    def _general_tab(self):
-        w, v = self._page()
-        g = QGroupBox(tr("Apparence et bibliothèque"))
-        # l'indication sur plusieurs lignes est hors du formulaire : QFormLayout
-        # ne lui reserve pas sa hauteur et ecrase les lignes voisines
-        gv = QVBoxLayout(g)
-        f = QFormLayout()
-        gv.addLayout(f)
+    # ----- cartes depliables (Comptes et synchronisation) -----
+    def _card(self, title, body, status):
+        """Carte repliee : titre, pastille et etat (status() -> (texte,
+        « on » | « off » | « warn »)) ; un clic deplie son contenu."""
+        card = QFrame()
+        card.setObjectName("card")
+        v = QVBoxLayout(card)
+        v.setContentsMargins(0, 0, 0, 0)
+        v.setSpacing(0)
+        head = QPushButton()
+        head.setObjectName("cardHead")
+        head.setCheckable(True)
+        head.setCursor(Qt.PointingHandCursor)
+        head.setAccessibleName(title)
+        head.setMinimumHeight(42)
+        h = QHBoxLayout(head)
+        h.setContentsMargins(14, 8, 14, 8)
+        h.setSpacing(10)
+        dot = QLabel()
+        dot.setFixedSize(8, 8)
+        name = QLabel(title)
+        name.setObjectName("cardTitle")
+        state = QLabel()
+        state.setObjectName("hint")
+        state.setTextFormat(Qt.PlainText)   # nom du compte AniList : non fiable
+        chevron = QLabel("›")
+        for w in (dot, name, state, chevron):
+            w.setAttribute(Qt.WA_TransparentForMouseEvents)
+        h.addWidget(dot, 0, Qt.AlignVCenter)
+        h.addWidget(name)
+        h.addStretch(1)
+        h.addWidget(state)
+        h.addWidget(chevron)
+        v.addWidget(head)
+        holder = QWidget()
+        hv = QVBoxLayout(holder)
+        hv.setContentsMargins(14, 0, 14, 12)
+        hv.addWidget(body)
+        holder.hide()
+        v.addWidget(holder)
+
+        def toggle(on):
+            holder.setVisible(on)
+            chevron.setText("⌄" if on else "›")
+        head.toggled.connect(toggle)
+        self._cards.append((dot, state, status))
+        return card
+
+    def _refresh_cards(self, *_args):
+        colors = {"on": theme.FINISHED, "off": self.c["text_disabled"], "warn": self.c["warning"]}
+        for dot, state, status in self._cards:
+            text, level = status()
+            state.setText(text)
+            dot.setStyleSheet(f"background: {colors[level]}; border-radius: 4px;")
+
+    def _sync_state(self):
+        cs = self.cloud_sync
+        if not cs.folder():
+            return tr("Non configurée"), "off"
+        if cs.failed and cs.status:
+            return tr("Problème"), "warn"
+        return (tr("Activée"), "on") if cs.enabled() else (tr("En pause"), "off")
+
+    def _anilist_state(self):
+        a = self.store.anilist()
+        if a.get("token_enc"):
+            return tr("Connecté · {user}", user=a.get("user") or "?"), "on"
+        return tr("Non connecté"), "off"
+
+    def _servers_state(self):
+        if not self.servers_enabled.isChecked():
+            return tr("Désactivés"), "off"
+        n = len(self._server_configs())
+        return trn(n, "Activés · {n} serveur", "Activés · {n} serveurs"), "on" if n else "off"
+
+    # ----- rubriques -----
+    def _appearance_section(self):
+        page, v = self._section(tr("Apparence"))
         s = self.store
         self.theme = QComboBox()
         self.theme.addItem(tr("Sombre"), "dark")
         self.theme.addItem(tr("Clair"), "light")
         self.theme.setCurrentIndex(0 if s.ui_pref("theme", "dark") == "dark" else 1)
-        f.addRow(tr("Thème"), self.theme)
-        self.view_mode = QComboBox()
-        self.view_mode.addItem(tr("Grille de couvertures"), "grid")
-        self.view_mode.addItem(tr("Liste compacte"), "list")
-        self.view_mode.setCurrentIndex(1 if s.library_pref("view_mode", "grid") == "list" else 0)
-        f.addRow(tr("Affichage"), self.view_mode)
-        f.addRow(tr("Langue"), self._language_row())
-        f.addRow(tr("Couleur d'accentuation"), self._accent_row())
+        v.addWidget(self._setting(tr("Thème"), self.theme))
         self.accent_hint = self._hint("")
-        gv.addWidget(self.accent_hint)
+        accent = self._accent_row()
+        v.addWidget(self._setting(tr("Couleur d'accentuation"), accent, self.accent_hint, wide=True))
         self.theme.currentIndexChanged.connect(lambda _i: self._set_accent(self._accent))
         self._set_accent(s.ui_pref("accent"))
-        # cases sur deux colonnes : l'onglet doit tenir sur un petit ecran
-        checks = QGridLayout()
-        checks.setContentsMargins(0, 0, 0, 0)
-        self.group_series = QCheckBox(tr("Regrouper les tomes par série"))
-        self.group_series.setToolTip(tr("Les tomes d'un même manga sont rassemblés dans un "
-                                        "dossier de série"))
-        self.group_series.setChecked(bool(s.library_pref("group_series", False)))
-        checks.addWidget(self.group_series, 0, 0)
-        self.show_continue = QCheckBox(tr("Afficher « Continuer la lecture »"))
-        self.show_continue.setChecked(bool(s.library_pref("show_continue", True)))
-        checks.addWidget(self.show_continue, 0, 1)
-        self.show_details = QCheckBox(tr("Afficher le panneau d'informations"))
-        self.show_details.setChecked(bool(s.library_pref("show_details", False)))
-        checks.addWidget(self.show_details, 1, 0)
-        # dossier de serie ouvert : cases « Non possede », chapitres redondants
-        self.show_missing = QCheckBox(tr("Afficher les tomes et chapitres manquants"))
-        self.show_missing.setToolTip(tr("Dans une série ouverte, une case « Non possédé » "
-                                        "marque chaque tome ou chapitre manquant"))
-        self.show_missing.setChecked(bool(s.library_pref("show_missing", True)))
-        checks.addWidget(self.show_missing, 1, 1)
-        self.show_covered = QCheckBox(tr("Afficher les chapitres déjà inclus dans un tome"))
-        self.show_covered.setToolTip(tr("Chapitres qu'un tome possédé contient déjà (découpage "
-                                        "de MangaDex). Ceux d'un tome virtuel se lisent en "
-                                        "ouvrant ce tome."))
-        self.show_covered.setChecked(bool(s.library_pref("show_covered_chapters", False)))
-        checks.addWidget(self.show_covered, 2, 0)
-        gv.addLayout(checks)
-        v.addWidget(g)
+        v.addWidget(self._setting(tr("Langue"), self._language_combo(),
+                                  tr("Beheread redémarre à la fermeture des préférences.")))
+        v.addStretch(1)
+        return page
 
-        g = QGroupBox(tr("Discrétion"))
-        f = QFormLayout(g)
-        self.boss_key = QCheckBox(tr("Touche C : masquer la fenêtre du lecteur"))
-        self.boss_key.setChecked(bool(s.reader_pref("boss_key", True)))
-        f.addRow(self.boss_key)
-        self.global_hotkey = QCheckBox(
-            tr("Ctrl + Alt + C : masquer / réafficher Beheread depuis n'importe où"))
-        self.global_hotkey.setChecked(bool(s.ui_pref("global_hotkey", True)))
+    def _library_section(self):
+        page, v = self._section(tr("Bibliothèque"))
+        folders = len(self.store.folders())
+        manage = QPushButton(tr("Gérer…"))
+        manage.clicked.connect(self._manage_folders)
+        self._folders_hint = self._hint(trn(folders, "{n} dossier", "{n} dossiers") if folders
+                                        else tr("Aucun dossier"))
+        v.addWidget(self._setting(tr("Dossiers sources"), manage, self._folders_hint))
+        v.addWidget(self._setting(
+            tr("Pages ignorées"), self._extra_words_widget(),
+            tr("Images non comptées comme pages : crédits et recrutement des équipes de "
+               "traduction."),
+            tr("Les images dont le nom contient l'un de ces mots ne sont pas comptées comme "
+               "des pages : crédits et recrutement des équipes de traduction. Un tome n'est "
+               "jamais vidé."), wide=True))
+        v.addStretch(1)
+        return page
+
+    def _manage_folders(self):
+        if "manage_folders" in self.actions:
+            self.actions["manage_folders"]()
+        n = len(self.store.folders())
+        self._folders_hint.setText(trn(n, "{n} dossier", "{n} dossiers") if n
+                                   else tr("Aucun dossier"))
+
+    def _reading_section(self):
+        page, v = self._section(tr("Lecture"))
+        s = self.store
+        self.direction = QComboBox()
+        self.direction.addItem(tr("Manga : de droite à gauche"), True)
+        self.direction.addItem(tr("Occidental : de gauche à droite"), False)
+        self.direction.setCurrentIndex(0 if s.reader_pref("manga_mode", True) else 1)
+        v.addWidget(self._setting(
+            tr("Sens par défaut"), self.direction,
+            tr("Détecté seul pour les mangas et les BD ; M change celui d'une série."),
+            tr("Ces réglages valent pour tous les mangas. Seul le sens de lecture fait "
+               "exception : il est détecté automatiquement (manga, BD), et celui choisi pour "
+               "une série (touche M) reste prioritaire. Le sens par défaut ne sert qu'aux "
+               "séries que rien ne permet de reconnaître.")))
+        self.fit = QComboBox()
+        for value, label in FIT_NAMES.items():
+            self.fit.addItem(tr(label), value)
+        self.fit.setCurrentIndex(self.fit.findData(normalize_fit(s.reader_pref("fit_mode"))))
+        v.addWidget(self._setting(tr("Ajustement"), self.fit,
+                                  tr("{key} dans le lecteur", key="F")))
+        self.double_page = self._switch(tr("Double page"), s.reader_pref("double_page", True))
+        v.addWidget(self._setting(tr("Double page"), self.double_page,
+                                  tr("{key} dans le lecteur", key="D")))
+        self.ambilight = self._switch(tr("Ambilight"), s.reader_pref("ambilight", False))
+        v.addWidget(self._setting(tr("Ambilight"), self.ambilight,
+                                  tr("Fond teinté par la couleur de la page")))
+        self.page_fade = self._switch(tr("Fondu entre les pages"), s.reader_pref("page_fade", True))
+        v.addWidget(self._setting(tr("Fondu entre les pages"), self.page_fade))
+
+        self._group(v, tr("Discrétion"))
+        self.boss_key = self._switch(tr("Touche C : masquer la fenêtre du lecteur"),
+                                     s.reader_pref("boss_key", True))
+        v.addWidget(self._setting(tr("Touche C : masquer la fenêtre du lecteur"), self.boss_key))
+        self.global_hotkey = self._switch(
+            tr("Ctrl + Alt + C : masquer / réafficher Beheread depuis n'importe où"),
+            s.ui_pref("global_hotkey", True))
         if platforms.GLOBAL_HOTKEY:   # pas de raccourci global sous macOS
-            f.addRow(self.global_hotkey)
-        v.addWidget(g)
+            v.addWidget(self._setting(
+                tr("Ctrl + Alt + C : masquer / réafficher Beheread depuis n'importe où"),
+                self.global_hotkey))
 
-        g = QGroupBox(tr("Métadonnées en ligne"))
-        gv = QVBoxLayout(g)
-        self.online = QCheckBox(tr("Rechercher automatiquement l'auteur et l'année sur Internet"))
-        self.online.setChecked(s.ui_pref("online_metadata") is True)
-        gv.addWidget(self.online)
-        gv.addWidget(self._hint(
+        self._group(v, tr("Fin de tome"))
+        self.babelio = self._switch(tr("Proposer « Marquer comme lu sur Babelio »"),
+                                    s.reader_pref("babelio_button", False))
+        v.addWidget(self._setting(
+            tr("Proposer « Marquer comme lu sur Babelio »"), self.babelio,
+            tr("Ouvre babelio.com ; rien n'est envoyé sans votre clic."),
+            tr("Ouvre la recherche du tome sur babelio.com dans votre navigateur ; c'est vous qui "
+               "le marquez « lu ». Beheread ne se connecte pas à Babelio et n'y envoie que le "
+               "titre du tome, à votre clic.")))
+        v.addStretch(1)
+        return page
+
+    def _accounts_section(self):
+        page, v = self._section(tr("Comptes et synchronisation"))
+        v.addWidget(self._hint(tr("Connexions de Beheread à l'extérieur, une par carte.")))
+        v.addSpacing(10)
+        if self.cloud_sync is not None:
+            group = self._sync_group()
+            group.setTitle("")
+            v.addWidget(self._card(tr("Synchronisation entre appareils"), group, self._sync_state))
+            v.addSpacing(8)
+        v.addWidget(self._card("AniList", self._anilist_body(), self._anilist_state))
+        v.addSpacing(8)
+        servers = self._servers_tab()
+        for box in servers.findChildren(QGroupBox):
+            box.setTitle("")
+        v.addWidget(self._card(tr("Serveurs de lecture"), servers, self._servers_state))
+        v.addStretch(1)
+        return page
+
+    def _privacy_section(self):
+        page, v = self._section(tr("Confidentialité et données"))
+        s = self.store
+        self._group(v, tr("Confidentialité"))
+        self.online = self._switch(tr("Rechercher automatiquement l'auteur et l'année sur Internet"),
+                                   s.ui_pref("online_metadata") is True)
+        v.addWidget(self._setting(
+            tr("Rechercher automatiquement l'auteur et l'année sur Internet"), self.online,
+            tr("Google Books, AniList, MangaDex et la BnF, à partir du nom des fichiers."),
             tr("Le nom de la série (déduit du nom de fichier) et le numéro de tome sont envoyés "
                "à Google Books, AniList, MangaDex et la BnF. Sans cette option, seules les informations "
                "ComicInfo.xml contenues dans les fichiers sont utilisées. Votre progression de "
                "lecture ne quitte jamais votre ordinateur (sauf suivi AniList, si vous l'activez).")))
-        btn = QPushButton(tr("Oublier les métadonnées téléchargées…"))
-        btn.clicked.connect(self._clear_meta)
-        gv.addWidget(btn, alignment=Qt.AlignLeft)
-        v.addWidget(g)
-
-        g = QGroupBox(tr("Mises à jour"))
-        gv = QVBoxLayout(g)
-        self.check_updates = QCheckBox(
-            tr("Vérifier une fois par jour si une nouvelle version est disponible"))
-        self.check_updates.setChecked(bool(s.ui_pref("check_updates", False)))
-        gv.addWidget(self.check_updates)
-        gv.addWidget(self._hint(
+        forget = QPushButton(tr("Oublier…"))
+        forget.clicked.connect(self._clear_meta)
+        v.addWidget(self._setting(tr("Métadonnées téléchargées"), forget,
+                                  tr("Les informations saisies à la main sont conservées.")))
+        self.check_updates = self._switch(
+            tr("Vérifier une fois par jour si une nouvelle version est disponible"),
+            s.ui_pref("check_updates", False))
+        v.addWidget(self._setting(
+            tr("Vérifier une fois par jour si une nouvelle version est disponible"),
+            self.check_updates, tr("Seule la liste des versions publiées sur GitHub est lue."),
             tr("Beheread consulte la liste des versions publiées sur GitHub. Rien d'autre n'est "
                "envoyé, et rien n'est installé sans vous : un bandeau propose simplement de "
                "télécharger la nouvelle version.")))
-        row = QHBoxLayout()
         now = QPushButton(tr("Vérifier maintenant"))
         now.clicked.connect(self._check_updates_now)
-        row.addWidget(now)
         self.update_status = self._hint(self._last_update_check())
-        self.update_status.setWordWrap(False)
-        row.addWidget(self.update_status)
-        row.addStretch(1)
-        gv.addLayout(row)
-        v.addWidget(g)
+        v.addWidget(self._setting(tr("Mises à jour"), now, self.update_status))
+
+        self._group(v, tr("Données"))
+        exp = QPushButton(tr("Exporter…"))
+        exp.clicked.connect(lambda: self._report(self.actions["export"]()))
+        imp = QPushButton(tr("Importer…"))
+        imp.clicked.connect(lambda: self._report(self.actions["import"]()))
+        v.addWidget(self._setting(
+            tr("Sauvegarde"), self._buttons(exp, imp),
+            tr("Progression, statistiques, regroupements et saisies, dans un fichier."),
+            tr("Exporte dans un fichier la progression, les statistiques, les regroupements et "
+               "les informations saisies à la main (par exemple pour passer à un autre PC). "
+               "L'import fusionne : pour chaque tome, la progression la plus récente l'emporte, "
+               "et vos réglages actuels ne sont pas écrasés.")))
+        csv_btn = QPushButton(tr("Exporter en CSV…"))
+        csv_btn.clicked.connect(lambda: self._report(self.actions["export_csv"]()))
+        lines = len(s.reading_log.csv_rows())
+        v.addWidget(self._setting(
+            tr("Journal de lecture"), csv_btn,
+            trn(lines, "Tous les appareils · {n} ligne", "Tous les appareils · {n} lignes"),
+            tr("Chaque jour de lecture, tome par tome : date, série, tome, pages lues, temps "
+               "de lecture, tome terminé. Lisible par Excel, LibreOffice ou Google Sheets.")))
+        path = _ElidedPathLabel(str(s.dir))   # chemin complet en info-bulle
+        path.setObjectName("hint")
+        open_btn = QPushButton(tr("Ouvrir le dossier"))
+        open_btn.clicked.connect(lambda: QDesktopServices.openUrl(QUrl.fromLocalFile(str(s.dir))))
+        thumbs_btn = QPushButton(tr("Vider le cache des vignettes…"))
+        thumbs_btn.clicked.connect(self._clear_thumbs)
+        v.addWidget(self._setting(tr("Données locales"), self._buttons(open_btn, thumbs_btn), path))
+        self.status = self._hint("")
+        v.addSpacing(8)
+        v.addWidget(self.status)
         v.addStretch(1)
-        return w
+        return page
+
+    def _report(self, message):
+        if message:
+            self.status.setText(message)
 
     def _last_update_check(self):
         ts = float(self.store.ui_pref("update_checked", 0) or 0)
@@ -609,24 +994,17 @@ class PreferencesDialog(ServersTabMixin, QDialog):
         row.addStretch(1)
         return host
 
-    def _language_row(self):
+    def _language_combo(self):
         """Langue de l'interface. Les textes sont traduits a la creation des
-        fenetres : en changer redemarre Beheread (voir MainWindow.restart)."""
-        host = QWidget()
-        row = QHBoxLayout(host)
-        row.setContentsMargins(0, 0, 0, 0)
+        fenetres : en changer redemarre Beheread a la fermeture des
+        preferences (voir MainWindow.restart)."""
         self.language = QComboBox()
         self.language.addItem(tr("Celle du système"), "system")
         for code, name in i18n.LANGUAGES.items():
             self.language.addItem(name, code)
         self.language.setCurrentIndex(
             max(0, self.language.findData(self.store.ui_pref("language", "system"))))
-        row.addWidget(self.language)
-        hint = self._hint(tr("Beheread redémarre pour l'appliquer"))
-        hint.setWordWrap(False)
-        row.addWidget(hint)
-        row.addStretch(1)
-        return host
+        return self.language
 
     def _pick_accent(self):
         color = QColorDialog.getColor(QColor(self._accent), self, tr("Couleur d'accentuation"))
@@ -637,14 +1015,7 @@ class PreferencesDialog(ServersTabMixin, QDialog):
         """Couleur choisie dans le dialogue (None ou valeur invalide = couleur
         d'origine) ; enregistree par save()."""
         self._accent = theme.normalize_accent(value) or theme.DEFAULT_ACCENT
-        ring = self.c["text"]
-        for preset, btn in self._swatches.items():
-            chosen = preset == self._accent
-            btn.setChecked(chosen)
-            btn.setIcon(icons.swatch(preset, ring if chosen else None))
-        custom = self._accent not in self._swatches
-        self.accent_custom.setIcon(icons.swatch(self._accent, ring) if custom else QIcon())
-        self.accent_reset.setEnabled(self._accent != theme.DEFAULT_ACCENT)
+        self._paint_swatches()
         # une seule ligne dans tous les cas : la hauteur du dialogue ne bouge pas
         mode = self.theme.currentData()
         if theme.bounded_accent(self._accent, mode) == self._accent:
@@ -658,18 +1029,31 @@ class PreferencesDialog(ServersTabMixin, QDialog):
             hint = (tr("Trop sombre pour le thème sombre : elle y sera éclaircie juste assez "
                        "pour rester lisible."))
         self.accent_hint.setText(hint)
+        self._changed()
 
-    def _shortcuts_tab(self):
-        """Tous les raccourcis clavier (la carte d'aide F1 montre ceux de
-        l'ecran courant ; ici, bibliotheque et lecteur a la suite)."""
-        w, v = self._page()
+    def _paint_swatches(self):
+        """Pastilles : la couleur choisie est cerclee (couleur du texte du theme)."""
+        ring = self.c["text"]
+        for preset, btn in self._swatches.items():
+            chosen = preset == self._accent
+            btn.setChecked(chosen)
+            btn.setIcon(icons.swatch(preset, ring if chosen else None))
+        custom = self._accent not in self._swatches
+        self.accent_custom.setIcon(icons.swatch(self._accent, ring) if custom else QIcon())
+        self.accent_reset.setEnabled(self._accent != theme.DEFAULT_ACCENT)
+
+    def _shortcuts_dialog(self):
+        """Tous les raccourcis clavier, bibliotheque et lecteur a la suite (la
+        carte d'aide F1 montre ceux de l'ecran courant)."""
+        dlg = QDialog(self)
+        dlg.setWindowTitle(tr("Raccourcis clavier"))
+        dlg.setStyleSheet(self.styleSheet())
+        v = QVBoxLayout(dlg)
+        v.setContentsMargins(20, 16, 20, 16)
         scroll = QScrollArea()
         scroll.setObjectName("shortcutScroll")
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.NoFrame)
-        # la liste defile dans la place laissee par les autres onglets, sans
-        # agrandir le dialogue
-        scroll.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Ignored)
         host = QWidget()
         host.setObjectName("shortcutHost")
         hv = QVBoxLayout(host)
@@ -685,123 +1069,125 @@ class PreferencesDialog(ServersTabMixin, QDialog):
         hv.addStretch(1)
         scroll.setWidget(host)
         v.addWidget(scroll)
-        return w
+        close = QPushButton(tr("Fermer"))
+        close.setObjectName("primary")
+        close.clicked.connect(dlg.accept)
+        v.addWidget(close, 0, Qt.AlignRight)
+        area = self.screen().availableGeometry()
+        dlg.resize(620, min(720, area.height() - 80))
+        return dlg
 
-    def _reader_tab(self):
-        w, v = self._page()
-        s = self.store
-        g = QGroupBox(tr("Réglages du lecteur"))
-        f = QFormLayout(g)
-        self.direction = QComboBox()
-        self.direction.addItem(tr("Manga : de droite à gauche"), True)
-        self.direction.addItem(tr("Occidental : de gauche à droite"), False)
-        self.direction.setCurrentIndex(0 if s.reader_pref("manga_mode", True) else 1)
-        f.addRow(tr("Sens par défaut"), self.direction)
-        self.fit = QComboBox()
-        for value, label in FIT_NAMES.items():
-            self.fit.addItem(tr(label), value)
-        self.fit.setCurrentIndex(self.fit.findData(normalize_fit(s.reader_pref("fit_mode"))))
-        f.addRow(tr("Ajustement"), self.fit)
-        self.double_page = QCheckBox(tr("Double page"))
-        self.double_page.setChecked(bool(s.reader_pref("double_page", True)))
-        f.addRow(self.double_page)
-        self.ambilight = QCheckBox(tr("Ambilight : fond teinté par la couleur de la page"))
-        self.ambilight.setChecked(bool(s.reader_pref("ambilight", False)))
-        f.addRow(self.ambilight)
-        self.page_fade = QCheckBox(tr("Fondu entre les pages"))
-        self.page_fade.setChecked(bool(s.reader_pref("page_fade", True)))
-        f.addRow(self.page_fade)
-        f.addRow(self._hint(tr("Ces réglages valent pour tous les mangas. Seul le sens de lecture "
-                               "fait exception : il est détecté automatiquement (manga, BD), et "
-                               "celui choisi pour une série (touche M) reste prioritaire. Le sens "
-                               "par défaut ne sert qu'aux séries que rien ne permet de reconnaître.")))
-        v.addWidget(g)
-
-        g = QGroupBox(tr("Fiche de fin de tome"))
-        gv = QVBoxLayout(g)
-        self.babelio = QCheckBox(tr("Proposer « Marquer comme lu sur Babelio »"))
-        self.babelio.setChecked(bool(s.reader_pref("babelio_button", False)))
-        gv.addWidget(self.babelio)
-        gv.addWidget(self._hint(
-            tr("Ouvre la recherche du tome sur babelio.com dans votre navigateur ; c'est vous qui "
-               "le marquez « lu ». Beheread ne se connecte pas à Babelio et n'y envoie que le "
-               "titre du tome, à votre clic.")))
-        v.addWidget(g)
-        v.addStretch(1)
-        return w
-
-    def _data_tab(self):
-        w, v = self._page()
-        s = self.store
-
-        g = QGroupBox(tr("Sauvegarde"))
+    # ----- synchronisation par dossier cloud (agit tout de suite) -----
+    def _sync_group(self):
+        g = QGroupBox(tr("Synchronisation entre appareils"))
         gv = QVBoxLayout(g)
         gv.addWidget(self._hint(
-            tr("Exporte dans un fichier la progression, les statistiques, les regroupements et "
-               "les informations saisies à la main (par exemple pour passer à un autre PC). "
-               "L'import fusionne : pour chaque tome, la progression la plus récente l'emporte, "
-               "et vos réglages actuels ne sont pas écrasés.")))
+            tr("Retrouvez votre lecture sur tous vos appareils, Windows ou Mac. Beheread dépose "
+               "une copie de votre progression, de vos statistiques et de vos regroupements dans "
+               "un dossier synchronisé (iCloud Drive, OneDrive, Dropbox…) et reprend celle de vos "
+               "autres appareils. Choisissez le même dossier sur chacun. Vos fichiers de BD ne "
+               "sont pas copiés.")))
+        self.sync_enabled = QCheckBox(tr("Synchroniser automatiquement"))
+        self.sync_enabled.toggled.connect(self._toggle_sync)
+        gv.addWidget(self.sync_enabled)
         row = QHBoxLayout()
-        exp = QPushButton(tr("Exporter…"))
-        exp.clicked.connect(lambda: self._report(self.actions["export"]()))
-        imp = QPushButton(tr("Importer…"))
-        imp.clicked.connect(lambda: self._report(self.actions["import"]()))
-        row.addWidget(exp)
-        row.addWidget(imp)
-        row.addStretch(1)
+        self.sync_path = QLabel()
+        self.sync_path.setObjectName("syncPath")
+        self.sync_path.setTextFormat(Qt.PlainText)
+        self.sync_path.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        self.sync_path.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+        row.addWidget(self.sync_path, 1)
+        self.sync_pick = QPushButton()
+        self.sync_pick.clicked.connect(self._pick_sync_folder)
+        row.addWidget(self.sync_pick)
         gv.addLayout(row)
-        v.addWidget(g)
-
-        g = QGroupBox(tr("Journal de lecture"))
-        gv = QVBoxLayout(g)
-        gv.addWidget(self._hint(
-            tr("Chaque jour de lecture, tome par tome : date, série, tome, pages lues, temps "
-               "de lecture, tome terminé. Lisible par Excel, LibreOffice ou Google Sheets.")))
+        self.sync_devices = QWidget()
+        self.sync_devices_grid = QGridLayout(self.sync_devices)
+        self.sync_devices_grid.setContentsMargins(0, 0, 0, 0)
+        self.sync_devices_grid.setHorizontalSpacing(12)
+        self.sync_devices_grid.setVerticalSpacing(3)
+        gv.addWidget(self.sync_devices)
+        self.sync_warning = QLabel()
+        self.sync_warning.setObjectName("syncWarning")
+        self.sync_warning.setWordWrap(True)
+        self.sync_warning.setTextFormat(Qt.PlainText)
+        gv.addWidget(self.sync_warning)
         row = QHBoxLayout()
-        csv_btn = QPushButton(tr("Exporter en CSV…"))
-        csv_btn.clicked.connect(lambda: self._report(self.actions["export_csv"]()))
-        row.addWidget(csv_btn)
-        lines = len(s.reading_log.csv_rows())
-        count = self._hint(trn(lines, "Tous les appareils · {n} ligne",
-                               "Tous les appareils · {n} lignes"))
-        count.setWordWrap(False)
-        row.addWidget(count)
-        row.addStretch(1)
+        self.sync_status = self._hint("")
+        self.sync_status.setTextFormat(Qt.PlainText)   # noms d'appareils : non fiables
+        row.addWidget(self.sync_status, 1)
+        self.sync_now = QPushButton(tr("Synchroniser maintenant"))
+        self.sync_now.clicked.connect(self._sync_clicked)
+        row.addWidget(self.sync_now)
         gv.addLayout(row)
-        v.addWidget(g)
+        self.cloud_sync.statusChanged.connect(self._refresh_sync)
+        self._refresh_sync()
+        return g
 
-        v.addWidget(self._extra_words_group())
+    def _refresh_sync(self, *_):
+        cs = self.cloud_sync
+        folder = cs.folder()
+        configured = bool(folder)
+        self.sync_path.setText(folder or tr("Aucun dossier choisi"))
+        self.sync_path.setToolTip(folder or "")
+        self.sync_path.setProperty("empty", not configured)
+        self.sync_path.style().unpolish(self.sync_path)
+        self.sync_path.style().polish(self.sync_path)
+        self.sync_pick.setText(tr("Changer…") if configured else tr("Choisir un dossier…"))
+        self.sync_enabled.blockSignals(True)
+        self.sync_enabled.setChecked(cs.enabled())
+        self.sync_enabled.blockSignals(False)
+        self.sync_enabled.setVisible(configured)
+        self.sync_now.setVisible(configured)
+        self.sync_now.setEnabled(cs.enabled())
+        # appareils connus : celui-ci, puis les autres
+        grid = self.sync_devices_grid
+        while grid.count():
+            grid.takeAt(0).widget().deleteLater()
+        rows = []
+        if configured and cs.state().get("pushed"):
+            rows.append((self.store.device_name(),
+                         tr("cet appareil · envoyé {when}", when=sync.ago(cs.state()["pushed"])),
+                         True))
+        for peer in sorted(cs.peers().values(), key=lambda p: -(p.get("exported") or 0)):
+            rows.append((str(peer.get("name") or "?"),
+                         tr("dernier envoi {when}", when=sync.ago(peer.get("exported"))), False))
+        for i, (name, detail, me) in enumerate(rows):
+            label = QLabel(name)
+            label.setTextFormat(Qt.PlainText)
+            label.setStyleSheet("font-size: 12px; font-weight: 600;" if me else "font-size: 12px;")
+            grid.addWidget(label, i, 0)
+            info = self._hint(detail)
+            info.setWordWrap(False)
+            grid.addWidget(info, i, 1)
+        grid.setColumnStretch(1, 1)
+        self.sync_devices.setVisible(configured and bool(rows))
+        failed = configured and cs.failed and bool(cs.status)
+        self.sync_warning.setText(cs.status if failed else "")
+        self.sync_warning.setVisible(failed)
+        self.sync_status.setText("" if failed or not configured else cs.status)
 
-        g = QGroupBox(tr("Données locales"))
-        gv = QVBoxLayout(g)
-        path = QLabel(str(s.dir))
-        path.setObjectName("hint")
-        path.setTextInteractionFlags(Qt.TextSelectableByMouse)
-        gv.addWidget(path)
-        row = QHBoxLayout()
-        open_btn = QPushButton(tr("Ouvrir le dossier des données"))
-        open_btn.clicked.connect(
-            lambda: QDesktopServices.openUrl(QUrl.fromLocalFile(str(s.dir))))
-        row.addWidget(open_btn)
-        thumbs_btn = QPushButton(tr("Vider le cache des vignettes…"))
-        thumbs_btn.clicked.connect(self._clear_thumbs)
-        row.addWidget(thumbs_btn)
-        row.addStretch(1)
-        gv.addLayout(row)
-        v.addWidget(g)
-        self.status = self._hint("")
-        v.addWidget(self.status)
-        v.addStretch(1)
-        return w
+    def _pick_sync_folder(self):
+        start = self.cloud_sync.folder() or str(Path.home())
+        folder = QFileDialog.getExistingDirectory(self, tr("Dossier de synchronisation"), start)
+        if folder:
+            self.cloud_sync.set_folder(folder)
+            self._refresh_sync()
+
+    def _sync_clicked(self):
+        self.sync_warning.hide()
+        self.sync_status.setText(tr("Synchronisation…"))
+        self.cloud_sync.sync_now()
+
+    def _toggle_sync(self, on):
+        self.cloud_sync.set_enabled(on)
+        self._refresh_sync()
 
     # ----- pages ignorees (credits des equipes de traduction) -----
-    def _extra_words_group(self):
-        g = QGroupBox(tr("Pages ignorées"))
+    def _extra_words_widget(self):
+        g = QWidget()
         gv = QVBoxLayout(g)
-        gv.addWidget(self._hint(
-            tr("Les images dont le nom contient l'un de ces mots ne sont pas comptées comme "
-               "des pages : crédits et recrutement des équipes de traduction. Un tome n'est "
-               "jamais vidé.")))
+        gv.setContentsMargins(0, 4, 0, 0)
         words = self.store.library_pref("extra_page_words")
         self._extra_words = list(archive.DEFAULT_EXTRA_PAGE_WORDS if words is None else words)
         self._chips_host = QWidget()
@@ -850,26 +1236,29 @@ class PreferencesDialog(ServersTabMixin, QDialog):
         if word and word.lstrip("^") and word not in self._extra_words:
             self._extra_words.append(word)
             self._refresh_extra_chips()
+            self._changed()
         self._new_word.clear()
 
     def _remove_extra_word(self, word):
         if word in self._extra_words:
             self._extra_words.remove(word)
             self._refresh_extra_chips()
+            self._changed()
 
     def _reset_extra_words(self):
         self._extra_words = list(archive.DEFAULT_EXTRA_PAGE_WORDS)
         self._refresh_extra_chips()
+        self._changed()
 
-    def _anilist_tab(self):
-        w, v = self._page()
-        v.addWidget(self._hint(
-            tr("Connectez votre compte AniList : à la fin de chaque séance de lecture, Beheread "
-               "met à jour votre liste (nombre de tomes ou de chapitres lus). La progression "
-               "n'est jamais diminuée, et une série que vous avez marquée terminée, en pause ou "
+    def _anilist_body(self):
+        w = QWidget()
+        gv = QVBoxLayout(w)
+        gv.setContentsMargins(0, 0, 0, 0)
+        gv.setSpacing(8)
+        gv.addWidget(self._hint(
+            tr("À la fin de chaque séance de lecture, Beheread met à jour votre liste AniList. "
+               "La progression n'est jamais diminuée, et une série terminée, en pause ou "
                "abandonnée n'est jamais modifiée.")))
-        g = QGroupBox(tr("Compte AniList"))
-        gv = QVBoxLayout(g)
         self.al_state = QLabel()
         gv.addWidget(self.al_state)
         row = QHBoxLayout()
@@ -882,24 +1271,22 @@ class PreferencesDialog(ServersTabMixin, QDialog):
         row.addWidget(self.al_logout)
         row.addStretch(1)
         gv.addLayout(row)
-        gv.addWidget(self._hint(
-            tr("Votre navigateur s'ouvre sur AniList pour autoriser Beheread ; la connexion se "
-               "termine ensuite toute seule.") + " "
+        self.tracking = self._switch(tr("Mettre à jour ma liste à la fin de chaque séance de lecture"),
+                                     self.store.anilist().get("tracking", True))
+        gv.addWidget(self._setting(
+            tr("Mettre à jour ma liste à la fin de chaque séance de lecture"), self.tracking,
+            details=tr("Votre navigateur s'ouvre sur AniList pour autoriser Beheread ; la "
+                       "connexion se termine ensuite toute seule.") + " "
             + (tr("L'accès est rangé dans le Trousseau de ce Mac, reste valable un an, et peut "
                   "être révoqué à tout moment depuis les réglages de votre compte AniList.")
                if platforms.IS_MACOS else
                tr("L'accès est chiffré sur ce PC (protection Windows liée à votre session), "
                   "reste valable un an, et peut être révoqué à tout moment depuis les "
                   "réglages de votre compte AniList."))))
-        self.tracking = QCheckBox(tr("Mettre à jour ma liste à la fin de chaque séance de lecture"))
-        self.tracking.setChecked(bool(self.store.anilist().get("tracking", True)))
-        gv.addWidget(self.tracking)
         self.al_status = self._hint(self.tracker.status if self.tracker else "")
         gv.addWidget(self.al_status)
         if self.tracker is not None:
             self.tracker.statusChanged.connect(self.al_status.setText)
-        v.addWidget(g)
-        v.addStretch(1)
         self._refresh_anilist()
         return w
 
@@ -920,6 +1307,7 @@ class PreferencesDialog(ServersTabMixin, QDialog):
         self.al_login.setEnabled(configured)
         self.al_logout.setVisible(connected)
         self.tracking.setEnabled(connected)
+        self._refresh_cards()
 
     def _anilist_login(self):
         dlg = AniListLoginDialog(self.store, self)
@@ -950,19 +1338,13 @@ class PreferencesDialog(ServersTabMixin, QDialog):
                                     "{n} entrées de métadonnées oubliées."))
 
     def save(self):
-        """Ecrit les preferences choisies (appele par la bibliotheque apres
-        acceptation du dialogue)."""
+        """Ecrit toutes les preferences du dialogue (a chaque changement, voir
+        _changed ; sans effet sur une valeur inchangee)."""
         s = self.store
         s.set_ui_pref("theme", self.theme.currentData())
         s.set_ui_pref("language", self.language.currentData())
         # None = couleur d'origine (elle suivrait un changement de la valeur par defaut)
         s.set_ui_pref("accent", None if self._accent == theme.DEFAULT_ACCENT else self._accent)
-        s.set_library_pref("view_mode", self.view_mode.currentData())
-        s.set_library_pref("group_series", self.group_series.isChecked())
-        s.set_library_pref("show_continue", self.show_continue.isChecked())
-        s.set_library_pref("show_details", self.show_details.isChecked())
-        s.set_library_pref("show_missing", self.show_missing.isChecked())
-        s.set_library_pref("show_covered_chapters", self.show_covered.isChecked())
         s.set_reader_pref("manga_mode", bool(self.direction.currentData()))
         s.set_reader_pref("fit_mode", int(self.fit.currentData()))
         s.set_reader_pref("double_page", self.double_page.isChecked())

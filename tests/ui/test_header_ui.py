@@ -1,8 +1,9 @@
-"""Tests de l'en-tete allege (recherche centree), des reglages deplaces dans
-les preferences et du menu de la bande « Continuer la lecture »."""
+"""Tests de l'en-tete allege (recherche centree), des preferences (maquette
+M2) et du menu de la bande « Continuer la lecture »."""
 
-from PySide6.QtWidgets import QDialog, QLabel, QListWidget, QMenu, QToolButton
+from PySide6.QtWidgets import QDialog, QLabel, QMenu, QPushButton, QToolButton
 
+from beheread.ui import theme
 from beheread.ui.library import menus
 from beheread.ui.library.dialogs import PreferencesDialog
 from tests.ui.conftest import make_cbz, scanned
@@ -54,56 +55,64 @@ def lib_role_series_key():
     return ROLE_SERIES_KEY
 
 
-def test_view_mode_and_detail_panel_are_set_in_preferences(window, qtbot, mangas, store,
-                                                           monkeypatch):
+def test_view_settings_moved_from_preferences_to_the_view_menu(window, qtbot, mangas, store):
+    """Grille ou liste, panneau et regroupement : menu « Affichage » (maquette
+    M3), plus dans les Preferences ; decocher le regroupement sort aussi du
+    dossier de serie ouvert."""
     for i, name in enumerate(["Alpha - Tome 1", "Alpha - Tome 2", "Beta - Tome 1"]):
         make_cbz(mangas, name, seed=i)
     store.set_folders([str(mangas)])
     lib = window.library
     lib.refresh()
     scanned(qtbot, lib, 3)
-    assert lib.list.viewMode() == QListWidget.IconMode and not lib.detail.isVisible()
     titles = lambda: sorted(lib.list.item(i).text() for i in range(lib.list.count()))
-    assert titles() == ["Alpha · Tome 1", "Alpha · Tome 2", "Beta · Tome 1"]
+    dlg = PreferencesDialog(store, theme.colors("dark"), {})
+    qtbot.addWidget(dlg)
+    for gone in ("view_mode", "group_series", "show_details", "show_continue", "show_missing"):
+        assert not hasattr(dlg, gone)
 
-    def choose(view_index, details, grouped=False):
-        def fake_exec(dlg):
-            dlg.view_mode.setCurrentIndex(view_index)
-            dlg.show_details.setChecked(details)
-            dlg.group_series.setChecked(grouped)
-            return QDialog.Accepted
-        monkeypatch.setattr(PreferencesDialog, "exec", fake_exec)
-        lib.open_preferences()
-
-    choose(1, True)
-    assert store.library_pref("view_mode") == "list" and store.library_pref("show_details") is True
-    assert lib.list.viewMode() == QListWidget.ListMode and lib.detail.isVisible()
-    choose(0, False)
-    assert store.library_pref("view_mode") == "grid"
-    assert lib.list.viewMode() == QListWidget.IconMode and not lib.detail.isVisible()
-
-    # regroupement par serie : meme chemin, plus de bouton dans l'en-tete
-    choose(0, False, grouped=True)
-    assert store.library_pref("group_series") is True
+    lib._view_toggles["group_series"].trigger()
     assert titles() == ["Alpha", "Beta · Tome 1"]
     lib._enter_series("alpha")
-    choose(0, False, grouped=False)        # decocher sort aussi du dossier ouvert
+    lib._view_toggles["group_series"].trigger()
     assert store.library_pref("group_series") is False and lib._current_series is None
     assert titles() == ["Alpha · Tome 1", "Alpha · Tome 2", "Beta · Tome 1"]
+
+
+def test_preferences_apply_each_change_immediately(window, qtbot, store, monkeypatch):
+    """Rubriques de la maquette M2 ; un reglage change est enregistre et
+    applique sans attendre la fermeture (plus de bouton « Enregistrer »)."""
+    lib = window.library
+    seen = []
+
+    def exec_(dlg):
+        assert [dlg.nav.item(i).text() for i in range(dlg.nav.count())] == [
+            "Apparence", "Bibliothèque", "Lecture", "Comptes et synchronisation",
+            "Confidentialité et données"]
+        assert {b.text() for b in dlg.findChildren(QPushButton)} >= {"Fermer"}
+        assert "Enregistrer" not in {b.text() for b in dlg.findChildren(QPushButton)}
+        dlg.theme.setCurrentIndex(1)
+        seen.append(store.ui_pref("theme"))
+        dlg.ambilight.click()
+        seen.append(store.reader_pref("ambilight"))
+        return QDialog.Accepted
+    monkeypatch.setattr(PreferencesDialog, "exec", exec_)
+    with qtbot.waitSignal(lib.preferencesChanged, timeout=1000):
+        lib.open_preferences()
+    assert seen == ["light", True]
 
 
 def test_preferences_list_every_keyboard_shortcut(qtbot, store):
     from beheread.ui import keys, theme
     dlg = PreferencesDialog(store, theme.colors("dark"), {})
     qtbot.addWidget(dlg)
-    titles = [dlg.tabs.tabText(i) for i in range(dlg.tabs.count())]
-    assert titles == ["Général", "Lecteur", "Données", "AniList", "Serveurs", "Raccourcis"]
-    page = dlg.tabs.widget(titles.index("Raccourcis"))
-    texts = {lab.text() for lab in page.findChildren(QLabel)}
+    shortcuts = dlg._shortcuts_dialog()
+    qtbot.addWidget(shortcuts)
+    texts = {lab.text() for lab in shortcuts.findChildren(QLabel)}
     assert {"Dans la bibliothèque", "Dans le lecteur"} <= texts
     # bibliotheque et lecteur ; touches nommees selon le systeme (⌘F sous macOS)
     assert {keys.label("Ctrl + F"), keys.label("F5"), "Ambilight", "Rechercher"} <= texts
-    # le dialogue tient dans l'ecran (il n'est plus plafonne aux 2/3 par Qt)
+    # le dialogue tient dans l'ecran
     assert dlg.height() <= dlg.screen().availableGeometry().height()
 
 
