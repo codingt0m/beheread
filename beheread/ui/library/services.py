@@ -15,9 +15,9 @@ from PySide6.QtWidgets import (
 )
 
 from beheread import i18n
-from beheread.core import units
+from beheread.core import series_stats, units
 from beheread.core.anilist_track import ONESHOT
-from beheread.core.library_model import FINISHED
+from beheread.core.library_model import FINISHED, aggregate_series_info
 from beheread.core.series import normalize_name, parse_path
 from beheread.i18n import tr, trn
 from beheread.infra import anilist, archive, metadata, updates, virtual
@@ -170,32 +170,65 @@ class ServicesMixin:
         self._update_detail()
 
     # ----- statistiques -----
-    def open_stats(self):
+    def _stats_holdings(self, key):
+        """Instantane de la serie `key` pour ses statistiques (voir
+        series_stats.SeriesHoldings) : ses tomes et chapitres dans l'ordre de
+        lecture, avec les tomes manquants a leur place. None si ce n'est pas
+        une serie de la bibliotheque."""
+        grp = self._group_entries(self._entries).get(key)
+        if not grp or len(grp) < 2:
+            return None
+        vols = sorted(grp, key=self._volume_sort_key)
+        infos = [self._info.get(e.path) or self._entry_info(e) for e in vols]
+        name = self._series_display_name.get(key, grp[0].series)
+        author = aggregate_series_info(name, infos).author or self._series_author(vols)
+        _owned, missing, _ch, _missing_ch, published, _japan = self._series_holdings(key, vols)
+        items = []
+        for e, info in zip(vols, infos, strict=True):
+            prog = self.store.get_progress(e.path)
+            total = (prog[1] if prog and prog[1] else None) or self.store.page_count(e.path) or 0
+            items.append(series_stats.SeriesItem(
+                e.volume, self._unit(e) or units.VOLUME, info.key, info.status,
+                prog[0] if prog else 0, total, self._display_title(e)))
+        items += [series_stats.SeriesItem(n, units.VOLUME, status=series_stats.MISSING)
+                  for n in missing]
+        return series_stats.SeriesHoldings(key, name, author, published,
+                                           tuple(sorted(items, key=series_stats.item_order)))
+
+    def open_series_stats(self, key):
+        self.open_stats(series=key)
+
+    def open_stats(self, series=None):
         # etat de la bibliotheque : tomes par statut, et pages qu'il reste a
         # lire dans les tomes non termines (pour le temps restant a lire)
         library = {"unread": 0, "reading": 0, "finished": 0,
-                   "remaining_pages": 0, "unknown_pages": 0}
-        series = {}   # empreinte -> (cle de serie, nom affiche), regroupements actuels
+                   "remaining_pages": 0, "unknown_pages": 0,
+                   "remaining_by_volume": {}}
+        resolve = {}   # empreinte -> (cle de serie, nom affiche), regroupements actuels
         titles = {}   # empreinte -> titre actuel du tome
         for e in self._entries:
             info = self._info.get(e.path) or self._entry_info(e)
             library[info.status] = library.get(info.status, 0) + 1
             titles[info.key] = info.title
             if info.series_key:
-                series[info.key] = (info.series_key,
-                                    self._series_display_name.get(info.series_key, e.series))
+                resolve[info.key] = (info.series_key,
+                                     self._series_display_name.get(info.series_key, e.series))
             else:
-                series[info.key] = (info.key, info.title)
+                resolve[info.key] = (info.key, info.title)
             if info.status == FINISHED:
                 continue
             prog = self.store.get_progress(e.path)
             total = (prog[1] if prog and prog[1] else None) or self.store.page_count(e.path)
             if total:
-                library["remaining_pages"] += max(0, total - (prog[0] if prog else 0))
+                left = max(0, total - (prog[0] if prog else 0))
+                library["remaining_pages"] += left
+                by_volume = library["remaining_by_volume"]
+                by_volume[info.key] = by_volume.get(info.key, 0) + left
             else:
                 library["unknown_pages"] += 1
         dlg = StatsDialog(self.store, library, self.store.ui_pref("theme", "dark"), self,
-                          resolve=series.get, titles=titles)
+                          resolve=resolve.get, titles=titles, holdings=self._stats_holdings,
+                          open_series=self._enter_series, series=series)
         dlg.exec()
 
     # ----- mises a jour (facultatif) -----

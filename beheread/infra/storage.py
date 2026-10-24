@@ -951,6 +951,7 @@ class Store:
                 self.reading_log.add(device, name, date or datetime.date.today(), key,
                                      pages, seconds, finished, title, series, time.time())
                 self._pace_cache = None
+                self._volume_paces_cache = None
         except Exception:
             logging.error("Seance de lecture non enregistree dans le journal", exc_info=True)
 
@@ -1156,6 +1157,30 @@ class Store:
         pace = self.reading_log.pace(since)
         self._pace_cache = (now, pace)
         return pace
+
+    _volume_paces_cache = None    # (instant, {tome: (pages, secondes)})
+
+    def volume_paces(self):
+        """Pages lues et temps passe par tome, sur la meme periode et avec les
+        memes lignes que reading_pace : de quoi calculer le rythme d'une
+        serie (voir series_pace). Memorise comme reading_pace."""
+        now = time.monotonic()
+        cached = self._volume_paces_cache
+        if cached is not None and now - cached[0] < self.PACE_TTL:
+            return cached[1]
+        if self._closed:
+            return {}
+        since = datetime.date.today() - datetime.timedelta(days=self.PACE_DAYS)
+        rows = self.reading_log.volume_paces(since)
+        self._volume_paces_cache = (now, rows)
+        return rows
+
+    def series_pace(self, volumes):
+        """Rythme de lecture (secondes par page) propre a une serie, d'apres
+        la lecture de ses tomes (empreintes `volumes`), ou None s'il y en a
+        trop peu : une serie contemplative se lit plus vite qu'une serie
+        bavarde, la moyenne generale (reading_pace) n'est que le repli."""
+        return stats_model.pace_of(self.volume_paces(), volumes)
 
     def page_count(self, path: str):
         """Nombre de pages connu pour ce fichier (par empreinte de contenu),

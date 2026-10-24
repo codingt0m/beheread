@@ -5,7 +5,7 @@ calendrier, liste des tomes termines, barre de repartition, cartes.
 Choix de visualisation : voir l'en-tete de stats_view.py."""
 
 
-from PySide6.QtCore import QPoint, QRect, QRectF, QSize, Qt
+from PySide6.QtCore import QPoint, QPointF, QRect, QRectF, QSize, Qt, Signal
 from PySide6.QtGui import QColor, QFont, QPainter, QPainterPath, QPen
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -23,7 +23,7 @@ from PySide6.QtWidgets import (
 )
 
 from beheread.core import stats
-from beheread.i18n import N_, fmt_int, tr, trn
+from beheread.i18n import N_, fmt_decimal, fmt_int, tr, trn
 from beheread.ui import theme
 
 # couleurs de donnees (validees avec le script de la methode dataviz)
@@ -71,6 +71,26 @@ def day_name(weekday) -> str:
 
 def _fmt_int(n) -> str:
     return fmt_int(n)
+
+
+def fmt_day(d, year=True) -> str:
+    """« 1er oct. 2026 », « 14 nov. » sans l'annee."""
+    day = tr("1er") if d.day == 1 else str(d.day)
+    if year:
+        return tr("{day} {month} {year}", day=day, month=month_name(d.month), year=d.year)
+    return tr("{day} {month}", day=day, month=month_name(d.month))
+
+
+def fmt_pace(seconds) -> str:
+    text = f"{seconds:.0f}" if seconds >= 10 else fmt_decimal(seconds)
+    return tr("{seconds} s par page", seconds=text)
+
+
+def fmt_estimate(seconds) -> str:
+    """Duree estimee : au-dela de dix heures, les minutes n'ont pas de sens."""
+    if seconds >= 36000:
+        return f"{_fmt_int(round(seconds / 3600))} h"
+    return stats.fmt_duration(seconds, compact=True)
 
 
 def _small_font(widget) -> QFont:
@@ -163,7 +183,7 @@ class StatTile(QFrame):
         v = QVBoxLayout(self)
         v.setContentsMargins(16, 12, 16, 12)
         v.setSpacing(2)
-        lab = QLabel(label)
+        lab = self._label = QLabel(label)
         lab.setObjectName("tileLabel")
         self.value = QLabel()
         self.value.setObjectName("heroValue" if hero else "tileValue")
@@ -179,6 +199,10 @@ class StatTile(QFrame):
         if viz is not None:
             v.addWidget(viz)
         v.addWidget(self.sub)
+
+    def set_label(self, label):
+        self.label = label
+        self._label.setText(label)
 
     def set_content(self, value, delta="", sub="", tip=""):
         self.value.setText(value)
@@ -215,8 +239,11 @@ class BarChart(QWidget):
         self.setFocusPolicy(Qt.StrongFocus)
         self.setMinimumHeight(height)
 
-    def set_bars(self, bars):
+    reference = None    # (valeur, libelle) : trait de repere horizontal (mediane...)
+
+    def set_bars(self, bars, reference=None):
         self.bars = list(bars)
+        self.reference = reference if reference and reference[0] > 0 else None
         self.ticks = self.tick_fn(max((b[1] for b in self.bars), default=0))
         self.hover = -1
         self.update()
@@ -292,6 +319,22 @@ class BarChart(QWidget):
                 p.setPen(text_dim)
                 p.drawText(QRectF(slot.center().x() - tw / 2 - 2, plot.bottom() + 6, tw + 4, 16),
                            Qt.AlignCenter, label)
+        if self.reference is not None:
+            value, label = self.reference
+            y = round(plot.bottom() - plot.height() * (value / top_value))
+            ink = QColor(self.c["text"])
+            ink.setAlphaF(0.7)
+            p.setPen(QPen(ink, 1, Qt.DashLine))
+            p.drawLine(QPoint(plot.left(), y), QPoint(plot.right(), y))
+            # libelle a droite, sur un cartouche du fond de la carte : lisible
+            # meme pose sur les barres
+            tw = fm.horizontalAdvance(label) + 8
+            box = QRectF(plot.right() - tw, y - 9, tw, 18)
+            p.setPen(Qt.NoPen)
+            p.setBrush(QColor(self.c["panel"]))
+            p.drawRoundedRect(box, 4, 4)
+            p.setPen(ink)
+            p.drawText(box, Qt.AlignCenter, label)
         if self.hover >= 0 and self.hasFocus():
             slot = self._slot(self.hover)
             p.setPen(QPen(QColor(self.c["text_dim"]), 1))
@@ -356,21 +399,36 @@ class HBarList(QWidget):
     """Classement : sur une ligne le nom et sa valeur, dessous une barre fine
     (une teinte) proportionnelle. Sur deux lignes, il reste lisible quelle
     que soit la largeur de la carte. Seules les lignes qui tiennent dans la
-    hauteur sont dessinees (les premieres du classement)."""
+    hauteur sont dessinees (les premieres du classement).
+
+    `scale` : valeur d'une barre pleine largeur (1 pour des parts d'un tout :
+    une part de 34 % fait 34 % de la piste, dessinee en clair) ; None : celle
+    de la premiere ligne. Les lignes `clickable` (voir set_rows) reagissent
+    au survol, au clic et au clavier (fleches, Entree) : signal activated."""
+
+    activated = Signal(int)
 
     ROW = 38
     MIN_ROWS, MAX_ROWS = 3, 8
+    PAD = 6      # marge du fond de survol autour d'une ligne
 
-    def __init__(self, color, colors, empty_text=""):
+    def __init__(self, color, colors, empty_text="", scale=None):
         super().__init__()
         self.rows = []          # [(nom, valeur, texte de valeur)]
+        self.clickable = set()
         self.color = QColor(color)
         self.c = colors
         self.empty_text = empty_text
+        self.scale = scale
+        self.hover = -1
+        self.setMouseTracking(True)
         self.setMinimumHeight(self.MIN_ROWS * self.ROW)
 
-    def set_rows(self, rows):
+    def set_rows(self, rows, clickable=()):
         self.rows = list(rows)
+        self.clickable = set(clickable)
+        self.hover = -1
+        self.setFocusPolicy(Qt.StrongFocus if self.clickable else Qt.NoFocus)
         self.update()
 
     def visible_rows(self) -> list:
@@ -380,29 +438,92 @@ class HBarList(QWidget):
         p = QPainter(self)
         p.setRenderHint(QPainter.Antialiasing)
         fm = p.fontMetrics()
-        width = self.width()
+        pad = self.PAD if self.clickable else 0
+        width = self.width() - 2 * pad
         if not self.rows:
             p.setPen(QColor(self.c["text_dim"]))
             p.drawText(self.rect(), Qt.AlignCenter | Qt.TextWordWrap, self.empty_text)
-        peak = max((r[1] for r in self.rows), default=0) or 1
+        peak = self.scale or max((r[1] for r in self.rows), default=0) or 1
+        chevron = fm.horizontalAdvance("›") + 8 if self.clickable else 0
+        track = QColor(self.color)
+        track.setAlpha(55)
         for i, (name, value, text) in enumerate(self.visible_rows()):
             y = i * self.ROW
+            if i == self.hover and i in self.clickable:
+                p.setPen(QPen(QColor(self.c["text_dim"]), 1) if self.hasFocus() else Qt.NoPen)
+                p.setBrush(QColor(self.c["button"]))
+                p.drawRoundedRect(QRectF(0.5, y + 0.5, self.width() - 1, self.ROW - 3), 6, 6)
+            x = pad
+            right = x + width - chevron
             value_w = fm.horizontalAdvance(text)
             p.setPen(QColor(self.c["text_dim"]))
-            p.drawText(QRect(width - value_w, y, value_w, 20), Qt.AlignVCenter | Qt.AlignRight, text)
-            name_w = max(20, width - value_w - 12)
+            p.drawText(QRect(right - value_w, y + 2, value_w, 20),
+                       Qt.AlignVCenter | Qt.AlignRight, text)
+            if i in self.clickable:
+                p.drawText(QRect(right, y + 2, chevron, 20), Qt.AlignVCenter | Qt.AlignRight, "›")
+            name_w = max(20, right - x - value_w - 12)
             p.setPen(QColor(self.c["text"]))
-            p.drawText(QRect(0, y, name_w, 20), Qt.AlignVCenter | Qt.AlignLeft,
+            p.drawText(QRect(x, y + 2, name_w, 20), Qt.AlignVCenter | Qt.AlignLeft,
                        fm.elidedText(name, Qt.ElideRight, name_w))
-            r = QRectF(0, y + 24, max(4.0, width * value / peak), 6)
+            bar_w = width - chevron
+            p.setPen(Qt.NoPen)
+            if self.scale:
+                p.setBrush(track)
+                p.drawRoundedRect(QRectF(x, y + 25, bar_w, 6), 3, 3)
+            r = QRectF(x, y + 25, max(4.0, bar_w * min(1.0, value / peak)), 6)
             path = QPainterPath()
             path.setFillRule(Qt.WindingFill)   # formes superposees : union, pas de trous
             path.addRoundedRect(r, 3, 3)
             path.addRect(QRectF(r.left(), r.top(), 3, r.height()))   # base carree a gauche
-            p.setPen(Qt.NoPen)
             p.setBrush(self.color)
             p.drawPath(path.simplified())
         p.end()
+
+    # ----- survol, clic et clavier -----
+    def _row_at(self, y) -> int:
+        i = int(y // self.ROW)
+        return i if 0 <= i < len(self.visible_rows()) else -1
+
+    def _set_hover(self, i):
+        if i != self.hover:
+            self.hover = i
+            self.setCursor(Qt.PointingHandCursor if i in self.clickable else Qt.ArrowCursor)
+            self.update()
+
+    def mouseMoveEvent(self, event):
+        self._set_hover(self._row_at(event.position().y()))
+
+    def leaveEvent(self, _event):
+        if not self.hasFocus():
+            self._set_hover(-1)
+
+    def mouseReleaseEvent(self, event):
+        i = self._row_at(event.position().y())
+        if event.button() == Qt.LeftButton and i in self.clickable:
+            self.activated.emit(i)
+
+    def keyPressEvent(self, event):
+        rows = sorted(i for i in self.clickable if i < len(self.visible_rows()))
+        if event.key() in (Qt.Key_Up, Qt.Key_Down) and rows:
+            if self.hover in rows:
+                pos = rows.index(self.hover) + (1 if event.key() == Qt.Key_Down else -1)
+            else:
+                pos = 0 if event.key() == Qt.Key_Down else len(rows) - 1
+            self._set_hover(rows[max(0, min(len(rows) - 1, pos))])
+            return
+        if event.key() in (Qt.Key_Return, Qt.Key_Enter, Qt.Key_Space) and self.hover in rows:
+            self.activated.emit(self.hover)
+            return
+        super().keyPressEvent(event)
+
+    def focusInEvent(self, event):
+        if self.hover not in self.clickable and self.clickable:
+            self._set_hover(min(self.clickable))
+        super().focusInEvent(event)
+
+    def focusOutEvent(self, event):
+        self._set_hover(-1)
+        super().focusOutEvent(event)
 
 
 class CalendarHeatmap(QWidget):
@@ -811,3 +932,364 @@ class ChartCard(QFrame):
                     item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
                 self.table.setItem(r, col, item)
 
+
+
+# ---------------------------------------------------------------- statistiques d'une serie
+
+class PaceScale(QWidget):
+    """Rythme d'une serie sur une echelle de secondes par page : un trait
+    gris pour le rythme moyen, un point de la couleur de la mesure pour celui
+    de la serie. A droite, plus lent."""
+
+    def __init__(self, color, colors):
+        super().__init__()
+        self.color = QColor(color)
+        self.c = colors
+        self.pace = self.average = None
+        self.setFixedHeight(Sparkline.HEIGHT)
+
+    def set_paces(self, pace, average):
+        self.pace, self.average = pace, average
+        self.update()
+
+    def paintEvent(self, _event):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing)
+        w, mid = self.width(), self.height() / 2 + 2
+        p.setPen(Qt.NoPen)
+        p.setBrush(theme.qcolor(self.c["border"]))
+        p.drawRoundedRect(QRectF(0, mid - 1, w, 2), 1, 1)
+        known = [v for v in (self.pace, self.average) if v]
+        if known:
+            top = max(known) * 1.6
+            x = lambda v: 6 + (w - 12) * v / top   # noqa: E731
+            if self.average:
+                p.setBrush(QColor(self.c["text_dim"]))
+                p.drawRect(QRectF(x(self.average) - 1, mid - 8, 2, 16))
+            if self.pace:
+                p.setPen(QPen(QColor(self.c["panel"]), 2))
+                p.setBrush(self.color)
+                p.drawEllipse(QPointF(x(self.pace), mid), 5.5, 5.5)
+        p.end()
+
+
+class Shelf(QWidget):
+    """Etagere d'une serie : une case par tome (ou chapitre) dans l'ordre de
+    lecture, son numero ecrit dedans, sa couleur selon son etat ; le tome en
+    cours est rempli a proportion de sa progression, un tome non possede
+    n'a qu'un contour pointille. Sous les cases, la legende avec les
+    nombres : l'etat ne repose jamais sur la couleur seule.
+
+    items : [(numero ecrit, etat, progression 0..1, infobulle)], etat parmi
+    finished / reading / unread / missing. Au-dela de quatre rangees, les
+    cases retrecissent et perdent leur numero (series en centaines de
+    chapitres) ; le survol et le clavier le donnent toujours."""
+
+    CELL_H, CELL_MIN, CELL_MAX, GAP = 30, 26, 44, 4
+    SMALL, SMALL_MAX, SMALL_GAP = 10, 16, 2
+    LEGEND = 26
+
+    def __init__(self, colors_by_status, colors):
+        super().__init__()
+        self.fill = {k: QColor(v) for k, v in colors_by_status.items()}
+        self.c = colors
+        self.items = []
+        self.legend = []    # [(texte, etat)]
+        self.hover = -1
+        self.setMouseTracking(True)
+        self.setFocusPolicy(Qt.StrongFocus)
+        self.setMinimumHeight(self.CELL_H + self.LEGEND)
+
+    def set_items(self, items, legend):
+        self.items = list(items)
+        self.legend = list(legend)
+        self.hover = -1
+        self._fit()
+        self.update()
+
+    def _layout(self, width) -> tuple:
+        """(colonnes, largeur et hauteur d'une case, espace, numeros ecrits)."""
+        n = max(1, len(self.items))
+        width = max(1, width)
+        for small in (False, True):
+            low, gap = (self.SMALL, self.SMALL_GAP) if small else (self.CELL_MIN, self.GAP)
+            fit = max(1, int((width + gap) // (low + gap)))
+            rows = -(-n // fit)
+            if rows <= 4 or small:
+                cols = -(-n // rows)    # rangees equilibrees
+                cell = min(self.SMALL_MAX if small else self.CELL_MAX,
+                           (width - (cols - 1) * gap) / cols)
+                return cols, cell, (cell if small else self.CELL_H), gap, not small
+        raise AssertionError
+
+    def _cells(self) -> list:
+        cols, cw, ch, gap, _numbers = self._layout(self.width())
+        return [QRectF((i % cols) * (cw + gap), (i // cols) * (ch + gap), cw, ch)
+                for i in range(len(self.items))]
+
+    def _fit(self):
+        cols, _cw, ch, gap, _n = self._layout(self.width())
+        rows = -(-max(1, len(self.items)) // cols)
+        self.setMinimumHeight(round(rows * (ch + gap)) + self.LEGEND)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._fit()
+
+    @staticmethod
+    def _ink(color) -> QColor:
+        return QColor(max(("#16181d", "#f5f0ee"), key=lambda ink: theme.contrast(ink, color.name())))
+
+    def paintEvent(self, _event):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing)
+        p.setFont(_small_font(self))
+        numbers = self._layout(self.width())[4]
+        dim = QColor(self.c["text_dim"])
+        cells = self._cells()
+        radius = 4 if numbers else 2
+        for i, ((label, status, progress, _tip), r) in enumerate(zip(self.items, cells, strict=True)):
+            color = self.fill.get(status)
+            ink = dim
+            if status == "missing" or color is None:
+                p.setPen(QPen(dim, 1, Qt.DashLine))
+                p.setBrush(Qt.NoBrush)
+                p.drawRoundedRect(r.adjusted(0.5, 0.5, -0.5, -0.5), radius, radius)
+            elif status == "reading":
+                soft = QColor(color)
+                soft.setAlpha(60)
+                p.setPen(QPen(color, 1))
+                p.setBrush(soft)
+                p.drawRoundedRect(r.adjusted(0.5, 0.5, -0.5, -0.5), radius, radius)
+                if progress > 0:
+                    path = QPainterPath()
+                    path.addRoundedRect(r, radius, radius)
+                    p.save()
+                    p.setClipRect(QRectF(r.left(), r.top(), r.width() * min(1.0, progress),
+                                         r.height()))
+                    p.setPen(Qt.NoPen)
+                    p.setBrush(color)
+                    p.drawPath(path)
+                    p.restore()
+                ink = QColor(self.c["text"])
+            else:
+                p.setPen(Qt.NoPen)
+                p.setBrush(color)
+                p.drawRoundedRect(r, radius, radius)
+                ink = self._ink(color)
+            if numbers and label:
+                p.setPen(ink)
+                p.drawText(r, Qt.AlignCenter, label)
+            if i == self.hover:
+                p.setPen(QPen(QColor(self.c["text"]), 1.5))
+                p.setBrush(Qt.NoBrush)
+                p.drawRoundedRect(r.adjusted(-2, -2, 2, 2), radius + 1, radius + 1)
+        # legende : pastille + texte (couleur de texte)
+        fm = p.fontMetrics()
+        x, y = 0.0, max((r.bottom() for r in cells), default=0.0) + 10
+        for text, status in self.legend:
+            box = QRectF(x, y, 10, 10)
+            if status in self.fill and status != "missing":
+                p.setPen(Qt.NoPen)
+                p.setBrush(self.fill[status])
+            else:
+                p.setPen(QPen(dim, 1, Qt.DashLine))
+                p.setBrush(Qt.NoBrush)
+            p.drawRoundedRect(box, 2, 2)
+            p.setPen(dim)
+            p.drawText(QPointF(x + 15, y + 9), text)
+            x += 15 + fm.horizontalAdvance(text) + 18
+        p.end()
+
+    # ----- survol et clavier -----
+    def _show_tip(self, i):
+        self.hover = i
+        self.update()
+        cells = self._cells()
+        if 0 <= i < len(cells):
+            r = cells[i]
+            QToolTip.showText(self.mapToGlobal(QPoint(round(r.center().x()), round(r.top()))),
+                              self.items[i][3], self)
+
+    def mouseMoveEvent(self, event):
+        pos = event.position()
+        i = next((i for i, r in enumerate(self._cells())
+                  if r.adjusted(-2, -2, 2, 2).contains(pos)), -1)
+        if i != self.hover:
+            self._show_tip(i)
+            if i < 0:
+                QToolTip.hideText()
+
+    def leaveEvent(self, _event):
+        self.hover = -1
+        QToolTip.hideText()
+        self.update()
+
+    def keyPressEvent(self, event):
+        steps = {Qt.Key_Left: -1, Qt.Key_Right: 1}
+        if event.key() in steps and self.items:
+            step = steps[event.key()]
+            start = self.hover if self.hover >= 0 else (len(self.items) if step < 0 else -1)
+            self._show_tip(max(0, min(len(self.items) - 1, start + step)))
+            return
+        super().keyPressEvent(event)
+
+    def focusOutEvent(self, event):
+        self.hover = -1
+        self.update()
+        super().focusOutEvent(event)
+
+
+class StepChart(QWidget):
+    """Progression d'une serie : tomes termines cumules dans le temps, en
+    escalier (une marche par fin de tome : les rafales et les pauses se
+    voient). En pointilles, la projection jusqu'au dernier tome possede ;
+    des reperes horizontaux (possedes, parus) nommes a droite."""
+
+    LEFT, RIGHT, TOP, BOTTOM = 34, 84, 14, 26
+
+    def __init__(self, color, colors, empty_text=""):
+        super().__init__()
+        self.color = QColor(color)
+        self.c = colors
+        self.empty_text = empty_text
+        self.points = []        # [(jour, cumul, infobulle)]
+        self.start = self.today = None
+        self.base = 0
+        self.projection = None  # (jour, cumul, infobulle)
+        self.references = []    # [(valeur, libelle)]
+        self.hover = -1
+        self.setMouseTracking(True)
+        self.setFocusPolicy(Qt.StrongFocus)
+        self.setMinimumHeight(170)
+
+    def set_data(self, start, base, points, today, projection=None, references=()):
+        self.start, self.base, self.today = start, base, today
+        self.points = list(points)
+        self.projection = projection
+        self.references = [r for r in references if r[0]]
+        self.hover = -1
+        self.update()
+
+    def _targets(self) -> list:
+        return self.points + ([self.projection] if self.projection else [])
+
+    def _scales(self):
+        plot = QRectF(self.LEFT, self.TOP, self.width() - self.LEFT - self.RIGHT,
+                      self.height() - self.TOP - self.BOTTOM)
+        first = (self.start or self.today).replace(day=1)
+        last = max([self.today] + [t[0] for t in self._targets()])
+        span = max(1, (last - first).days)
+        top_value = max([self.base] + [t[1] for t in self._targets()]
+                        + [v for v, _l in self.references] + [1])
+        ticks = stats.nice_ticks(top_value, 3)
+        x = lambda d: plot.left() + plot.width() * (d - first).days / span   # noqa: E731
+        y = lambda v: plot.bottom() - plot.height() * v / (ticks[-1] or 1)   # noqa: E731
+        return plot, first, last, ticks, x, y
+
+    def paintEvent(self, _event):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing)
+        p.setFont(_small_font(self))
+        dim, grid = QColor(self.c["text_dim"]), theme.qcolor(self.c["border"])
+        if self.today is None or not (self.points or self.base):
+            p.setPen(dim)
+            p.drawText(self.rect(), Qt.AlignCenter | Qt.TextWordWrap, self.empty_text)
+            p.end()
+            return
+        plot, first, last, ticks, x, y = self._scales()
+        for t in ticks:
+            p.setPen(QPen(grid, 1))
+            p.drawLine(QPointF(plot.left(), y(t)), QPointF(plot.right(), y(t)))
+            p.setPen(dim)
+            p.drawText(QRectF(0, y(t) - 8, self.LEFT - 6, 16), Qt.AlignRight | Qt.AlignVCenter,
+                       _fmt_int(t))
+        # mois : au plus six reperes, le premier et janvier avec l'annee
+        months = (last.year - first.year) * 12 + last.month - first.month + 1
+        step = max(1, -(-months // 6))
+        for m in range(0, months, step):
+            d = stats.add_months(first, m)
+            label = month_name(d.month) + (f" {d.year % 100:02d}" if m == 0 or d.month == 1 else "")
+            left = max(0.0, min(self.width() - 80.0, x(d) - 40))   # jamais coupe au bord
+            p.drawText(QRectF(left, plot.bottom() + 6, 80, 16), Qt.AlignCenter, label)
+        for value, label in self.references:
+            p.setPen(QPen(dim, 1, Qt.DotLine))
+            p.drawLine(QPointF(plot.left(), y(value)), QPointF(plot.right(), y(value)))
+            p.setPen(dim)
+            # a l'ecart du point de fin de la projection, pose sur le bord droit
+            p.drawText(QRectF(plot.right() + 10, y(value) - 8, self.RIGHT - 10, 16),
+                       Qt.AlignLeft | Qt.AlignVCenter, label)
+        now = QColor(dim)
+        now.setAlphaF(0.5)
+        p.setPen(QPen(now, 1))
+        p.drawLine(QPointF(x(self.today), plot.top()), QPointF(x(self.today), plot.bottom()))
+
+        path = QPainterPath(QPointF(x(self.start or self.today), y(self.base)))
+        count = self.base
+        for day, value, _tip in self.points:
+            path.lineTo(x(day), y(count))
+            path.lineTo(x(day), y(value))
+            count = value
+        path.lineTo(x(self.today), y(count))
+        p.setBrush(Qt.NoBrush)
+        p.setPen(QPen(self.color, 2, Qt.SolidLine, Qt.FlatCap, Qt.RoundJoin))
+        p.drawPath(path)
+        if self.projection:
+            day, value, _tip = self.projection
+            p.setPen(QPen(self.color, 2, Qt.DashLine))
+            p.drawLine(QPointF(x(self.today), y(count)), QPointF(x(day), y(value)))
+            p.setPen(QPen(self.color, 2))
+            p.setBrush(QColor(self.c["panel"]))
+            p.drawEllipse(QPointF(x(day), y(value)), 4, 4)
+        p.setPen(QPen(QColor(self.c["panel"]), 2))
+        p.setBrush(self.color)
+        p.drawEllipse(QPointF(x(self.today), y(count)), 4.5, 4.5)
+        if 0 <= self.hover < len(self._targets()):
+            day, value, _tip = self._targets()[self.hover]
+            p.setPen(QPen(QColor(self.c["text"]), 1.5))
+            p.setBrush(Qt.NoBrush)
+            p.drawEllipse(QPointF(x(day), y(value)), 7, 7)
+        p.end()
+
+    # ----- survol et clavier -----
+    def _show_tip(self, i):
+        self.hover = i
+        self.update()
+        targets = self._targets()
+        if 0 <= i < len(targets):
+            _plot, _f, _l, _t, x, y = self._scales()
+            day, value, tip = targets[i]
+            QToolTip.showText(self.mapToGlobal(QPoint(round(x(day)), round(y(value)))), tip, self)
+
+    def mouseMoveEvent(self, event):
+        targets = self._targets()
+        i = -1
+        if targets and self.today is not None:
+            _plot, _f, _l, _t, x, _y = self._scales()
+            pos = event.position()
+            best = min(range(len(targets)), key=lambda k: abs(x(targets[k][0]) - pos.x()))
+            if abs(x(targets[best][0]) - pos.x()) <= 12:
+                i = best
+        if i != self.hover:
+            self._show_tip(i)
+            if i < 0:
+                QToolTip.hideText()
+
+    def leaveEvent(self, _event):
+        self.hover = -1
+        QToolTip.hideText()
+        self.update()
+
+    def keyPressEvent(self, event):
+        targets = self._targets()
+        if event.key() in (Qt.Key_Left, Qt.Key_Right) and targets:
+            step = -1 if event.key() == Qt.Key_Left else 1
+            start = self.hover if self.hover >= 0 else (len(targets) if step < 0 else -1)
+            self._show_tip(max(0, min(len(targets) - 1, start + step)))
+            return
+        super().keyPressEvent(event)
+
+    def focusOutEvent(self, event):
+        self.hover = -1
+        self.update()
+        super().focusOutEvent(event)

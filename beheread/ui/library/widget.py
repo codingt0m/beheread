@@ -588,9 +588,11 @@ class LibraryWidget(ChromeMixin, DetailPanelMixin, ActionsMixin, MenusMixin,
     def _time_estimate_text(self, path):
         """Estimation du temps de lecture (restant si le tome est entame, total
         sinon), basee sur le rythme personnel mesure et le nombre de pages
-        connu. Renvoie "" tant que le rythme n'a pas ete mesure ou que le
-        nombre de pages est inconnu."""
-        pace = self.store.reading_pace()
+        connu. Le rythme est celui de la serie du tome quand elle a assez ete
+        lue (contemplative ou bavarde, elle ne se lit pas comme la moyenne),
+        sinon le rythme moyen. Renvoie "" tant que aucun rythme n'a ete mesure
+        ou que le nombre de pages est inconnu."""
+        pace = self._series_pace(path) or self.store.reading_pace()
         if not pace:
             return ""
         prog = self.store.get_progress(path)
@@ -612,6 +614,16 @@ class LibraryWidget(ChromeMixin, DetailPanelMixin, ActionsMixin, MenusMixin,
         if prog and read > 0:
             return tr("Temps restant : {duration}", duration=label)
         return tr("Temps de lecture : {duration}", duration=label)
+
+    def _series_pace(self, path):
+        """Rythme (secondes par page) mesure sur la serie de ce tome, ou None
+        (tome detache, serie peu lue)."""
+        info = self._info.get(path)
+        if info is None or not info.series_key:
+            return None
+        siblings = (self._info.get(p) for p in self._paths_by_series.get(info.series_key, ()))
+        volumes = [i.key for i in siblings if i is not None and i.series_key == info.series_key]
+        return self.store.series_pace(volumes)
 
     def _update_item_meta(self, path, refilter=True):
         """Met a jour l'auteur/tooltip d'un seul item deja affiche, sans

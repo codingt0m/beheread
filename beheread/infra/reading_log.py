@@ -178,6 +178,30 @@ class ReadingLog:
                 return seconds / pages if seconds > 0 else None
         return None
 
+    def volume_paces(self, since, min_pages=PACE_MIN_PAGES):
+        """{tome: (pages, secondes)} depuis le jour `since`, pour le rythme
+        propre a chaque serie (voir stats.pace_of). Memes lignes que pace() :
+        seules comptent celles (un tome, un jour) d'au moins `min_pages`
+        pages."""
+        return {volume: (pages, seconds) for volume, pages, seconds in self._query(
+            """SELECT volume, SUM(pages), SUM(seconds) FROM reading_log
+               WHERE day >= ? AND pages >= ? GROUP BY volume""", (_iso(since), min_pages))}
+
+    def series_rows(self, volumes):
+        """[(jour, appareil, tome, pages, secondes, seances, fins)] de ces
+        tomes sur tout l'historique, du plus ancien jour au plus recent (voir
+        series_stats.build_series_report). L'appareil est son nom quand il
+        est connu. Par paquets : SQLite limite le nombre de parametres."""
+        volumes, rows = sorted(set(volumes)), []
+        for i in range(0, len(volumes), 500):
+            chunk = volumes[i:i + 500]
+            rows += self._query(
+                f"""SELECT l.day, COALESCE(NULLIF(d.name, ''), l.device), l.volume, l.pages,
+                           l.seconds, l.sessions, l.finished
+                    FROM reading_log l LEFT JOIN reading_devices d ON d.device = l.device
+                    WHERE l.volume IN ({",".join("?" * len(chunk))})""", chunk)
+        return sorted(rows)
+
     def finished(self, start, end, limit):
         """[(jour, tome, titre, serie)] des dernieres fins de tome de la
         periode, de la plus recente a la plus ancienne."""

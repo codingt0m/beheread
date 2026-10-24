@@ -109,6 +109,18 @@ def test_top_series_follows_the_current_library_grouping():
     assert [(s.name, s.seconds) for s in top] == [("Nom affiché", 900.0), ("Autre", 100.0)]
 
 
+def test_series_pace_needs_enough_pages_read_in_the_series():
+    paces = {"a1": (40, 200.0), "a2": (20, 100.0), "b1": (25, 500.0), "z": (500, 500.0)}
+    # la serie A (60 pages, 5 s par page) ; la serie B n'a pas assez de pages
+    assert stats.pace_of(paces, ["a1", "a2", "inconnu"]) == 5.0
+    assert stats.pace_of(paces, ["b1"]) is None
+    assert stats.pace_of(paces, ["b1"], min_pages=20) == 20.0
+    assert stats.pace_of(paces, ["a1", "a1"]) == 5.0      # meme tome compte une fois
+    assert stats.pace_of(paces, []) is None
+    library = {"a1": ("a", "A"), "a2": ("a", "A"), "b1": ("b", "B")}   # "z" : hors bibliotheque
+    assert stats.series_paces(paces, library.get) == {"a": 5.0}
+
+
 def test_legacy_journal_pages_are_bounded_by_reading_time():
     section = {"name": "PC", "updated": 5, "days": {
         "2026-09-27": {"k1": {"pages": 131, "seconds": 6.0, "finished": 0,

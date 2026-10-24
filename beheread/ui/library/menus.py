@@ -244,6 +244,7 @@ class MenusMixin:
         m.separator()
         if not all(getattr(self._info.get(p), "status", None) == FINISHED for p in paths):
             m.add(tr("Marquer la série comme lue"), lambda: self._mark_series_finished(key))
+        m.add(tr("Statistiques de la série"), lambda: self.open_series_stats(key))
         m.separator()
         m.add(tr("Modifier les informations…"), lambda: self._edit_series_info(key))
         m.add(tr("Renommer la série…"), lambda: self._rename_series(key))

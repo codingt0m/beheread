@@ -20,7 +20,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
 )
 
-from beheread.core import stats
+from beheread.core import stats, units
 from beheread.i18n import fmt_int, tr, trn
 from beheread.ui import style, theme
 from beheread.ui.safe_text import plain
@@ -42,8 +42,9 @@ def _font(px, bold=False):
 
 
 def _hours(seconds):
+    """« 45 min », « 2 h » : a l'heure la plus proche (1 h 59 -> 2 h, pas 1 h)."""
     minutes = round(seconds / 60)
-    return f"{minutes // 60} h" if minutes >= 60 else f"{minutes} min"
+    return f"{(minutes + 30) // 60} h" if minutes >= 60 else f"{minutes} min"
 
 
 def _mix(color, other, ratio):
@@ -120,7 +121,9 @@ def render_recap(recap: stats.YearRecap, accent: str) -> QImage:
         name = p.fontMetrics().elidedText(s.name, Qt.ElideRight, width - 280)
         p.drawText(QRect(x, y, width, 32), Qt.AlignLeft | Qt.AlignVCenter, name)
         p.setPen(QColor(DIM))
-        detail = f"{_hours(s.seconds)} · " + trn(s.finished, "{n} tome", "{n} tomes")
+        # tomes et chapitres a part : une serie lue en chapitres n'a pas « 40 tomes »
+        detail = f"{_hours(s.seconds)} · " + units.count_text(s.finished - s.finished_chapters,
+                                                              s.finished_chapters)
         p.drawText(QRect(x, y, width, 32), Qt.AlignRight | Qt.AlignVCenter, detail)
         p.setPen(Qt.NoPen)
         p.setBrush(QColor(accent))
@@ -217,7 +220,9 @@ class RecapDialog(QDialog):
 
     def _render(self):
         recap = stats.year_recap(self.log, self.year.currentData(), self.today, self.resolve)
-        self.image = render_recap(recap, theme.ACCENT)
+        # l'image est toujours sombre : accent rendu lisible sur fond sombre,
+        # quel que soit le theme de l'application (theme.ACCENT l'est pour lui)
+        self.image = render_recap(recap, theme.bounded_accent(theme.ACCENT_CHOICE, "dark"))
         dpr = self.devicePixelRatioF()
         pm = QPixmap.fromImage(self.image).scaled(self.PREVIEW * dpr, Qt.KeepAspectRatio,
                                                   Qt.SmoothTransformation)

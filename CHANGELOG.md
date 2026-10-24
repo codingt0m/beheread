@@ -4,6 +4,13 @@ Les numéros de version suivent [SemVer](https://semver.org/lang/fr/). Chaque se
 
 ## [Non publié]
 
+### Statistiques
+
+* **Statistiques par série** : un clic sur une série du classement (ou « Statistiques de la série » dans son menu) ouvre sa page : temps passé, tomes lus, rythme comparé à votre moyenne, reste à lire avec une fin estimée, une étagère case par case (terminés, en cours, non lus, non possédés), la progression dans le temps, le temps de chaque tome et quelques repères.
+* Le temps restant à lire d'un tome ou de la bibliothèque tient compte du rythme propre à chaque série, quand elle a assez été lue.
+* Écran Statistiques : barres du classement à l'échelle de 100 %, « Jours de lecture préférés » à la place du calendrier sur 7 et 30 jours, dernier tome terminé à la place de la mini-tendance, carte Bibliothèque allégée (détail du calcul dans l'infobulle ⓘ). Sur un écran bas, la fenêtre défile au lieu de masquer des cartes.
+* Bilan de l'année : tomes et chapitres comptés à part dans les séries, durées arrondies à l'heure la plus proche (1 h 59 s'affiche « 2 h »), couleur d'accent toujours lisible sur l'image sombre.
+
 ## [1.3.0] - 2026-10-23
 
 ### Tomes et chapitres

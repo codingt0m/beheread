@@ -6,6 +6,7 @@ from PySide6.QtCore import QEvent, Qt
 from PySide6.QtGui import QKeyEvent
 from PySide6.QtWidgets import QApplication, QLabel, QScrollArea
 
+from beheread.core import stats
 from beheread.ui.stats_view import StatsDialog
 from tests.ui.conftest import make_cbz, scanned
 
@@ -25,7 +26,6 @@ def _dialog(store, qtbot, size=(1440, 900), **kwargs):
     dlg = StatsDialog(store, LIBRARY, "dark", today=TODAY, **kwargs)
     qtbot.addWidget(dlg)
     dlg.resize(*size)
-    dlg.fit_height()
     return dlg
 
 
@@ -54,7 +54,8 @@ def test_every_figure_follows_the_chosen_period(store, qtbot, mangas):
     assert _tiles(dlg) == [
         "Temps de lecture : 1 h 00 - ▲ 35 min - 20 min par jour de lecture · 3 séances",
         "Pages lues : 120 - ▲ 90 - dans 3 tomes",
-        "Tomes terminés : 1 - = identique",
+        # pas de mini-tendance des fins de tome (presque toujours vide) : le dernier termine
+        "Tomes terminés : 1 - = identique - Dernier : Berserk - Tome 1, 27 sept.",
         "Jours de lecture : 3 sur 30 - ▲ 2"]
     assert dlg.tiles[0].toolTip() == ("35 min de plus que les 30 jours précédents (25 min).")
     assert dlg.days_meter.ratio == 0.1
@@ -67,7 +68,14 @@ def test_every_figure_follows_the_chosen_period(store, qtbot, mangas):
     assert dlg.time_card.table.item(0, 1).text() == "20 min"
     assert [r[0] for r in dlg.series_list.rows] == ["Berserk", "Pluto"]
     assert dlg.finished_list.items == [("Berserk - Tome 1", "27 sept.", 1)]
-    assert dlg.calendar_card.subtitle.text() == "Série en cours : 2 jours"
+    # sur 30 jours, le calendrier repeterait l'histogramme : temps moyen par jour de la semaine
+    assert dlg.calendar.isHidden() and not dlg.weekdays.isHidden()
+    assert dlg.calendar_card.title.text() == "Jours de lecture préférés"
+    assert dlg.calendar_card.subtitle.text() == ("Temps moyen par jour de la semaine · "
+                                                 "Série en cours : 2 jours")
+    # dimanche 27/09 : 20 min sur 5 dimanches (pas d'autre lecture un dimanche)
+    assert [b[0] for b in dlg.weekdays.bars][0] == "lun." and dlg.weekdays.bars[6][1] == 240
+    assert dlg.weekdays.bars[6][2] == "4 min\nen moyenne le dimanche · sur 5 semaines"
 
     # 7 jours : chaque composant est mis a jour en place (memes objets)
     chart, tile = dlg.time_chart, dlg.tiles[1]
@@ -79,7 +87,9 @@ def test_every_figure_follows_the_chosen_period(store, qtbot, mangas):
     assert [r[0] for r in dlg.series_list.rows] == ["Berserk"]
 
     dlg.period_buttons["all"].click()
-    assert _tiles(dlg)[2] == "Tomes terminés : 2"            # « Tout » : rien a comparer
+    assert _tiles(dlg)[2] == "Tomes terminés : 2 - Dernier : Berserk - Tome 1, 27 sept."   # rien a comparer
+    assert not dlg.calendar.isHidden() and dlg.weekdays.isHidden()
+    assert dlg.calendar_card.title.text() == "Régularité"
     assert dlg.caption.text() == "13 août – 27 sept. 2026"
     assert _titles(dlg) == ["Berserk - Tome 1", "Pluto - Tome 2"]
     dlg.period_buttons["12m"].click()
@@ -108,9 +118,9 @@ def test_calendar_shades_days_by_reading_time(store, qtbot, mangas):
         assert cal.hover == expected
 
 
-def test_screen_is_fullscreen_and_never_scrolls(store, qtbot, mangas):
-    """Plein ecran, tout sur un ecran : pas de zone de defilement, et ce qui
-    ne tient pas en hauteur est retire plutot que de deborder."""
+def test_screen_is_fullscreen_and_scrolls_rather_than_hiding(store, qtbot, mangas):
+    """Plein ecran ; sur un ecran trop bas, la fenetre defile et l'annonce
+    plutot que de retirer des cartes."""
     for i in range(6):     # six contenus distincts (make_cbz) ; deux fins de tome par jour
         path = _read(store, mangas, f"Serie {i} - Tome 1", i, 30, 600 + 60 * i,
                      finished=True, seed=i)
@@ -119,13 +129,16 @@ def test_screen_is_fullscreen_and_never_scrolls(store, qtbot, mangas):
     opened = StatsDialog(store, LIBRARY, "dark", today=TODAY)
     qtbot.addWidget(opened)
     assert opened.windowState() & Qt.WindowFullScreen        # tel qu'il s'ouvre
-    dlg = _dialog(store, qtbot, size=(1440, 900))
-    assert dlg.findChildren(QScrollArea) == []
+    dlg = _dialog(store, qtbot)
+    dlg.setWindowState(Qt.WindowNoState)    # aux dimensions voulues, pas a celles de l'ecran de test
+    dlg.resize(1440, 900)
+    dlg.show()
+    qtbot.waitExposed(dlg)
     assert not dlg.close_button.isHidden()                   # pas de barre de titre en plein ecran
 
-    # ecran haut : les deux rangees, et le contenu tient dans la hauteur
+    # ecran haut : tout tient, rien a faire defiler
     assert not dlg.habits.isHidden()
-    assert dlg.root.minimumSize().height() <= 900
+    assert dlg.scroll.verticalScrollBar().maximum() == 0 and dlg.more.isHidden()
     # les listes ne dessinent que les lignes qui tiennent, et le disent
     dlg.finished_list.resize(300, 5 * dlg.finished_list.ROW)
     shown, more = dlg.finished_list.visible_items()
@@ -135,17 +148,14 @@ def test_screen_is_fullscreen_and_never_scrolls(store, qtbot, mangas):
     dlg.series_list.resize(300, 4 * dlg.series_list.ROW)
     assert len(dlg.series_list.rows) == 6 and len(dlg.series_list.visible_rows()) == 4
 
-    # ecran bas : la seconde rangee est retiree, et ce qui reste tient
+    # ecran bas : rien n'est retire, la page defile et le lien l'annonce
     dlg.resize(1100, 600)
-    dlg.fit_height()
-    assert dlg.habits.isHidden() and not dlg.detail.isHidden() and not dlg.tiles_host.isHidden()
-    assert dlg.root.minimumSize().height() <= 600
-    # elle revient quand la place revient, et reste retiree en changeant de periode
-    dlg.period_buttons["7d"].click()
-    assert dlg.habits.isHidden()
-    dlg.resize(1440, 900)
-    dlg.fit_height()
-    assert not dlg.habits.isHidden()
+    qtbot.waitUntil(lambda: dlg.scroll.verticalScrollBar().maximum() > 0)
+    assert not dlg.habits.isHidden() and not dlg.more.isHidden()
+    assert dlg.findChildren(QScrollArea)
+    dlg.more.click()                                         # le lien amene en bas
+    bar = dlg.scroll.verticalScrollBar()
+    assert bar.value() == bar.maximum() and dlg.more.isHidden()
 
     dlg.close_button.click()
     assert dlg.result() == StatsDialog.Accepted
@@ -165,9 +175,36 @@ def test_empty_journal_shows_a_single_message(store, qtbot):
     store.reading_pace = lambda: 12.0   # journal vide : rythme impose
     dlg = _dialog(store, qtbot)
     assert dlg.backlog_value.text() == "≈ 2 h"
-    assert dlg.backlog_detail.text() == ("600 pages à votre rythme de 12 s par page, "
-                                         "hors 1 tome au nombre de pages inconnu.")
+    # le chiffre et une ligne ; le detail du calcul dans l'infobulle (i)
+    assert dlg.backlog_detail.text() == "3 tomes non lus et 1 en cours"
+    assert not dlg.backlog_info.isHidden()
+    assert dlg.backlog_info.toolTip() == ("600 pages à votre rythme de 12 s par page, "
+                                          "hors 1 tome au nombre de pages inconnu.")
     assert dlg.library_card.subtitle.text() == "6 tomes · indépendant de la période"
+
+
+def test_backlog_uses_each_series_own_pace(store, qtbot, mangas):
+    calm = _read(store, mangas, "Calme - Tome 1", 1, 50, 100, seed=1)      # 2 s par page
+    chatty = _read(store, mangas, "Bavard - Tome 1", 2, 50, 1000, seed=2)  # 20 s par page
+    new = make_cbz(mangas, "Neuf - Tome 1", seed=3)                        # jamais lu
+    keys = {store.key_for(p): (n, n) for p, n in ((calm, "calme"), (chatty, "bavard"),
+                                                   (new, "neuf"))}
+    left = {store.key_for(calm): 300, store.key_for(chatty): 100, store.key_for(new): 100}
+    library = dict(LIBRARY, remaining_pages=500, unknown_pages=0, remaining_by_volume=left)
+    dlg = StatsDialog(store, library, "dark", today=TODAY, resolve=keys.get)
+    qtbot.addWidget(dlg)
+    # moyenne generale : 1100 s / 100 pages = 11 s par page. 300 pages a 2 s,
+    # 100 a 20 s et le tome jamais lu au repli de 11 s : 3900 s (5500 s a plat)
+    assert store.reading_pace() == 11.0
+    assert dlg.backlog_value.text() == "≈ " + stats.fmt_duration(300 * 2 + 100 * 20 + 100 * 11,
+                                                                  compact=True)
+    assert "au rythme de chaque série (moyenne : 11 s par page)" in dlg.backlog_info.toolTip()
+
+    # sans tome lu dans la serie, on retrouve la phrase au rythme moyen
+    library = dict(library, remaining_pages=300, remaining_by_volume={store.key_for(new): 300})
+    dlg = StatsDialog(store, library, "dark", today=TODAY, resolve=keys.get)
+    qtbot.addWidget(dlg)
+    assert "300 pages à votre rythme de 11 s par page" in dlg.backlog_info.toolTip()
 
 
 def test_series_and_titles_follow_the_library(store, qtbot, mangas):
@@ -175,7 +212,9 @@ def test_series_and_titles_follow_the_library(store, qtbot, mangas):
     b = _read(store, mangas, "Nouveau - Tome 2", 1, 10, 300, seed=2)
     names = {store.key_for(a): ("serie", "Nom actuel"), store.key_for(b): ("serie", "Nom actuel")}
     dlg = _dialog(store, qtbot, resolve=names.get, titles={store.key_for(a): "Titre actuel"})
-    assert dlg.series_list.rows == [("Nom actuel", 900.0, "15 min · 100 %")]
+    # barres a l'echelle de 100 % : la valeur dessinee est la part du temps
+    assert dlg.series_list.rows == [("Nom actuel", 1.0, "15 min · 100 %")]
+    assert dlg.series_list.scale == 1.0
     assert dlg.finished_list.items == [("Titre actuel", "27 sept.", 1)]
 
 
@@ -194,7 +233,7 @@ def test_finished_volumes_without_a_title_share_one_line(store, qtbot):
     assert dlg.finished_list.total == dlg.report.totals.finished == 5
     dlg.finished_list.resize(300, 6 * dlg.finished_list.ROW)
     assert dlg.finished_list.visible_items()[1] == 0         # tout est liste : rien « en plus »
-    assert dlg.series_list.rows == [("Pluto", 28.0, "28 s · 100 %")]
+    assert dlg.series_list.rows == [("Pluto", 1.0, "28 s · 100 %")]
 
 
 def test_method_is_a_tooltip_and_takes_no_room(store, qtbot):
@@ -246,6 +285,23 @@ def test_year_recap_image_is_rendered_and_saved(qtbot, store, tmp_path, monkeypa
                         staticmethod(lambda *a, **k: (str(out), "")))
     dlg._save()
     assert out.exists() and out.stat().st_size > 10_000
+
+
+def test_year_recap_rounds_hours_and_keeps_its_accent_legible(qtbot, store, monkeypatch):
+    from beheread.ui import recap, theme
+
+    # a l'heure la plus proche : 1 h 59 n'est pas « 1 h »
+    assert [recap._hours(s) for s in (59 * 60, 89 * 60, 90 * 60, 119 * 60, 7200)] == [
+        "59 min", "1 h", "2 h", "2 h", "2 h"]
+    # theme clair, accent fonce : lisible sur l'appli, pas sur l'image sombre
+    monkeypatch.setattr(theme, "ACCENT_CHOICE", "#2a1550")
+    monkeypatch.setattr(theme, "ACCENT", "#2a1550")
+    seen = []
+    monkeypatch.setattr(recap, "render_recap", lambda r, accent: (seen.append(accent),
+                                                                   recap.QImage(10, 10, recap.QImage.Format_RGB32))[1])
+    dlg = recap.RecapDialog(store.reading_log, theme.colors("light"))
+    qtbot.addWidget(dlg)
+    assert seen and theme.contrast(seen[-1], recap.BG) >= theme.MIN_CONTRAST
 
 
 def test_period_selector_has_rounded_ends(store, qtbot):

@@ -6,16 +6,20 @@ Hierarchie de l'ecran, de haut en bas :
    au-dessus de tout ce qu'il gouverne, et la legende de ce qui est compare ;
 2. les chiffres cles : le temps de lecture en chiffre principal, puis pages,
    tomes termines et jours de lecture, chacun avec son ecart a la periode
-   precedente et une mini-tendance ;
+   precedente ;
 3. le detail : temps de lecture dans le temps et series les plus lues, puis
-   regularite (calendrier) et derniers tomes termines ;
+   regularite et derniers tomes termines ;
 4. l'etat actuel de la bibliotheque, qui ne depend pas de la periode (sa
    carte le dit).
 
-La fenetre s'ouvre en plein ecran et tout tient sur cet ecran, sans
-defilement : les cartes s'etirent pour occuper la hauteur, leurs listes
-n'affichent que les lignes qui y tiennent, et la seconde rangee est retiree
-quand l'ecran n'est pas assez haut (voir StatsDialog.fit_height).
+Un clic (ou Entree) sur une serie du classement ouvre ses statistiques dans
+la meme fenetre (series_stats_view.py) ; « Statistiques » dans le fil
+d'Ariane, ou Echap, ramene a la vue generale, sur la meme periode.
+
+La fenetre s'ouvre en plein ecran. Les cartes s'etirent pour occuper la
+hauteur et leurs listes n'affichent que les lignes qui y tiennent ; sur un
+ecran trop bas pour tout montrer, la fenetre defile et le dit (lien en bas)
+plutot que de retirer des cartes.
 
 Les requetes sont dans reading_log.py, les calculs dans stats.py (purs,
 testes) ; ce module ne fait que dessiner le rapport (stats.Report). Les
@@ -24,14 +28,17 @@ periode ne deplace rien et ne perd pas la bascule « Tableau ».
 
 Choix de visualisation :
 * une forme par question : un chiffre pour un total, un histogramme pour une
-  grandeur dans le temps, un calendrier pour la regularite, une jauge pour un
-  ratio, un classement pour des series, une liste pour des evenements rares
-  (les tomes termines) ;
+  grandeur dans le temps, un calendrier pour la regularite (ou, sur 7 et 30
+  jours, ou il repeterait l'histogramme, le temps moyen par jour de la
+  semaine), une jauge pour un ratio, un classement pour des series, une
+  liste pour des evenements rares (les tomes termines) ;
 * une seule teinte par graphique (couleur d'accent = activite de lecture,
   vert = tomes termines), la meme signification partout ; le calendrier
   decline l'accent du clair au fonce ;
 * barres fines (<= 24 px) arrondies en haut, carrees a la base, separees par
   au moins 2 px ; grille en traits fins pleins et discrets ;
+* le classement est a l'echelle de 100 % : une serie qui fait 34 % du temps
+  remplit 34 % de sa piste ;
 * une seule valeur ecrite directement (le maximum) : le survol (souris ou
   clavier) donne chaque valeur, et un tableau les liste toutes ;
 * la repartition non lus / en cours / termines a une legende, les couleurs
@@ -41,7 +48,7 @@ Choix de visualisation :
 import datetime as dt
 from pathlib import PureWindowsPath
 
-from PySide6.QtCore import QPoint, Qt, QTimer
+from PySide6.QtCore import QPoint, Qt
 from PySide6.QtGui import QGuiApplication
 from PySide6.QtWidgets import (
     QButtonGroup,
@@ -52,14 +59,16 @@ from PySide6.QtWidgets import (
     QLabel,
     QLayout,
     QPushButton,
+    QScrollArea,
+    QStackedWidget,
     QToolTip,
     QVBoxLayout,
     QWidget,
 )
 
-from beheread.core import stats, units
+from beheread.core import series_stats, stats, units
 from beheread.core.reading_session import MIN_DWELL, PAUSE_CAP
-from beheread.i18n import fmt_decimal, tr, trn
+from beheread.i18n import tr, trn
 from beheread.ui import style, theme
 from beheread.ui.charts import (
     BarChart,
@@ -73,22 +82,24 @@ from beheread.ui.charts import (
     StatTile,
     _fmt_int,
     data_colors,
+    day_name,
+    fmt_day,
+    fmt_estimate,
+    fmt_pace,
     month_name,
 )
 from beheread.ui.recap import RecapDialog
+from beheread.ui.series_stats_view import SeriesStatsView
 
-
-def _fmt_day(d, year=True) -> str:
-    day = tr("1er") if d.day == 1 else str(d.day)
-    if year:
-        return tr("{day} {month} {year}", day=day, month=month_name(d.month), year=d.year)
-    return tr("{day} {month}", day=day, month=month_name(d.month))
+# periodes ou le calendrier repeterait l'histogramme jour par jour : la
+# carte « Regularite » y montre le temps moyen par jour de la semaine
+SHORT_PERIODS = ("7d", "30d")
 
 
 def _fmt_range(start, end) -> str:
     if start == end:
-        return _fmt_day(end)
-    return f"{_fmt_day(start, year=start.year != end.year)} – {_fmt_day(end)}"
+        return fmt_day(end)
+    return f"{fmt_day(start, year=start.year != end.year)} – {fmt_day(end)}"
 
 
 def _comparable(report, since) -> bool:
@@ -158,51 +169,103 @@ def _axis_labels(buckets, grain) -> list:
     return labels
 
 
-def _fmt_pace(seconds) -> str:
-    text = f"{seconds:.0f}" if seconds >= 10 else fmt_decimal(seconds)
-    return tr("{seconds} s par page", seconds=text)
+def _tip_button(text, tip, parent):
+    """Lien discret dont l'infobulle s'affiche au survol comme au clic."""
+    btn = QPushButton(text)
+    btn.setObjectName("link")
+    btn.setCursor(Qt.PointingHandCursor)
+    btn.setToolTip(tip)
+    btn.clicked.connect(lambda: QToolTip.showText(
+        btn.mapToGlobal(QPoint(0, btn.height())), btn.toolTip(), parent))
+    return btn
 
 
 # ---------------------------------------------------------------- fenetre
 
+class _Page(QWidget):
+    """Contenu d'une page qui defile, sans hauteur dependant de la largeur :
+    QScrollArea la calculerait d'apres les tailles conseillees des textes a
+    la ligne (pas leurs minimums) et ferait defiler un contenu qui tient.
+    Place dans un widget intermediaire : QScrollArea interroge le layout de
+    la page, et un layout interroge ce widget."""
+
+    def hasHeightForWidth(self):
+        return False
+
+
 class StatsDialog(QDialog):
     def __init__(self, store, library, mode, parent=None, today=None, resolve=None,
-                 titles=None):
+                 titles=None, holdings=None, open_series=None, series=None):
         """library : etat de la bibliotheque - {"unread": n, "reading": n,
         "finished": n} et, pour le temps restant a lire, "remaining_pages"
         (pages non lues des tomes non termines) et "unknown_pages" (tomes
-        dont le nombre de pages est inconnu).
+        dont le nombre de pages est inconnu) ; "remaining_by_volume"
+        ({empreinte: pages restantes}) permet de compter chaque tome au
+        rythme de sa serie plutot qu'au rythme moyen.
         resolve : empreinte d'un tome -> (cle de serie, nom affiche) selon la
         bibliotheque actuelle, ou None (voir stats.top_series).
-        titles : {empreinte: titre actuel du tome} (liste des tomes termines)."""
+        titles : {empreinte: titre actuel du tome} (liste des tomes termines).
+        holdings : cle de serie -> series_stats.SeriesHoldings, ou None si ce
+        n'est pas une serie de la bibliotheque ; sans lui, le classement
+        n'ouvre rien. open_series(cle) : bouton « Ouvrir la serie » (la
+        fenetre se ferme). series : cle de la serie a afficher d'emblee."""
         super().__init__(parent)
         self.setWindowTitle(tr("Statistiques de lecture"))
         self.store = store
         self.library = library
         self.resolve = resolve
         self.titles = titles or {}
+        self.holdings = holdings
+        self.open_series = open_series
+        self._holdings_cache = {}
+        self.series_key = None
         self.today = today or dt.date.today()
         self.c = c = theme.colors(mode)
         self.dc = data_colors(mode)
         self.report = None
 
         self.root = QVBoxLayout(self)
-        self.root.setContentsMargins(22, 18, 22, 18)
+        self.root.setContentsMargins(22, 18, 22, 10)
         self.root.setSpacing(14)
-        # la fenetre a la taille de l'ecran : c'est le contenu qui s'y adapte
-        # (voir fit_height), jamais la fenetre qui grandit avec son contenu
+        # la fenetre a la taille de l'ecran : c'est le contenu qui s'y adapte,
+        # en defilant au besoin, jamais la fenetre qui grandit avec lui
         self.root.setSizeConstraint(QLayout.SetNoConstraint)
         self.root.addLayout(self._build_header())
+        self.pages = QStackedWidget()
+        self.root.addWidget(self.pages, 1)
+        self.body_layout = self._add_page()
         self._build_body()
+        self.series_view = SeriesStatsView(c, self.dc)
+        self._add_page().addWidget(self.series_view)
+        # sur un ecran bas, ce qui est plus bas que l'ecran est annonce
+        self.more = QPushButton(tr("↓ Régularité, tomes terminés et bibliothèque plus bas"))
+        self.more.setObjectName("link")
+        self.more.setCursor(Qt.PointingHandCursor)
+        self.more.clicked.connect(lambda: self.scroll.verticalScrollBar().setValue(
+            self.scroll.verticalScrollBar().maximum()))
+        self.more.hide()
+        self.root.addWidget(self.more, 0, Qt.AlignHCenter)
+        bar = self.scroll.verticalScrollBar()
+        bar.rangeChanged.connect(lambda *_: self._update_more())
+        bar.valueChanged.connect(lambda *_: self._update_more())
 
         self.setStyleSheet(f"""
             QDialog {{ background: {c['window']}; }}
+            QScrollArea, #statsPage {{ background: transparent; border: none; }}
+            QScrollBar:vertical {{ background: transparent; width: 10px; margin: 0; }}
+            QScrollBar::handle:vertical {{
+                background: {c['border']}; border-radius: 5px; min-height: 40px;
+            }}
+            QScrollBar::handle:vertical:hover {{ background: {c['text_dim']}; }}
+            QScrollBar::add-line, QScrollBar::sub-line {{ height: 0; }}
+            QScrollBar::add-page, QScrollBar::sub-page {{ background: transparent; }}
             QLabel {{ color: {c['text']}; }}
             QToolTip {{
                 color: {c['text']}; background: {c['panel']};
                 border: 1px solid {c['border']}; padding: 4px 6px;
             }}
             #statsTitle {{ font-size: 20px; font-weight: 700; }}
+            #crumbSep {{ font-size: 20px; color: {c['text_dim']}; }}
             #tile, #card {{
                 background: {c['panel']}; border: 1px solid {c['border']}; border-radius: {style.RADIUS_MD}px;
             }}
@@ -226,6 +289,11 @@ class StatsDialog(QDialog):
                 color: {c['text_dim']}; font-size: 12px; text-decoration: underline;
             }}
             QPushButton#link:hover {{ color: {c['text']}; }}
+            QPushButton#crumb {{
+                background: transparent; border: none; padding: 0;
+                color: {c['text_dim']}; font-size: 20px; text-decoration: underline;
+            }}
+            QPushButton#crumb:hover {{ color: {c['text']}; }}
             QPushButton#seg {{
                 padding: 5px 14px; font-size: 12px; border-radius: 0; margin-left: -1px;
             }}
@@ -253,23 +321,59 @@ class StatsDialog(QDialog):
             self.setGeometry(screen.geometry())
         self.setWindowState(self.windowState() | Qt.WindowFullScreen)
         self.set_period(store.ui_pref("stats_period", stats.DEFAULT_PERIOD))
+        if series is not None:
+            self.show_series(series)
+
+    def _add_page(self):
+        """Page de la fenetre, dans une zone qui defile quand l'ecran est
+        trop bas : renvoie son layout."""
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        page = QWidget()
+        page.setObjectName("statsPage")
+        outer = QVBoxLayout(page)
+        outer.setContentsMargins(0, 0, 0, 0)
+        content = _Page()
+        content.setObjectName("statsPage")
+        outer.addWidget(content)
+        layout = QVBoxLayout(content)
+        layout.setContentsMargins(0, 0, 0, 8)
+        layout.setSpacing(14)
+        scroll.setWidget(page)
+        self.pages.addWidget(scroll)
+        if self.pages.count() == 1:
+            self.scroll = scroll
+        return layout
 
     # ------------------------------------------------------------ construction
     def _build_header(self):
-        """En-tete : titre, choix de la periode (qui gouverne tout ce qui
-        suit), fermeture ; dessous, les dates de la periode et l'acces a la
-        methode de mesure."""
+        """En-tete : titre (ou fil d'Ariane d'une serie), choix de la
+        periode (qui gouverne tout ce qui suit), fermeture ; dessous, les
+        dates de la periode et l'acces a la methode de mesure."""
         v = QVBoxLayout()
         v.setSpacing(4)
         head = QHBoxLayout()
         head.setSpacing(12)
-        title = QLabel(tr("Statistiques de lecture"))
-        title.setObjectName("statsTitle")
-        head.addWidget(title)
+        self.crumb = QPushButton(tr("Statistiques"))
+        self.crumb.setObjectName("crumb")
+        self.crumb.setCursor(Qt.PointingHandCursor)
+        self.crumb.setToolTip(tr("Revenir aux statistiques de toute la lecture (Échap)"))
+        self.crumb.clicked.connect(self.show_overview)
+        self.crumb_sep = QLabel("›")
+        self.crumb_sep.setObjectName("crumbSep")
+        self.title = QLabel(tr("Statistiques de lecture"))
+        self.title.setObjectName("statsTitle")
+        self.title.setTextFormat(Qt.PlainText)    # nom de serie : texte brut
+        for w in (self.crumb, self.crumb_sep):
+            w.hide()
+            head.addWidget(w)
+        head.addWidget(self.title)
         head.addStretch(1)
 
-        segmented = QWidget()
-        seg = QHBoxLayout(segmented)
+        self.segmented = QWidget()
+        seg = QHBoxLayout(self.segmented)
         seg.setContentsMargins(0, 0, 0, 0)
         seg.setSpacing(0)
         self.period_buttons = {}
@@ -287,12 +391,17 @@ class StatsDialog(QDialog):
             group.addButton(btn)
             seg.addWidget(btn)
             self.period_buttons[key] = btn
-        head.addWidget(segmented)
-        recap = QPushButton(tr("Bilan de l'année"))
-        recap.setToolTip(tr("Votre année de lecture en une image à partager"))
-        recap.setCursor(Qt.PointingHandCursor)
-        recap.clicked.connect(self._open_recap)
-        head.addWidget(recap)
+        head.addWidget(self.segmented)
+        self.recap_button = QPushButton(tr("Bilan de l'année"))
+        self.recap_button.setToolTip(tr("Votre année de lecture en une image à partager"))
+        self.recap_button.setCursor(Qt.PointingHandCursor)
+        self.recap_button.clicked.connect(self._open_recap)
+        head.addWidget(self.recap_button)
+        self.open_button = QPushButton(tr("Ouvrir la série"))
+        self.open_button.setCursor(Qt.PointingHandCursor)
+        self.open_button.clicked.connect(self._open_series)
+        self.open_button.hide()
+        head.addWidget(self.open_button)
         # en plein ecran, il n'y a pas de barre de titre : la fermeture est ici
         self.close_button = QPushButton(tr("Fermer"))
         self.close_button.setToolTip(tr("Fermer les statistiques (Échap)"))
@@ -304,21 +413,16 @@ class StatsDialog(QDialog):
         row = QHBoxLayout()
         self.caption = QLabel()
         self.caption.setObjectName("caption")
+        self.caption.setTextFormat(Qt.PlainText)
         row.addWidget(self.caption, 1)
         # la methode s'affiche en infobulle (survol ou clic) : elle ne prend
         # aucune place a l'ecran
-        self.method = QPushButton(tr("Méthode de mesure"))
-        self.method.setObjectName("link")
-        self.method.setCursor(Qt.PointingHandCursor)
-        self.method.setToolTip(
-            "<qt>" + tr("Une page compte comme lue après {dwell} s d'affichage (feuilleter ne "
-                        "compte pas) ; le temps de lecture ignore les pauses de plus de {pause} s. "
-                        "Un tome est terminé quand sa dernière page est atteinte dans le lecteur : "
-                        "« Marquer comme lu » ne compte pas comme une lecture.",
-                        dwell=f"{MIN_DWELL:.0f}", pause=f"{PAUSE_CAP:.0f}") + "</qt>")
-        self.method.clicked.connect(lambda: QToolTip.showText(
-            self.method.mapToGlobal(QPoint(0, self.method.height())),
-            self.method.toolTip(), self.method))
+        self.method = _tip_button(tr("Méthode de mesure"), "<qt>" + tr(
+            "Une page compte comme lue après {dwell} s d'affichage (feuilleter ne "
+            "compte pas) ; le temps de lecture ignore les pauses de plus de {pause} s. "
+            "Un tome est terminé quand sa dernière page est atteinte dans le lecteur : "
+            "« Marquer comme lu » ne compte pas comme une lecture.",
+            dwell=f"{MIN_DWELL:.0f}", pause=f"{PAUSE_CAP:.0f}") + "</qt>", self)
         row.addWidget(self.method)
         v.addLayout(row)
         return v
@@ -328,6 +432,7 @@ class StatsDialog(QDialog):
 
     def _build_body(self):
         c, dc = self.c, self.dc
+        body = self.body_layout
 
         # --- etat vide : un seul message, a la place des chiffres et graphiques
         self.empty_card = QFrame()
@@ -347,15 +452,14 @@ class StatsDialog(QDialog):
         ev.addWidget(empty_title)
         ev.addWidget(empty_text)
         ev.addStretch(1)
-        self.root.addWidget(self.empty_card, 1)
+        body.addWidget(self.empty_card, 1)
 
         # --- chiffres cles
         self.pages_spark = Sparkline(dc["activity"], c)
-        self.finished_spark = Sparkline(dc["finished"], c)
         self.days_meter = Meter(dc["activity"])
         self.tiles = [StatTile(tr("Temps de lecture"), hero=True),
                       StatTile(tr("Pages lues"), self.pages_spark),
-                      StatTile(tr("Tomes terminés"), self.finished_spark),
+                      StatTile(tr("Tomes terminés")),
                       StatTile(tr("Jours de lecture"), self.days_meter)]
         self.tiles_host = QWidget()
         grid = QGridLayout(self.tiles_host)
@@ -366,7 +470,7 @@ class StatsDialog(QDialog):
             grid.addWidget(tile, 0, 2 + i)
         for col in range(5):
             grid.setColumnStretch(col, 1)
-        self.root.addWidget(self.tiles_host)
+        body.addWidget(self.tiles_host)
 
         # --- premiere rangee : le temps de lecture et les series
         self.time_chart = BarChart(dc["activity"], c, ticks=stats.time_ticks,
@@ -374,7 +478,9 @@ class StatsDialog(QDialog):
                                    empty_text=tr("Aucune lecture enregistrée sur la période."))
         self.time_card = ChartCard(tr("Temps de lecture"), self.time_chart,
                                    [tr("Jour"), tr("Temps"), tr("Pages"), tr("Tomes terminés")])
-        self.series_list = HBarList(dc["activity"], c, tr("Aucune lecture enregistrée sur la période."))
+        self.series_list = HBarList(dc["activity"], c, tr("Aucune lecture enregistrée sur la période."),
+                                    scale=1.0)
+        self.series_list.activated.connect(self._series_activated)
         self.series_card = ChartCard(tr("Séries les plus lues"), self.series_list)
         self.series_card.set_subtitle(tr("Part du temps de lecture"))
         self.detail = QWidget()
@@ -383,12 +489,20 @@ class StatsDialog(QDialog):
         row.setSpacing(14)
         row.addWidget(self.time_card, 3)
         row.addWidget(self.series_card, 1)
-        self.root.addWidget(self.detail, 1)
+        body.addWidget(self.detail, 1)
 
-        # --- seconde rangee : regularite, tomes termines, bibliotheque. C'est
-        # elle qui est retiree quand l'ecran n'est pas assez haut (fit_height).
+        # --- seconde rangee : regularite, tomes termines, bibliotheque
         self.calendar = CalendarHeatmap(dc["activity"], c)
-        self.calendar_card = ChartCard(tr("Régularité"), self.calendar)
+        self.weekdays = BarChart(dc["activity"], c, ticks=stats.time_ticks,
+                                 value_fmt=lambda s: stats.fmt_duration(s, compact=True),
+                                 empty_text=tr("Aucune lecture enregistrée sur la période."))
+        regularity = QWidget()
+        rv = QVBoxLayout(regularity)
+        rv.setContentsMargins(0, 0, 0, 0)
+        rv.addWidget(self.calendar)
+        rv.addWidget(self.weekdays)
+        regularity.setMinimumHeight(self.calendar.minimumHeight())
+        self.calendar_card = ChartCard(tr("Régularité"), regularity)
         self.finished_list = FinishedList(dc["finished"], c, tr("Aucun tome terminé sur la période."))
         self.finished_card = ChartCard(tr("Tomes terminés"), self.finished_list)
         self.library_card = self._library_card()
@@ -399,11 +513,12 @@ class StatsDialog(QDialog):
         row.addWidget(self.calendar_card, 2)
         row.addWidget(self.finished_card, 1)
         row.addWidget(self.library_card, 1)
-        self.root.addWidget(self.habits, 1)
+        body.addWidget(self.habits, 1)
 
     def _library_card(self):
         """Etat actuel de la bibliotheque : il ne depend pas de la periode,
-        et la carte le dit."""
+        et la carte le dit. Le temps restant tient en un chiffre et une
+        ligne ; le detail du calcul est dans l'infobulle (i)."""
         lib = self.library
         parts = [(tr("Terminés"), lib.get("finished", 0), self.dc["finished"]),
                  (tr("En cours"), lib.get("reading", 0), self.dc["reading"]),
@@ -418,16 +533,23 @@ class StatsDialog(QDialog):
             v.addSpacing(8)
         label = QLabel(tr("Reste à lire"))
         label.setObjectName("tileLabel")
-        value, detail = self._backlog()
+        value, short, detail = self._backlog()
         self.backlog_value = QLabel(value)
         self.backlog_value.setObjectName("backlogValue")
         self.backlog_value.setVisible(bool(value))
-        self.backlog_detail = QLabel(detail)
+        line = QHBoxLayout()
+        line.setSpacing(6)
+        self.backlog_detail = QLabel(short)
         self.backlog_detail.setObjectName("cardSub")
         self.backlog_detail.setWordWrap(True)
+        self.backlog_info = _tip_button("ⓘ", detail, self)
+        self.backlog_info.setAccessibleName(tr("Détail du calcul"))
+        self.backlog_info.setVisible(bool(detail))
+        line.addWidget(self.backlog_detail, 1)
+        line.addWidget(self.backlog_info, 0, Qt.AlignTop)
         v.addWidget(label)
         v.addWidget(self.backlog_value)
-        v.addWidget(self.backlog_detail)
+        v.addLayout(line)
         v.addStretch(1)
         card = ChartCard(tr("Bibliothèque"), body)
         card.set_subtitle((trn(total, "{n} tome", "{n} tomes") if total else tr("Vide"))
@@ -435,52 +557,57 @@ class StatsDialog(QDialog):
         return card
 
     def _backlog(self) -> tuple:
-        """(chiffre, precision) du temps qu'il reste a lire dans la
-        bibliotheque, au rythme habituel."""
+        """(chiffre, ligne, detail du calcul) du temps qu'il reste a lire
+        dans la bibliotheque, au rythme habituel."""
         pace = self.store.reading_pace()
         remaining = self.library.get("remaining_pages", 0)
         if not pace:
             return "", (tr("Rythme de lecture pas encore mesuré : l'estimation s'affichera "
-                           "après quelques pages lues."))
+                           "après quelques pages lues.")), ""
         if not remaining:
-            return "", tr("Rien en attente. Votre rythme : {pace}.", pace=_fmt_pace(pace))
-        seconds = remaining * pace
-        # au-dela de dix heures, les minutes d'une estimation n'ont pas de sens
-        duration = (f"{_fmt_int(round(seconds / 3600))} h" if seconds >= 36000
-                    else stats.fmt_duration(seconds, compact=True))
-        detail = trn(remaining, "{n} page à votre rythme de {pace}",
-                     "{n} pages à votre rythme de {pace}", pace=_fmt_pace(pace))
+            return "", tr("Rien en attente. Votre rythme : {pace}.", pace=fmt_pace(pace)), ""
+        # chaque tome restant est compte au rythme de sa serie quand elle a
+        # assez ete lue (contemplative ou bavarde), sinon au rythme moyen
+        seconds, own_pages = remaining * pace, 0
+        by_volume = self.library.get("remaining_by_volume")
+        if by_volume and self.resolve is not None:
+            paces = stats.series_paces(self.store.volume_paces(), self.resolve)
+            seconds = 0.0
+            for volume, pages in by_volume.items():
+                found = self.resolve(volume)
+                own = paces.get(found[0]) if found else None
+                seconds += pages * (own or pace)
+                own_pages += pages if own else 0
+        if own_pages:
+            detail = trn(remaining, "{n} page, au rythme de chaque série (moyenne : {pace})",
+                         "{n} pages, au rythme de chaque série (moyenne : {pace})",
+                         pace=fmt_pace(pace))
+        else:
+            detail = trn(remaining, "{n} page à votre rythme de {pace}",
+                         "{n} pages à votre rythme de {pace}", pace=fmt_pace(pace))
         unknown = self.library.get("unknown_pages", 0)
         if unknown:
             detail += trn(unknown, ", hors {n} tome au nombre de pages inconnu",
                           ", hors {n} tomes au nombre de pages inconnu")
-        return f"≈ {duration}", detail + "."
+        unread, reading = self.library.get("unread", 0), self.library.get("reading", 0)
+        short = [trn(unread, "{n} tome non lu", "{n} tomes non lus")] if unread else []
+        if reading:
+            short.append(trn(reading, "{n} en cours", "{n} en cours"))
+        if len(short) == 2:
+            short = [tr("{first} et {second}", first=short[0], second=short[1])]
+        return f"≈ {fmt_estimate(seconds)}", "".join(short), detail + "."
 
-    # ------------------------------------------------------------ un seul ecran
-    def resizeEvent(self, event):
-        super().resizeEvent(event)
-        self.fit_height()
+    # ------------------------------------------------------------ defilement
+    def _update_more(self):
+        """Lien « plus bas » : seulement sur la vue generale, tant qu'une
+        partie de son contenu est sous le bord de l'ecran."""
+        bar = self.scroll.verticalScrollBar()
+        self.more.setVisible(self.series_key is None and bar.maximum() > 0
+                             and bar.value() < bar.maximum() - 8)
 
     def showEvent(self, event):
         super().showEvent(event)
-        # une fois les cartes a leur largeur reelle (la hauteur de certaines
-        # en depend), on verifie de nouveau que tout tient
-        QTimer.singleShot(0, self.fit_height)
-
-    def fit_height(self):
-        """Tout tient sur un ecran, sans defilement. Les cartes s'etirent pour
-        occuper la hauteur disponible, et leurs listes n'affichent que les
-        lignes qui y tiennent ; quand meme leur hauteur minimale ne tient pas,
-        la seconde rangee (regularite, tomes termines, bibliotheque) est
-        retiree et la premiere garde toute la place."""
-        if self.report is None or self.report.first_day is None:
-            self.habits.setVisible(True)    # journal vide : le message et la bibliotheque
-            return
-        self.root.activate()
-        needed = self.root.minimumSize().height()
-        if self.habits.isHidden():
-            needed += self.root.spacing() + self.habits.minimumSizeHint().height()
-        self.habits.setVisible(needed <= self.height())
+        self._update_more()
 
     # ------------------------------------------------------------ periode
     def _choose_period(self, key):
@@ -497,19 +624,77 @@ class StatsDialog(QDialog):
         self.period_buttons[self.report.period.key].setChecked(True)
         self._refresh(self.report)
 
+    # ------------------------------------------------------------ vue d'une serie
+    def _series_holdings(self, key):
+        if self.holdings is None or not key:
+            return None
+        if key not in self._holdings_cache:
+            self._holdings_cache[key] = self.holdings(key)
+        return self._holdings_cache[key]
+
+    def _series_activated(self, index):
+        self.show_series(self.report.series[index].key)
+
+    def show_series(self, key):
+        """Affiche les statistiques de la serie `key` a la place de la vue
+        generale. Sans effet pour une serie absente de la bibliotheque."""
+        holdings = self._series_holdings(key)
+        if holdings is None:
+            return
+        volumes = [i.volume for i in holdings.owned if i.volume]
+        report = series_stats.build_series_report(
+            self.store.reading_log, holdings, self.today, self.resolve,
+            pace=self.store.series_pace(volumes), library_pace=self.store.reading_pace())
+        self.series_key = key
+        self.series_view.set_report(report, self.today)
+        self.pages.setCurrentIndex(1)
+        self.pages.currentWidget().verticalScrollBar().setValue(0)
+        self.title.setText(holdings.name)
+        self.caption.setText(self.series_view.caption())
+        for w in (self.crumb, self.crumb_sep):
+            w.show()
+        self.segmented.hide()
+        self.recap_button.hide()
+        self.open_button.setVisible(self.open_series is not None)
+        self._update_more()
+
+    def show_overview(self):
+        self.series_key = None
+        self.pages.setCurrentIndex(0)
+        self.title.setText(tr("Statistiques de lecture"))
+        self.caption.setText(_caption(self.report))
+        for w in (self.crumb, self.crumb_sep, self.open_button):
+            w.hide()
+        self.segmented.show()
+        self.recap_button.show()
+        self._update_more()
+
+    def _open_series(self):
+        key = self.series_key
+        self.accept()
+        if key is not None and self.open_series is not None:
+            self.open_series(key)
+
+    def reject(self):
+        # Echap dans la vue d'une serie : retour a la vue generale
+        if self.series_key is not None:
+            self.show_overview()
+            return
+        super().reject()
+
     # ------------------------------------------------------------ mise a jour
     def _refresh(self, report):
         empty = report.first_day is None
         self.empty_card.setVisible(empty)
         for block in (self.tiles_host, self.detail, self.calendar_card, self.finished_card):
             block.setVisible(not empty)
-        self.caption.setText(_caption(report))
+        if self.series_key is None:
+            self.caption.setText(_caption(report))
         self._refresh_tiles(report)
         self._refresh_time(report)
         self._refresh_series(report)
         self._refresh_calendar(report)
         self._refresh_finished(report)
-        self.fit_height()
 
     def _refresh_tiles(self, report):
         t, prev, period = report.totals, report.previous, report.period
@@ -536,14 +721,20 @@ class StatsDialog(QDialog):
         pages.set_content(_fmt_int(t.pages), delta, within, tip)
         self.pages_spark.set_values(b.pages for b in report.buckets)
 
-        # tomes seuls ; les chapitres termines en sous-titre
+        # tomes seuls ; les chapitres termines et le dernier tome en sous-titre
+        # (une mini-tendance de fins de tome, evenements rares, restait vide)
         volumes = t.finished - t.finished_chapters
         delta, tip = _delta(volumes, prev and prev.finished - prev.finished_chapters, _fmt_int,
                             lambda n: trn(n, "{n} tome", "{n} tomes"), report, report.first_day)
-        finished.set_content(_fmt_int(volumes), delta,
-                             trn(t.finished_chapters, "+ {n} chapitre", "+ {n} chapitres")
-                             if t.finished_chapters else "", tip)
-        self.finished_spark.set_values(b.finished - b.finished_chapters for b in report.buckets)
+        sub = [trn(t.finished_chapters, "+ {n} chapitre", "+ {n} chapitres")] \
+            if t.finished_chapters else []
+        last = next(((self._finished_name(volume, title, series), day)
+                     for day, volume, title, series in report.finished_volumes
+                     if self._finished_name(volume, title, series)), None)
+        if last is not None:
+            sub.append(tr("Dernier : {title}, {day}", title=last[0],
+                          day=fmt_day(last[1], year=last[1].year != self.today.year)))
+        finished.set_content(_fmt_int(volumes), delta, " · ".join(sub), tip)
 
         delta, tip = _delta(t.active_days, prev and prev.active_days, _fmt_int,
                             lambda n: trn(n, "{n} jour", "{n} jours"), report, measured)
@@ -577,32 +768,56 @@ class StatsDialog(QDialog):
 
     def _refresh_series(self, report):
         timed = any(s.seconds for s in report.series)
-        self.series_list.set_rows(
-            (s.name, s.seconds if timed else s.pages,
-             (stats.fmt_duration(s.seconds, compact=True) if timed
-              else trn(s.pages, "{n} page", "{n} pages"))
-             + " · " + tr("{n} %", n=round(100 * s.share)))
-            for s in report.series)
+        rows = [(s.name, s.share,
+                 (stats.fmt_duration(s.seconds, compact=True) if timed
+                  else trn(s.pages, "{n} page", "{n} pages"))
+                 + " · " + tr("{n} %", n=round(100 * s.share)))
+                for s in report.series]
+        clickable = [i for i, s in enumerate(report.series) if self._series_holdings(s.key)]
+        self.series_list.set_rows(rows, clickable)
+        self.series_card.set_subtitle(tr("Part du temps de lecture · cliquez pour le détail")
+                                      if clickable else tr("Part du temps de lecture"))
 
     def _refresh_calendar(self, report):
-        self.calendar.set_days(report.calendar)
         streak = (trn(report.streak, "Série en cours : {n} jour", "Série en cours : {n} jours")
                   if report.streak else tr("Pas de série en cours"))
         if report.best_streak > report.streak:
             streak += " · " + trn(report.best_streak, "record : {n} jour", "record : {n} jours")
+        self.calendar.set_days(report.calendar)
+        short = report.period.key in SHORT_PERIODS
+        self.calendar.setVisible(not short)
+        self.weekdays.setVisible(short)
+        if short:
+            # sur 7 ou 30 jours, le calendrier repeterait l'histogramme
+            averages = stats.weekday_averages(report.buckets)
+            self.weekdays.set_bars(
+                (day_name(i), avg, f"{stats.fmt_duration(avg)}\n"
+                 + tr("en moyenne le {day}", day=tr(stats.WEEKDAYS_FR[i])) + " · "
+                 + trn(n, "sur {n} semaine", "sur {n} semaines"))
+                for i, (avg, n) in enumerate(averages))
+            self.calendar_card.set_title(tr("Jours de lecture préférés"))
+            self.calendar_card.set_subtitle(tr("Temps moyen par jour de la semaine") + " · " + streak)
+            return
+        self.calendar_card.set_title(tr("Régularité"))
         if report.calendar and report.calendar[0].start > report.period.start:
             streak += " · " + tr("53 dernières semaines affichées")
         self.calendar_card.set_subtitle(streak)
 
+    def _finished_name(self, volume, title, series) -> str:
+        """Nom d'un tome termine : son titre actuel dans la bibliotheque,
+        sinon celui note au moment de la lecture, ou "" s'il est perdu."""
+        name = self.titles.get(volume) or title or series
+        if not name and not volume.startswith("c1:"):
+            # ancienne entree indexee par chemin, peut-etre venue d'un autre
+            # systeme (sauvegarde importee) : PureWindowsPath coupe sur \ et /
+            name = PureWindowsPath(volume).stem
+        return name
+
     def _refresh_finished(self, report):
         items, unknown = [], {}   # unknown : jour -> position de sa ligne « tomes absents »
         for day, volume, title, series in report.finished_volumes:
-            date = _fmt_day(day, year=day.year != self.today.year)
-            name = self.titles.get(volume) or title or series
-            if not name and not volume.startswith("c1:"):
-                # ancienne entree indexee par chemin, peut-etre venue d'un autre
-                # systeme (sauvegarde importee) : PureWindowsPath coupe sur \ et /
-                name = PureWindowsPath(volume).stem
+            date = fmt_day(day, year=day.year != self.today.year)
+            name = self._finished_name(volume, title, series)
             if name:
                 items.append((name, date, 1))
                 continue

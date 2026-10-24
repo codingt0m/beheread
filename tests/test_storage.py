@@ -433,6 +433,24 @@ def test_reading_pace_comes_from_the_reading_log(store, tmp_path):
     assert fresh.reading_pace() == 12.0
 
 
+def test_series_pace_is_measured_on_the_series_only(store, tmp_path):
+    """Une serie contemplative se lit plus vite qu'une serie bavarde : son
+    rythme vient de ses propres tomes, et seulement une fois assez lue."""
+    calm = _make_manga(tmp_path, "calm.cbz", b"calme")
+    chatty = _make_manga(tmp_path, "chatty.cbz", b"bavard")
+    unread = _make_manga(tmp_path, "unread.cbz", b"jamais lu")
+    store.record_reading(calm, 60, 120.0, False, "Calme 1", "Calme")      # 2 s par page
+    store.record_reading(chatty, 40, 800.0, False, "Bavard 1", "Bavard")  # 20 s par page
+    assert store.series_pace([store.key_for(calm)]) == 2.0
+    assert store.series_pace([store.key_for(chatty)]) == 20.0
+    assert store.reading_pace() == pytest.approx(9.2)                     # moyenne generale
+    assert store.series_pace([store.key_for(unread)]) is None             # repli sur la moyenne
+    store.record_reading(unread, 12, 12.0, False, "Neuf 1", "Neuf")       # trop peu de pages
+    assert store.series_pace([store.key_for(unread)]) is None
+    store.record_reading(calm, 60, 360.0, False, "Calme 1", "Calme")      # la seance l'invalide
+    assert store.series_pace([store.key_for(calm)]) == 4.0
+
+
 def test_backup_export_import_roundtrip(tmp_path, monkeypatch):
     """Export sur un « PC », import sur un autre : la progression la plus
     recente est reprise, les reglages locaux ne sont pas ecrases."""

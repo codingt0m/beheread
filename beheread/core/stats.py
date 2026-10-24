@@ -68,7 +68,7 @@ class Period:
         return (self.end - self.start).days + 1
 
 
-def _add_months(first: _dt.date, months: int) -> _dt.date:
+def add_months(first: _dt.date, months: int) -> _dt.date:
     """Premier jour du mois situe `months` mois apres (ou avant) `first`."""
     index = first.year * 12 + first.month - 1 + months
     return _dt.date(index // 12, index % 12 + 1, 1)
@@ -91,10 +91,10 @@ def period(key: str, today: _dt.date, first_day: Optional[_dt.date] = None) -> P
                  else tr("tout l'historique"))
         return Period("all", start, today, grain, None, label, "")
     if key == "12m":
-        start = _add_months(today.replace(day=1), -11)
+        start = add_months(today.replace(day=1), -11)
         # meme decoupage un an plus tot : le mois en cours, incomplet, est
         # compare au meme mois arrete au meme jour
-        previous = (_add_months(start, -12), _year_before(today))
+        previous = (add_months(start, -12), _year_before(today))
         return Period("12m", start, today, "month", previous, tr("12 derniers mois"),
                       tr("12 mois précédents"))
     n = 7 if key == "7d" else 30
@@ -149,7 +149,7 @@ def _fill(start: _dt.date, end: _dt.date, grain: str, rows) -> list:
     out = []
     if grain == "month":
         d, last = start.replace(day=1), end.replace(day=1)
-        step = lambda x: _add_months(x, 1)   # noqa: E731
+        step = lambda x: add_months(x, 1)   # noqa: E731
     else:
         d, last = start, end
         step = lambda x: x + _DAY            # noqa: E731
@@ -167,7 +167,24 @@ def fill_buckets(p: Period, rows) -> list:
     return _fill(p.start, p.end, p.grain, rows)
 
 
+def fill_range(start: _dt.date, end: _dt.date, grain: str, rows) -> list:
+    """Comme fill_buckets, sur un intervalle quelconque."""
+    return _fill(start, end, grain, rows)
+
+
 # ---------------------------------------------------------------- calendrier de regularite
+
+def weekday_averages(days) -> list:
+    """Temps de lecture moyen (secondes) de chaque jour de la semaine (0 =
+    lundi), a partir des Bucket quotidiens d'une periode : total de ce jour
+    divise par son nombre d'occurrences, jours sans lecture compris.
+    [(moyenne, occurrences)] x 7."""
+    total, count = [0.0] * 7, [0] * 7
+    for b in days:
+        total[b.start.weekday()] += b.seconds
+        count[b.start.weekday()] += 1
+    return [(t / n if n else 0.0, n) for t, n in zip(total, count, strict=True)]
+
 
 def calendar_start(p: Period) -> _dt.date:
     """Premier jour du calendrier : celui de la periode, ou le debut des 53
@@ -256,6 +273,8 @@ class SeriesRank:
     pages: int
     finished: int
     share: float    # part du temps de lecture de la periode (0 a 1)
+    key: str = ""   # cle de serie (celle de `resolve`), pour ouvrir son detail
+    finished_chapters: int = 0   # dont chapitres (voir is_chapter_title)
 
 
 def top_series(volume_rows, resolve=None, n: int = 6) -> list:
@@ -275,17 +294,55 @@ def top_series(volume_rows, resolve=None, n: int = 6) -> list:
         if key_name is None:
             label = series or title or "?"
             key_name = (normalize_name(label) or label, label)
-        g = groups.setdefault(key_name[0], [key_name[1], 0.0, 0, 0])
+        g = groups.setdefault(key_name[0], [key_name[1], 0.0, 0, 0, key_name[0], 0])
         g[1] += seconds
         g[2] += pages
         g[3] += finished
+        if finished and is_chapter_title(title):
+            g[5] += finished
     total_seconds = sum(g[1] for g in groups.values())
     total_pages = sum(g[2] for g in groups.values())
     ranked = sorted(groups.values(), key=lambda g: (-g[1], -g[2], g[0].casefold()))
     return [SeriesRank(name, seconds, pages, finished,
                        seconds / total_seconds if total_seconds
-                       else (pages / total_pages if total_pages else 0.0))
-            for name, seconds, pages, finished in ranked[:n]]
+                       else (pages / total_pages if total_pages else 0.0), key, chapters)
+            for name, seconds, pages, finished, key, chapters in ranked[:n]]
+
+
+# ---------------------------------------------------------------- rythme par serie
+
+# pages lues dans une serie avant de se fier a son rythme propre : en dessous,
+# quelques pages ne disent pas si elle est contemplative ou bavarde
+SERIES_PACE_MIN_PAGES = 30
+
+
+def pace_of(volume_paces, volumes, min_pages: int = SERIES_PACE_MIN_PAGES):
+    """Rythme (secondes par page) mesure sur ces tomes, a partir de
+    {tome: (pages, secondes)} (voir ReadingLog.volume_paces), ou None s'ils
+    comptent moins de `min_pages` pages lues : l'appelant se rabat alors sur
+    le rythme moyen de toute la lecture."""
+    pages, seconds = 0, 0.0
+    for volume in set(volumes):
+        row = volume_paces.get(volume)
+        if row:
+            pages += row[0]
+            seconds += row[1]
+    return seconds / pages if pages >= min_pages and seconds > 0 else None
+
+
+def series_paces(volume_paces, resolve, min_pages: int = SERIES_PACE_MIN_PAGES) -> dict:
+    """{cle de serie: secondes par page} pour chaque serie dont le rythme est
+    connu (voir pace_of). `resolve(tome)` : (cle de serie, nom) d'un tome de
+    la bibliotheque, ou None (tome supprime, lu sur un autre PC : ignore)."""
+    totals: dict = {}
+    for volume, (pages, seconds) in volume_paces.items():
+        found = resolve(volume)
+        if found is not None:
+            t = totals.setdefault(found[0], [0, 0.0])
+            t[0] += pages
+            t[1] += seconds
+    return {key: seconds / pages for key, (pages, seconds) in totals.items()
+            if pages >= min_pages and seconds > 0}
 
 
 # ---------------------------------------------------------------- rapport
