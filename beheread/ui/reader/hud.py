@@ -9,7 +9,7 @@ from PySide6.QtCore import (
     QSize,
     Qt,
 )
-from PySide6.QtGui import QPixmap
+from PySide6.QtGui import QCursor, QPixmap
 from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
@@ -23,6 +23,7 @@ from beheread.i18n import tr
 from beheread.ui.reader.components import PageLoader
 from beheread.ui.reader.constants import (
     CHROME_HIDE_MS,
+    CHROME_WAKE_PX,
     FIT_NAMES,
     HUD_GAP,
     SLIDER_BOTTOM_MARGIN,
@@ -61,11 +62,25 @@ class HudMixin:
             self.unsetCursor()
         self._chrome_timer.start(CHROME_HIDE_MS)
 
+    def _wake_chrome(self, pos) -> None:
+        """Mouvement souris : reaffiche l'interface si elle est visible (pour
+        rearmer l'effacement) ou si le curseur s'est vraiment deplace depuis
+        qu'elle est masquee. Un micro-mouvement du capteur (typiquement au clic
+        qui tourne la page) ne la reveille pas."""
+        if self._chrome_visible:
+            self._show_chrome()
+            return
+        if self._chrome_anchor is None:
+            self._chrome_anchor = pos
+        elif (pos - self._chrome_anchor).manhattanLength() >= CHROME_WAKE_PX:
+            self._show_chrome()
+
     def _hide_chrome(self):
         if self.end_card.isVisible() or self._help.isVisible():
             # ne pas masquer l'interface tant que la fiche de fin est affichee
             self._chrome_timer.start(CHROME_HIDE_MS)
             return
+        self._chrome_anchor = self.mapFromGlobal(QCursor.pos())
         self._chrome_visible = False
         for w in self._chrome_widgets():
             w.setVisible(False)

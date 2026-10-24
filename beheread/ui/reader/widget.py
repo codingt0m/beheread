@@ -256,6 +256,7 @@ class ReaderWidget(HudMixin, EndCardMixin, DisplayMixin, InputMixin,
 
         # interface auto-masquable
         self._chrome_visible = True
+        self._chrome_anchor = None   # position du curseur quand l'interface est masquee
         self._chrome_timer = QTimer(self)
         self._chrome_timer.setSingleShot(True)
         self._chrome_timer.timeout.connect(self._hide_chrome)

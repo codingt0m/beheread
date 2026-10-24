@@ -124,7 +124,12 @@ class InputMixin:
         return True
 
     def mousePressEvent(self, event):
-        self._show_chrome()
+        if self._chrome_visible:
+            self._show_chrome()
+        else:
+            # l'appui ne reveille pas l'interface : on recale la zone morte
+            # sur le point clique (le clic tremble de quelques pixels)
+            self._chrome_anchor = event.position().toPoint()
         if event.button() == Qt.BackButton:
             # bouton lateral "page precedente" de la souris : comme Echap,
             # retour a la bibliotheque
@@ -135,7 +140,7 @@ class InputMixin:
             self._dragged = False
 
     def mouseMoveEvent(self, event):
-        self._show_chrome()
+        self._wake_chrome(event.position().toPoint())
         if self._drag_origin is not None and (event.buttons() & Qt.LeftButton):
             delta = event.position().toPoint() - self._drag_origin
             if self._dragged or delta.manhattanLength() > 6:
@@ -157,3 +162,6 @@ class InputMixin:
             self.next_page() if self.manga_mode else self.prev_page()
         elif event.position().x() > self.width() * 0.6:
             self.prev_page() if self.manga_mode else self.next_page()
+        else:
+            # zone centrale : pas de tour de page, le clic reveille l'interface
+            self._show_chrome()

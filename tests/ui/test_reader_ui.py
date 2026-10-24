@@ -4,7 +4,7 @@ import time
 
 import pytest
 from PySide6.QtCore import QEvent, QPoint, QPointF, QRect, Qt
-from PySide6.QtGui import QKeyEvent, QWheelEvent
+from PySide6.QtGui import QKeyEvent, QMouseEvent, QWheelEvent
 from PySide6.QtWidgets import QApplication, QPushButton
 
 from beheread.ui.reader.constants import FIT_HEIGHT, FIT_WIDTH
@@ -300,6 +300,46 @@ def test_help_overlay_escape_only_closes_help(window, qtbot, mangas):
     assert reader._help.isVisible()
     QApplication.sendEvent(reader, QKeyEvent(QEvent.KeyPress, Qt.Key_Escape, Qt.NoModifier))
     assert not reader._help.isVisible() and window.reader is reader
+
+
+def _mouse(reader, kind, x, y, button=Qt.NoButton):
+    ev = QMouseEvent(kind, QPointF(x, y), QPointF(x, y), button, button,
+                     Qt.NoModifier)
+    QApplication.sendEvent(reader, ev)
+
+
+def _hidden_chrome(reader, x=400, y=300):
+    reader._hide_chrome()
+    reader._chrome_anchor = QPoint(x, y)   # le curseur reel du test n'est pas fiable
+    assert not reader._chrome_visible
+
+
+def test_tiny_mouse_jitter_does_not_bring_the_hud_back(window, qtbot, mangas):
+    reader = _open(window, qtbot, make_cbz(mangas, "Alpha - Tome 1", pages=5))
+    _hidden_chrome(reader)
+    for dx, dy in ((1, 0), (3, 2), (-4, 3), (5, -5)):
+        _mouse(reader, QEvent.MouseMove, 400 + dx, 300 + dy)
+    assert not reader._chrome_visible
+    _mouse(reader, QEvent.MouseMove, 400 + 30, 300)       # vrai deplacement
+    assert reader._chrome_visible
+
+
+def test_page_turn_click_keeps_the_hud_hidden(window, qtbot, mangas):
+    reader = _open(window, qtbot, make_cbz(mangas, "Alpha - Tome 1", pages=5))
+    _hidden_chrome(reader, 50, 300)
+    _mouse(reader, QEvent.MouseButtonPress, 50, 300, Qt.LeftButton)
+    _mouse(reader, QEvent.MouseMove, 53, 302, Qt.LeftButton)   # tremblement du clic
+    _mouse(reader, QEvent.MouseButtonRelease, 53, 302, Qt.LeftButton)
+    _mouse(reader, QEvent.MouseMove, 55, 303)                  # et apres le relachement
+    assert not reader._chrome_visible
+
+
+def test_center_click_brings_the_hud_back(window, qtbot, mangas):
+    reader = _open(window, qtbot, make_cbz(mangas, "Alpha - Tome 1", pages=5))
+    _hidden_chrome(reader)
+    _mouse(reader, QEvent.MouseButtonPress, reader.width() / 2, 300, Qt.LeftButton)
+    _mouse(reader, QEvent.MouseButtonRelease, reader.width() / 2, 300, Qt.LeftButton)
+    assert reader._chrome_visible
 
 
 def test_instance_message_opens_file_in_existing_window(window, qtbot, mangas):

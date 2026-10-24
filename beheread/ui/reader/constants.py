@@ -29,6 +29,8 @@ TRANSITION_MS = 130     # duree totale du fondu entre deux pages
 TRANSITION_STEP_MS = 15  # ~60 fps
 
 CHROME_HIDE_MS = 2600   # inactivite souris avant d'effacer l'interface
+CHROME_WAKE_PX = 20     # deplacement minimal du curseur pour reafficher l'interface
+                        # (ignore le tremblement du capteur lors d'un clic)
 TIME_MIN_SAMPLES = 4    # tours de page avant d'estimer le temps restant
 
 AMBIENT_DARKEN = 0.35    # facteur d'assombrissement de la couleur moyenne de la page
