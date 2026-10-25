@@ -9,7 +9,7 @@ import time
 
 from PySide6.QtGui import QPixmap
 
-from beheread.core import units
+from beheread.core import stats, units
 from beheread.core.library_model import (
     FINISHED,
     READING,
@@ -227,6 +227,10 @@ class DetailPanelMixin:
             (tr("Ajoutée le"), self._fmt_date(agg.added)),
             (tr("Lue le"), self._fmt_date(agg.last_read)),
         ]
+        seconds = self._series_seconds(key)
+        if seconds:
+            rows.insert(3, (tr("Temps de lecture"), stats.fmt_duration(seconds),
+                            (tr("Statistiques ›"), lambda _pos: self.open_series_stats(key))))
         fpath = featured.path
         if featured.volume is not None:
             # libelle court et propre plutot que le nom de fichier complet

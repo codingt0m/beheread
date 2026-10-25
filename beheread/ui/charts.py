@@ -217,17 +217,25 @@ class StatTile(QFrame):
 
 class BarChart(QWidget):
     """Histogramme vertical a une serie. bars : [(etiquette d'axe ou "",
-    valeur, texte d'infobulle)]."""
+    valeur, texte d'infobulle)]. Sous les etiquettes d'axe, des lignes de
+    notes facultatives (une valeur par barre, voir set_bars)."""
 
     BAR_MAX = 24
     GAP = 2
     LEFT, RIGHT, TOP, BOTTOM = 52, 8, 22, 26
+    NOTE_H = 16
 
     def __init__(self, color, colors, value_fmt=_fmt_int, empty_text="",
-                 ticks=stats.nice_ticks, height=150):
-        """`ticks` : fonction (maximum) -> graduations de l'axe des valeurs."""
+                 ticks=stats.nice_ticks, height=150, label_all=False, bar_max=BAR_MAX):
+        """`ticks` : fonction (maximum) -> graduations de l'axe des valeurs.
+        `label_all` : la valeur au-dessus de chaque barre (quand elle tient),
+        pas seulement de la plus haute."""
         super().__init__()
         self.bars = []
+        self.notes = []
+        self.label_all = label_all
+        self.bar_max = bar_max
+        self.base_height = height
         self.color = QColor(color)
         self.c = colors
         self.value_fmt = value_fmt
@@ -241,8 +249,12 @@ class BarChart(QWidget):
 
     reference = None    # (valeur, libelle) : trait de repere horizontal (mediane...)
 
-    def set_bars(self, bars, reference=None):
+    def set_bars(self, bars, reference=None, notes=()):
+        """notes : [(legende, [texte par barre], couleur ou None)], une ligne
+        chacune sous les etiquettes d'axe, sa legende dans la marge gauche."""
         self.bars = list(bars)
+        self.notes = list(notes)
+        self.setMinimumHeight(self.base_height + self.NOTE_H * len(self.notes))
         self.reference = reference if reference and reference[0] > 0 else None
         self.ticks = self.tick_fn(max((b[1] for b in self.bars), default=0))
         self.hover = -1
@@ -252,8 +264,9 @@ class BarChart(QWidget):
         return QSize(420, self.minimumHeight() + 10)
 
     def _plot(self):
+        bottom = self.BOTTOM + self.NOTE_H * len(self.notes)
         return QRect(self.LEFT, self.TOP, self.width() - self.LEFT - self.RIGHT,
-                     self.height() - self.TOP - self.BOTTOM)
+                     self.height() - self.TOP - bottom)
 
     def _slot(self, i):
         plot = self._plot()
@@ -263,7 +276,7 @@ class BarChart(QWidget):
     def _bar_rect(self, i):
         plot = self._plot()
         slot = self._slot(i)
-        bw = max(2.0, min(self.BAR_MAX, slot.width() - self.GAP))
+        bw = max(2.0, min(self.bar_max, slot.width() - self.GAP))
         top_value = self.ticks[-1] or 1
         h = plot.height() * (self.bars[i][1] / top_value)
         return QRectF(slot.center().x() - bw / 2, plot.bottom() + 1 - h, bw, h)
@@ -307,10 +320,10 @@ class BarChart(QWidget):
                 p.setPen(Qt.NoPen)
                 p.setBrush(color)
                 p.drawPath(path.simplified())
-                if i == peak_i:
+                txt = self.value_fmt(value)
+                tw = fm.horizontalAdvance(txt)
+                if i == peak_i or (self.label_all and tw + 4 <= self._slot(i).width()):
                     p.setPen(QColor(self.c["text"]))
-                    txt = self.value_fmt(value)
-                    tw = fm.horizontalAdvance(txt)
                     x = max(plot.left(), min(plot.right() - tw - 4, r.center().x() - tw / 2 - 2))
                     p.drawText(QRectF(x, r.top() - 18, tw + 4, 16), Qt.AlignCenter, txt)
             if i in shown:
@@ -319,6 +332,16 @@ class BarChart(QWidget):
                 p.setPen(text_dim)
                 p.drawText(QRectF(slot.center().x() - tw / 2 - 2, plot.bottom() + 6, tw + 4, 16),
                            Qt.AlignCenter, label)
+        for row, (caption, texts, color) in enumerate(self.notes):
+            y = plot.bottom() + 6 + self.BOTTOM - 8 + row * self.NOTE_H
+            p.setPen(text_dim)
+            p.drawText(QRect(0, round(y), self.LEFT - 8, 16), Qt.AlignRight | Qt.AlignVCenter,
+                       caption)
+            p.setPen(QColor(color) if color else text_dim)
+            for i, text in enumerate(texts):
+                slot = self._slot(i)
+                if text and fm.horizontalAdvance(text) + 2 <= slot.width():
+                    p.drawText(QRectF(slot.left(), y, slot.width(), 16), Qt.AlignCenter, text)
         if self.reference is not None:
             value, label = self.reference
             y = round(plot.bottom() - plot.height() * (value / top_value))
@@ -326,15 +349,16 @@ class BarChart(QWidget):
             ink.setAlphaF(0.7)
             p.setPen(QPen(ink, 1, Qt.DashLine))
             p.drawLine(QPoint(plot.left(), y), QPoint(plot.right(), y))
-            # libelle a droite, sur un cartouche du fond de la carte : lisible
-            # meme pose sur les barres
-            tw = fm.horizontalAdvance(label) + 8
-            box = QRectF(plot.right() - tw, y - 9, tw, 18)
-            p.setPen(Qt.NoPen)
-            p.setBrush(QColor(self.c["panel"]))
-            p.drawRoundedRect(box, 4, 4)
-            p.setPen(ink)
-            p.drawText(box, Qt.AlignCenter, label)
+            if label:           # sinon, libelle ailleurs (sous-titre de la carte)
+                # libelle a droite, sur un cartouche du fond de la carte : lisible
+                # meme pose sur les barres
+                tw = fm.horizontalAdvance(label) + 8
+                box = QRectF(plot.right() - tw, y - 9, tw, 18)
+                p.setPen(Qt.NoPen)
+                p.setBrush(QColor(self.c["panel"]))
+                p.drawRoundedRect(box, 4, 4)
+                p.setPen(ink)
+                p.drawText(box, Qt.AlignCenter, label)
         if self.hover >= 0 and self.hasFocus():
             slot = self._slot(self.hover)
             p.setPen(QPen(QColor(self.c["text_dim"]), 1))
@@ -936,43 +960,6 @@ class ChartCard(QFrame):
 
 # ---------------------------------------------------------------- statistiques d'une serie
 
-class PaceScale(QWidget):
-    """Rythme d'une serie sur une echelle de secondes par page : un trait
-    gris pour le rythme moyen, un point de la couleur de la mesure pour celui
-    de la serie. A droite, plus lent."""
-
-    def __init__(self, color, colors):
-        super().__init__()
-        self.color = QColor(color)
-        self.c = colors
-        self.pace = self.average = None
-        self.setFixedHeight(Sparkline.HEIGHT)
-
-    def set_paces(self, pace, average):
-        self.pace, self.average = pace, average
-        self.update()
-
-    def paintEvent(self, _event):
-        p = QPainter(self)
-        p.setRenderHint(QPainter.Antialiasing)
-        w, mid = self.width(), self.height() / 2 + 2
-        p.setPen(Qt.NoPen)
-        p.setBrush(theme.qcolor(self.c["border"]))
-        p.drawRoundedRect(QRectF(0, mid - 1, w, 2), 1, 1)
-        known = [v for v in (self.pace, self.average) if v]
-        if known:
-            top = max(known) * 1.6
-            x = lambda v: 6 + (w - 12) * v / top   # noqa: E731
-            if self.average:
-                p.setBrush(QColor(self.c["text_dim"]))
-                p.drawRect(QRectF(x(self.average) - 1, mid - 8, 2, 16))
-            if self.pace:
-                p.setPen(QPen(QColor(self.c["panel"]), 2))
-                p.setBrush(self.color)
-                p.drawEllipse(QPointF(x(self.pace), mid), 5.5, 5.5)
-        p.end()
-
-
 class Shelf(QWidget):
     """Etagere d'une serie : une case par tome (ou chapitre) dans l'ordre de
     lecture, son numero ecrit dedans, sa couleur selon son etat ; le tome en
@@ -1131,161 +1118,6 @@ class Shelf(QWidget):
             step = steps[event.key()]
             start = self.hover if self.hover >= 0 else (len(self.items) if step < 0 else -1)
             self._show_tip(max(0, min(len(self.items) - 1, start + step)))
-            return
-        super().keyPressEvent(event)
-
-    def focusOutEvent(self, event):
-        self.hover = -1
-        self.update()
-        super().focusOutEvent(event)
-
-
-class StepChart(QWidget):
-    """Progression d'une serie : tomes termines cumules dans le temps, en
-    escalier (une marche par fin de tome : les rafales et les pauses se
-    voient). En pointilles, la projection jusqu'au dernier tome possede ;
-    des reperes horizontaux (possedes, parus) nommes a droite."""
-
-    LEFT, RIGHT, TOP, BOTTOM = 34, 84, 14, 26
-
-    def __init__(self, color, colors, empty_text=""):
-        super().__init__()
-        self.color = QColor(color)
-        self.c = colors
-        self.empty_text = empty_text
-        self.points = []        # [(jour, cumul, infobulle)]
-        self.start = self.today = None
-        self.base = 0
-        self.projection = None  # (jour, cumul, infobulle)
-        self.references = []    # [(valeur, libelle)]
-        self.hover = -1
-        self.setMouseTracking(True)
-        self.setFocusPolicy(Qt.StrongFocus)
-        self.setMinimumHeight(170)
-
-    def set_data(self, start, base, points, today, projection=None, references=()):
-        self.start, self.base, self.today = start, base, today
-        self.points = list(points)
-        self.projection = projection
-        self.references = [r for r in references if r[0]]
-        self.hover = -1
-        self.update()
-
-    def _targets(self) -> list:
-        return self.points + ([self.projection] if self.projection else [])
-
-    def _scales(self):
-        plot = QRectF(self.LEFT, self.TOP, self.width() - self.LEFT - self.RIGHT,
-                      self.height() - self.TOP - self.BOTTOM)
-        first = (self.start or self.today).replace(day=1)
-        last = max([self.today] + [t[0] for t in self._targets()])
-        span = max(1, (last - first).days)
-        top_value = max([self.base] + [t[1] for t in self._targets()]
-                        + [v for v, _l in self.references] + [1])
-        ticks = stats.nice_ticks(top_value, 3)
-        x = lambda d: plot.left() + plot.width() * (d - first).days / span   # noqa: E731
-        y = lambda v: plot.bottom() - plot.height() * v / (ticks[-1] or 1)   # noqa: E731
-        return plot, first, last, ticks, x, y
-
-    def paintEvent(self, _event):
-        p = QPainter(self)
-        p.setRenderHint(QPainter.Antialiasing)
-        p.setFont(_small_font(self))
-        dim, grid = QColor(self.c["text_dim"]), theme.qcolor(self.c["border"])
-        if self.today is None or not (self.points or self.base):
-            p.setPen(dim)
-            p.drawText(self.rect(), Qt.AlignCenter | Qt.TextWordWrap, self.empty_text)
-            p.end()
-            return
-        plot, first, last, ticks, x, y = self._scales()
-        for t in ticks:
-            p.setPen(QPen(grid, 1))
-            p.drawLine(QPointF(plot.left(), y(t)), QPointF(plot.right(), y(t)))
-            p.setPen(dim)
-            p.drawText(QRectF(0, y(t) - 8, self.LEFT - 6, 16), Qt.AlignRight | Qt.AlignVCenter,
-                       _fmt_int(t))
-        # mois : au plus six reperes, le premier et janvier avec l'annee
-        months = (last.year - first.year) * 12 + last.month - first.month + 1
-        step = max(1, -(-months // 6))
-        for m in range(0, months, step):
-            d = stats.add_months(first, m)
-            label = month_name(d.month) + (f" {d.year % 100:02d}" if m == 0 or d.month == 1 else "")
-            left = max(0.0, min(self.width() - 80.0, x(d) - 40))   # jamais coupe au bord
-            p.drawText(QRectF(left, plot.bottom() + 6, 80, 16), Qt.AlignCenter, label)
-        for value, label in self.references:
-            p.setPen(QPen(dim, 1, Qt.DotLine))
-            p.drawLine(QPointF(plot.left(), y(value)), QPointF(plot.right(), y(value)))
-            p.setPen(dim)
-            # a l'ecart du point de fin de la projection, pose sur le bord droit
-            p.drawText(QRectF(plot.right() + 10, y(value) - 8, self.RIGHT - 10, 16),
-                       Qt.AlignLeft | Qt.AlignVCenter, label)
-        now = QColor(dim)
-        now.setAlphaF(0.5)
-        p.setPen(QPen(now, 1))
-        p.drawLine(QPointF(x(self.today), plot.top()), QPointF(x(self.today), plot.bottom()))
-
-        path = QPainterPath(QPointF(x(self.start or self.today), y(self.base)))
-        count = self.base
-        for day, value, _tip in self.points:
-            path.lineTo(x(day), y(count))
-            path.lineTo(x(day), y(value))
-            count = value
-        path.lineTo(x(self.today), y(count))
-        p.setBrush(Qt.NoBrush)
-        p.setPen(QPen(self.color, 2, Qt.SolidLine, Qt.FlatCap, Qt.RoundJoin))
-        p.drawPath(path)
-        if self.projection:
-            day, value, _tip = self.projection
-            p.setPen(QPen(self.color, 2, Qt.DashLine))
-            p.drawLine(QPointF(x(self.today), y(count)), QPointF(x(day), y(value)))
-            p.setPen(QPen(self.color, 2))
-            p.setBrush(QColor(self.c["panel"]))
-            p.drawEllipse(QPointF(x(day), y(value)), 4, 4)
-        p.setPen(QPen(QColor(self.c["panel"]), 2))
-        p.setBrush(self.color)
-        p.drawEllipse(QPointF(x(self.today), y(count)), 4.5, 4.5)
-        if 0 <= self.hover < len(self._targets()):
-            day, value, _tip = self._targets()[self.hover]
-            p.setPen(QPen(QColor(self.c["text"]), 1.5))
-            p.setBrush(Qt.NoBrush)
-            p.drawEllipse(QPointF(x(day), y(value)), 7, 7)
-        p.end()
-
-    # ----- survol et clavier -----
-    def _show_tip(self, i):
-        self.hover = i
-        self.update()
-        targets = self._targets()
-        if 0 <= i < len(targets):
-            _plot, _f, _l, _t, x, y = self._scales()
-            day, value, tip = targets[i]
-            QToolTip.showText(self.mapToGlobal(QPoint(round(x(day)), round(y(value)))), tip, self)
-
-    def mouseMoveEvent(self, event):
-        targets = self._targets()
-        i = -1
-        if targets and self.today is not None:
-            _plot, _f, _l, _t, x, _y = self._scales()
-            pos = event.position()
-            best = min(range(len(targets)), key=lambda k: abs(x(targets[k][0]) - pos.x()))
-            if abs(x(targets[best][0]) - pos.x()) <= 12:
-                i = best
-        if i != self.hover:
-            self._show_tip(i)
-            if i < 0:
-                QToolTip.hideText()
-
-    def leaveEvent(self, _event):
-        self.hover = -1
-        QToolTip.hideText()
-        self.update()
-
-    def keyPressEvent(self, event):
-        targets = self._targets()
-        if event.key() in (Qt.Key_Left, Qt.Key_Right) and targets:
-            step = -1 if event.key() == Qt.Key_Left else 1
-            start = self.hover if self.hover >= 0 else (len(targets) if step < 0 else -1)
-            self._show_tip(max(0, min(len(targets) - 1, start + step)))
             return
         super().keyPressEvent(event)
 

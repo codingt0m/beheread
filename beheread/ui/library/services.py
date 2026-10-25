@@ -172,28 +172,53 @@ class ServicesMixin:
     # ----- statistiques -----
     def _stats_holdings(self, key):
         """Instantane de la serie `key` pour ses statistiques (voir
-        series_stats.SeriesHoldings) : ses tomes et chapitres dans l'ordre de
-        lecture, avec les tomes manquants a leur place. None si ce n'est pas
-        une serie de la bibliotheque."""
+        series_stats.SeriesHoldings) : son parcours de lecture dans l'ordre,
+        tomes virtuels compris (avec leurs chapitres), sans les chapitres
+        deja contenus dans un tome. None si ce n'est pas une serie de la
+        bibliotheque."""
         grp = self._group_entries(self._entries).get(key)
         if not grp or len(grp) < 2:
             return None
         vols = sorted(grp, key=self._volume_sort_key)
-        infos = [self._info.get(e.path) or self._entry_info(e) for e in vols]
+        infos = {e.path: self._info.get(e.path) or self._entry_info(e) for e in vols}
         name = self._series_display_name.get(key, grp[0].series)
-        author = aggregate_series_info(name, infos).author or self._series_author(vols)
-        _owned, missing, _ch, _missing_ch, published, _japan = self._series_holdings(key, vols)
-        items = []
-        for e, info in zip(vols, infos, strict=True):
+        author = (aggregate_series_info(name, list(infos.values())).author
+                  or self._series_author(vols))
+        items, extra = [], []
+        for e in vols:
+            info = infos[e.path]
+            if e.path in self._grouped_chapters or self._unit(e) == units.COVERED:
+                extra.append(info.key)      # lu avec son tome, hors du parcours
+                continue
+            members = self._virtual_members.get(e.path) or []
             prog = self.store.get_progress(e.path)
             total = (prog[1] if prog and prog[1] else None) or self.store.page_count(e.path) or 0
             items.append(series_stats.SeriesItem(
                 e.volume, self._unit(e) or units.VOLUME, info.key, info.status,
-                prog[0] if prog else 0, total, self._display_title(e)))
-        items += [series_stats.SeriesItem(n, units.VOLUME, status=series_stats.MISSING)
-                  for n in missing]
-        return series_stats.SeriesHoldings(key, name, author, published,
-                                           tuple(sorted(items, key=series_stats.item_order)))
+                prog[0] if prog else 0, total, self._display_title(e),
+                aliases=tuple(self.store.key_for(m.path) for m in members),
+                covers=tuple(m.volume for m in members if m.volume is not None)))
+        return series_stats.SeriesHoldings(key, name, author,
+                                           tuple(sorted(items, key=series_stats.item_order)),
+                                           tuple(extra))
+
+    def _series_owner(self):
+        """Cle de serie actuelle d'un tome de la bibliotheque (son empreinte
+        pour un tome isole), None pour un tome absent : voir
+        series_stats.collect_rows."""
+        owners = {}
+        for e in self._entries:
+            info = self._info.get(e.path)
+            if info is not None:
+                owners[info.key] = info.series_key or info.key
+        return owners.get
+
+    def _series_seconds(self, key):
+        """Temps passe dans la serie (panneau d'informations), 0 sans lecture."""
+        holdings = self._stats_holdings(key)
+        if holdings is None:
+            return 0.0
+        return series_stats.series_seconds(self.store.reading_log, holdings, self._series_owner())
 
     def open_series_stats(self, key):
         self.open_stats(series=key)

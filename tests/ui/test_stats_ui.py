@@ -118,9 +118,9 @@ def test_calendar_shades_days_by_reading_time(store, qtbot, mangas):
         assert cal.hover == expected
 
 
-def test_screen_is_fullscreen_and_scrolls_rather_than_hiding(store, qtbot, mangas):
-    """Plein ecran ; sur un ecran trop bas, la fenetre defile et l'annonce
-    plutot que de retirer des cartes."""
+def test_window_is_remembered_and_scrolls_rather_than_hiding(store, qtbot, mangas):
+    """Fenetre normale, rouverte a la taille laissee ; trop basse, elle
+    defile et l'annonce plutot que de retirer des cartes."""
     for i in range(6):     # six contenus distincts (make_cbz) ; deux fins de tome par jour
         path = _read(store, mangas, f"Serie {i} - Tome 1", i, 30, 600 + 60 * i,
                      finished=True, seed=i)
@@ -128,13 +128,16 @@ def test_screen_is_fullscreen_and_scrolls_rather_than_hiding(store, qtbot, manga
                              date=TODAY - dt.timedelta(days=10 + i))
     opened = StatsDialog(store, LIBRARY, "dark", today=TODAY)
     qtbot.addWidget(opened)
-    assert opened.windowState() & Qt.WindowFullScreen        # tel qu'il s'ouvre
+    assert not opened.windowState() & (Qt.WindowFullScreen | Qt.WindowMaximized)
+    opened.resize(760, 560)
+    opened.reject()                                          # retenue a la fermeture
+    again = StatsDialog(store, LIBRARY, "dark", today=TODAY)
+    qtbot.addWidget(again)
+    assert (again.width(), again.height()) == (760, 560)
     dlg = _dialog(store, qtbot)
-    dlg.setWindowState(Qt.WindowNoState)    # aux dimensions voulues, pas a celles de l'ecran de test
-    dlg.resize(1440, 900)
     dlg.show()
     qtbot.waitExposed(dlg)
-    assert not dlg.close_button.isHidden()                   # pas de barre de titre en plein ecran
+    assert not dlg.close_button.isHidden()
 
     # ecran haut : tout tient, rien a faire defiler
     assert not dlg.habits.isHidden()
@@ -259,7 +262,7 @@ def test_stats_open_from_the_library(window, qtbot, mangas, store, monkeypatch):
     monkeypatch.setattr(StatsDialog, "exec", lambda self: opened.append(self))
     lib.open_stats()
     dlg = opened[0]
-    assert dlg.windowState() & Qt.WindowFullScreen
+    assert not dlg.windowState() & Qt.WindowFullScreen
     assert {k: dlg.library[k] for k in ("unread", "reading", "finished")} == {
         "unread": 1, "reading": 1, "finished": 0}
     assert dlg.library["remaining_pages"] == 3 + 4 and dlg.library["unknown_pages"] == 0

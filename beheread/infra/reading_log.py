@@ -187,19 +187,29 @@ class ReadingLog:
             """SELECT volume, SUM(pages), SUM(seconds) FROM reading_log
                WHERE day >= ? AND pages >= ? GROUP BY volume""", (_iso(since), min_pages))}
 
-    def series_rows(self, volumes):
-        """[(jour, appareil, tome, pages, secondes, seances, fins)] de ces
-        tomes sur tout l'historique, du plus ancien jour au plus recent (voir
-        series_stats.build_series_report). L'appareil est son nom quand il
-        est connu. Par paquets : SQLite limite le nombre de parametres."""
-        volumes, rows = sorted(set(volumes)), []
-        for i in range(0, len(volumes), 500):
-            chunk = volumes[i:i + 500]
-            rows += self._query(
-                f"""SELECT l.day, COALESCE(NULLIF(d.name, ''), l.device), l.volume, l.pages,
-                           l.seconds, l.sessions, l.finished
+    def series_names(self):
+        """Noms de serie distincts du journal, tels qu'ecrits a la lecture
+        (voir series_stats.collect_rows, qui les compare a une serie)."""
+        return [row[0] for row in self._query(
+            "SELECT DISTINCT series FROM reading_log WHERE series != ''")]
+
+    def series_rows(self, volumes, names=()):
+        """[(jour, appareil, tome, pages, secondes, seances, fins, titre)] des
+        tomes `volumes` et des lignes ecrites sous un des noms de serie
+        `names`, sur tout l'historique, du plus ancien jour au plus recent
+        (voir series_stats.build_series_report). Par le nom, un tome
+        supprime ou remplace garde ses lignes. L'appareil est son nom quand
+        il est connu. Par paquets : SQLite limite le nombre de parametres."""
+        select = """SELECT l.day, COALESCE(NULLIF(d.name, ''), l.device), l.volume, l.pages,
+                           l.seconds, l.sessions, l.finished, l.title
                     FROM reading_log l LEFT JOIN reading_devices d ON d.device = l.device
-                    WHERE l.volume IN ({",".join("?" * len(chunk))})""", chunk)
+                    WHERE """
+        rows = set()
+        for column, values in (("l.volume", sorted(set(volumes))), ("l.series", sorted(set(names)))):
+            for i in range(0, len(values), 500):
+                chunk = values[i:i + 500]
+                rows.update(self._query(
+                    f"{select}{column} IN ({','.join('?' * len(chunk))})", chunk))
         return sorted(rows)
 
     def finished(self, start, end, limit):

@@ -16,10 +16,11 @@ Un clic (ou Entree) sur une serie du classement ouvre ses statistiques dans
 la meme fenetre (series_stats_view.py) ; « Statistiques » dans le fil
 d'Ariane, ou Echap, ramene a la vue generale, sur la meme periode.
 
-La fenetre s'ouvre en plein ecran. Les cartes s'etirent pour occuper la
-hauteur et leurs listes n'affichent que les lignes qui y tiennent ; sur un
-ecran trop bas pour tout montrer, la fenetre defile et le dit (lien en bas)
-plutot que de retirer des cartes.
+La fenetre est une fenetre normale, centree sur la bibliotheque la premiere
+fois, puis rouverte a la taille et a la place ou on l'a laissee. Les cartes
+s'etirent pour occuper la hauteur et leurs listes n'affichent que les lignes
+qui y tiennent ; quand la fenetre est trop basse pour tout montrer, elle
+defile et le dit (lien en bas) plutot que de retirer des cartes.
 
 Les requetes sont dans reading_log.py, les calculs dans stats.py (purs,
 testes) ; ce module ne fait que dessiner le rapport (stats.Report). Les
@@ -48,7 +49,7 @@ Choix de visualisation :
 import datetime as dt
 from pathlib import PureWindowsPath
 
-from PySide6.QtCore import QPoint, Qt
+from PySide6.QtCore import QByteArray, QPoint, Qt
 from PySide6.QtGui import QGuiApplication
 from PySide6.QtWidgets import (
     QButtonGroup,
@@ -214,6 +215,9 @@ class StatsDialog(QDialog):
         self.store = store
         self.library = library
         self.resolve = resolve
+        # cle de serie actuelle d'un tome : un tome range depuis dans une
+        # autre serie n'est plus compte dans celle ou il a ete lu
+        self.owner = (lambda volume: (resolve(volume) or (None,))[0]) if resolve else None
         self.titles = titles or {}
         self.holdings = holdings
         self.open_series = open_series
@@ -227,8 +231,8 @@ class StatsDialog(QDialog):
         self.root = QVBoxLayout(self)
         self.root.setContentsMargins(22, 18, 22, 10)
         self.root.setSpacing(14)
-        # la fenetre a la taille de l'ecran : c'est le contenu qui s'y adapte,
-        # en defilant au besoin, jamais la fenetre qui grandit avec lui
+        # c'est le contenu qui s'adapte a la fenetre, en defilant au besoin,
+        # jamais la fenetre qui grandit avec lui
         self.root.setSizeConstraint(QLayout.SetNoConstraint)
         self.root.addLayout(self._build_header())
         self.pages = QStackedWidget()
@@ -276,6 +280,8 @@ class StatsDialog(QDialog):
             #tileSub, #cardSub, #caption {{ color: {c['text_dim']}; font-size: 12px; }}
             #cardTitle {{ font-size: 14px; font-weight: 700; }}
             #backlogValue {{ font-size: 24px; font-weight: 600; }}
+            #shelfSum {{ font-size: 15px; font-weight: 600; }}
+            #journalTime {{ font-weight: 600; }}
             #emptyTitle {{ font-size: 15px; font-weight: 600; }}
             QPushButton {{
                 color: {c['text']}; background: {c['button']};
@@ -315,14 +321,41 @@ class StatsDialog(QDialog):
                 border: none; border-bottom: 1px solid {c['border']}; padding: 4px;
             }}
         """)
-        # plein ecran, sur l'ecran de la bibliotheque
-        screen = parent.screen() if parent is not None else QGuiApplication.primaryScreen()
-        if screen is not None:
-            self.setGeometry(screen.geometry())
-        self.setWindowState(self.windowState() | Qt.WindowFullScreen)
+        self.setWindowFlag(Qt.WindowContextHelpButtonHint, False)
+        self.setWindowFlag(Qt.WindowMinMaxButtonsHint, True)
+        self._place(parent)
         self.set_period(store.ui_pref("stats_period", stats.DEFAULT_PERIOD))
         if series is not None:
             self.show_series(series)
+
+    # ------------------------------------------------------------ taille et place
+    GEOMETRY_PREF = "stats_geometry"
+    DEFAULT_SIZE = (1320, 900)
+
+    def _place(self, parent):
+        """Taille et place laissees a la derniere fermeture ; sinon une
+        grande fenetre centree sur la bibliotheque, dans l'ecran."""
+        saved = self.store.ui_pref(self.GEOMETRY_PREF, "")
+        if saved and self.restoreGeometry(QByteArray.fromBase64(saved.encode("ascii"))):
+            return
+        screen = parent.screen() if parent is not None else QGuiApplication.primaryScreen()
+        if screen is None:
+            self.resize(*self.DEFAULT_SIZE)
+            return
+        area = screen.availableGeometry()
+        self.resize(min(self.DEFAULT_SIZE[0], area.width() - 80),
+                    min(self.DEFAULT_SIZE[1], area.height() - 60))
+        center = parent.frameGeometry().center() if parent is not None else area.center()
+        frame = self.frameGeometry()
+        frame.moveCenter(center)
+        x = max(area.left(), min(frame.left(), area.right() - frame.width()))
+        y = max(area.top(), min(frame.top(), area.bottom() - frame.height()))
+        self.move(x, y)
+
+    def done(self, result):
+        self.store.set_ui_pref(self.GEOMETRY_PREF,
+                               bytes(self.saveGeometry().toBase64()).decode("ascii"))
+        super().done(result)
 
     def _add_page(self):
         """Page de la fenetre, dans une zone qui defile quand l'ecran est
@@ -402,7 +435,7 @@ class StatsDialog(QDialog):
         self.open_button.clicked.connect(self._open_series)
         self.open_button.hide()
         head.addWidget(self.open_button)
-        # en plein ecran, il n'y a pas de barre de titre : la fermeture est ici
+        # fermeture aussi dans la fenetre, a cote des autres boutons
         self.close_button = QPushButton(tr("Fermer"))
         self.close_button.setToolTip(tr("Fermer les statistiques (Échap)"))
         self.close_button.setCursor(Qt.PointingHandCursor)
@@ -641,10 +674,9 @@ class StatsDialog(QDialog):
         holdings = self._series_holdings(key)
         if holdings is None:
             return
-        volumes = [i.volume for i in holdings.owned if i.volume]
         report = series_stats.build_series_report(
             self.store.reading_log, holdings, self.today, self.resolve,
-            pace=self.store.series_pace(volumes), library_pace=self.store.reading_pace())
+            library_pace=self.store.reading_pace(), owner=self.owner)
         self.series_key = key
         self.series_view.set_report(report, self.today)
         self.pages.setCurrentIndex(1)

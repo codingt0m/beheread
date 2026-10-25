@@ -155,9 +155,7 @@ def main(out: Path):
     library = {"unread": 6, "reading": 2, "finished": 4, "remaining_pages": 48,
                "unknown_pages": 0}
     stats = StatsDialog(store, library, "dark")
-    stats.setWindowState(Qt.WindowNoState)
     _offscreen(stats)
-    stats.fit_height()
     grab(stats, "05-statistiques")
     stats.close()
 
