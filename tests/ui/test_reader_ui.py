@@ -231,6 +231,40 @@ def test_parity_shift_still_works_after_a_spread(window, qtbot, mangas, store):
     assert reader.page == 4 and list(reader._current_indices()) == [4]
 
 
+def test_section_shift_after_a_spread_is_remembered_by_the_volume(window, qtbot, mangas, store):
+    path = make_cbz(mangas, "Alpha - Tome 1", pages=14)
+    reader = _open(window, qtbot, path)
+    reader._is_spread = lambda i: i == 3
+    reader._go_to(6, animate=False)
+    reader._shift_parity()
+    assert reader._shifted_sections == {4}
+    reader._go_to(0, animate=False)   # _open attend la page 0 : pas de reprise plus loin
+    # a la reouverture, la section reste decalee ; un autre tome de la serie non
+    other = _open(window, qtbot, make_cbz(mangas, "Alpha - Tome 2", pages=14, seed=2))
+    assert other._shifted_sections == set()
+    again = _open(window, qtbot, path)
+    assert again._shifted_sections == {4}
+    # un second appui annule le decalage, et l'annulation est retenue aussi
+    again._is_spread = lambda i: i == 3
+    again._go_to(6, animate=False)
+    again._shift_parity()
+    again._go_to(0, animate=False)
+    _open(window, qtbot, other.path)
+    assert _open(window, qtbot, path)._shifted_sections == set()
+
+
+def test_parity_shift_of_a_volume_without_series_is_its_own(window, qtbot, mangas, store):
+    solo = make_cbz(mangas, "Solo", seed=1)
+    first = _open(window, qtbot, solo)
+    first._shift_parity()
+    assert first.page_offset == 1
+    # un autre tome sans serie change le reglage general ; le premier garde le sien
+    second = _open(window, qtbot, make_cbz(mangas, "Autre", seed=2))
+    second._shift_parity()
+    assert second.page_offset == 0 and store.reader_pref("page_offset") == 0
+    assert _open(window, qtbot, solo).page_offset == 1   # rouvert apres un autre tome
+
+
 def test_reading_direction_stays_per_series(window, qtbot, mangas, store):
     first = _open(window, qtbot, make_cbz(mangas, "Alpha - Tome 1", seed=1))
     assert first.manga_mode is True

@@ -848,6 +848,18 @@ class Store:
             self.settings.setdefault("series_reader", {}).setdefault(series_key, {})[key] = value
             self._schedule("settings")
 
+    def volume_reader(self, path) -> dict:
+        """Reglages du lecteur propres a ce tome (par empreinte de contenu) :
+        "page_offset" pour un tome sans serie, "shifted" (debuts de section
+        decales par la touche S) dans tous les cas."""
+        value = self.settings.get("volume_reader", {}).get(self.key_for(path))
+        return value if isinstance(value, dict) else {}
+
+    def set_volume_reader(self, path, key, value):
+        entry = self.settings.setdefault("volume_reader", {}).setdefault(self.key_for(path), {})
+        entry[key] = value
+        self._schedule("settings")
+
     def library_pref(self, key, default=None):
         return self.settings.get("library", {}).get(key, default)
 
@@ -1045,6 +1057,7 @@ class Store:
                 "series_names": self.settings.setdefault("series_names", {}),
                 "series_direction": self.settings.setdefault("series_direction", {}),
                 "series_reader": self.settings.setdefault("series_reader", {}),
+                "volume_reader": self.settings.setdefault("volume_reader", {}),
                 "series_nature": self.settings.setdefault("series_nature", {}),
                 "virtual_volumes": self.settings.setdefault("virtual_volumes", {}),
                 "series_published": self.settings.setdefault("series_published", {}),

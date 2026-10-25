@@ -138,13 +138,17 @@ class ReaderWidget(HudMixin, EndCardMixin, DisplayMixin, InputMixin,
         self.fit_mode = normalize_fit(store.reader_setting("fit_mode", key))
         self.smart_crop = bool(store.reader_setting("smart_crop", key, False))
         self.ambilight = bool(store.reader_pref("ambilight", False))
-        self.page_offset = int(store.reader_setting("page_offset", key, 0)) & 1
+        own = store.volume_reader(path)   # decalage retenu pour ce tome
+        self.page_offset = int(own.get("page_offset",
+                                       store.reader_setting("page_offset", key, 0))) & 1
         # (page, decalage) atteints par un decalage qui a recule d'une page :
         # l'appui suivant avance au lieu de reculer encore (_shift_parity)
         self._parity_stepped_back = None
-        # sections (debut apres une planche double) decalees par S pour cette
-        # lecture : voir _shift_parity
-        self._shifted_sections = set()
+        # sections (debut apres une planche double) decalees par S : retenues
+        # pour ce tome, voir _shift_parity
+        shifted = own.get("shifted")
+        self._shifted_sections = {s for s in shifted if isinstance(s, int)} \
+            if isinstance(shifted, list) else set()
         # planches doubles deja vues (index -> bool) : l'appairage s'y recale
         # (pairing.pair_anchor), meme une fois la page sortie du cache
         self._spreads = {}
@@ -356,9 +360,10 @@ class ReaderWidget(HudMixin, EndCardMixin, DisplayMixin, InputMixin,
         seule (pas de voisine avant elle).
 
         Avant la premiere planche double, le choix vaut pour la serie (voir
-        Store.reader_setting). Apres une planche double, l'appairage s'y
-        recale de lui-meme (pairing.pair_anchor) et ignore ce reglage : on
-        decale alors cette section seule, le temps de la lecture - sinon S
+        Store.reader_setting), ou pour le tome seul s'il n'a pas de serie.
+        Apres une planche double, l'appairage s'y recale de lui-meme
+        (pairing.pair_anchor) et ignore ce reglage : on decale alors cette
+        section seule, retenue pour ce tome (Store.volume_reader) - sinon S
         n'avait plus aucun effet passe la premiere planche double.
 
         Appuis repetes : le decalage precedent a recule d'une page, celui-ci
@@ -370,8 +375,11 @@ class ReaderWidget(HudMixin, EndCardMixin, DisplayMixin, InputMixin,
         if start == 0:
             self.page_offset ^= 1
             self.store.set_reader_setting("page_offset", self.page_offset, self._series_key)
+            if not self._series_key:   # sans serie, le choix n'est lie qu'a ce tome
+                self.store.set_volume_reader(self.path, "page_offset", self.page_offset)
         else:
             self._shifted_sections ^= {start}
+            self.store.set_volume_reader(self.path, "shifted", sorted(self._shifted_sections))
         # apres inversion, une page qui etait debut de paire devient fin de
         # paire : on recule d'une page pour reafficher une paire (au lieu
         # d'isoler la page courante), sauf en tout debut de section.

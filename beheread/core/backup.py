@@ -28,8 +28,8 @@ VERSION = 1
 # (ajoutes a l'import seulement s'ils manquent localement). Les dossiers
 # sources, propres a chaque PC, n'en font pas partie.
 BACKUP_SETTINGS = ("series_overrides", "series_names", "volume_direction",
-                   "series_direction", "added", "pages", "series_reader", "series_nature",
-                   "virtual_volumes", "chapter_ranges_manual", "series_published")
+                   "series_direction", "added", "pages", "series_reader", "volume_reader",
+                   "series_nature", "virtual_volumes", "chapter_ranges_manual", "series_published")
 
 # type attendu des valeurs de chaque reglage repris (voir Store) : une
 # sauvegarde est un fichier quelconque choisi par l'utilisateur, une valeur
@@ -37,7 +37,7 @@ BACKUP_SETTINGS = ("series_overrides", "series_names", "volume_direction",
 _SETTING_TYPES: dict[str, type | tuple[type, ...]] = {"series_overrides": str, "series_names": str,
                   "volume_direction": bool, "series_direction": bool,
                   "added": (int, float), "pages": int, "series_reader": dict,
-                  "series_nature": str, "virtual_volumes": dict,
+                  "volume_reader": dict, "series_nature": str, "virtual_volumes": dict,
                   "chapter_ranges_manual": dict, "series_published": int}
 
 
