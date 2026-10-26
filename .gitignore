@@ -11,3 +11,7 @@ dist/
 .claude/settings.local.json
 
 audit_projet.md
+
+# Projet ASTRAL (bibliotheque sur NAS, serveur et lecteur web) : documents de
+# reflexion personnels, non publies
+astral/

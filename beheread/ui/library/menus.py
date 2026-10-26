@@ -279,6 +279,11 @@ class MenusMixin:
 
         m = ActionMenu(self)
         m.add(tr("Ouvrir"), lambda: self.mangaActivated.emit(path), default=True)
+        info = self._info.get(path)
+        key = info.series_key if info is not None else None
+        # le dossier de la serie, comme un double clic sur elle dans la grille
+        if key and len(self._series_paths(key)) > 1:
+            m.add(tr("Ouvrir la série"), lambda: self._enter_series(key))
         m.add(tr("Masquer de « Continuer la lecture »"),
               then_rebuild(self.store.dismiss_continue))
         # seulement pour un tome entame : « A suivre » propose un tome non
