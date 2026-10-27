@@ -92,7 +92,8 @@ beheread/
     series.py            Détection série/tome par nom de fichier, tome suivant
     babelio.py           Recherche Babelio d'un tome (page locale ouverte depuis la fiche de fin)
     library_model.py     Statuts de lecture, tris, sélection « Continuer la lecture »
-    offline_cache.py     Tomes à garder hors ligne (N−1, N, N+1 des séries en cours, dans un budget)    search.py            Recherche : normalisation, index inversé, tolérance aux fautes de frappe
+    offline_cache.py     Tomes à garder hors ligne (N−1, N, N+1 des séries en cours, dans un budget)
+    profile_sync.py      Synchro d'un profil avec un serveur Beheread : événements, conflits, séances, reprise    search.py            Recherche : normalisation, index inversé, tolérance aux fautes de frappe
     text.py              Normalisation partagée : accents, noms qui ne désignent pas une série
     pairing.py           Appairage double page (parité, planches doubles, recul)
     wheel_nav.py         Molette / pavé tactile (défilement puis tour de page)
