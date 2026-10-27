@@ -88,10 +88,11 @@ beheread/
   resources/             Icône
   core/                  Logique pure, sans Qt ni accès disque/réseau, testée isolément
     models.py            Modèles typés (LibraryEntry, VolumeInfo, SeriesInfo)
+    fingerprint.py       Empreinte de contenu d'un tome (identité indépendante du chemin)
     series.py            Détection série/tome par nom de fichier, tome suivant
     babelio.py           Recherche Babelio d'un tome (page locale ouverte depuis la fiche de fin)
     library_model.py     Statuts de lecture, tris, sélection « Continuer la lecture »
-    search.py            Recherche : normalisation, index inversé, tolérance aux fautes de frappe
+    offline_cache.py     Tomes à garder hors ligne (N−1, N, N+1 des séries en cours, dans un budget)    search.py            Recherche : normalisation, index inversé, tolérance aux fautes de frappe
     text.py              Normalisation partagée : accents, noms qui ne désignent pas une série
     pairing.py           Appairage double page (parité, planches doubles, recul)
     wheel_nav.py         Molette / pavé tactile (défilement puis tour de page)
@@ -105,10 +106,13 @@ beheread/
     macos.py             Trousseau, Finder, Corbeille, bsdtar / 7-Zip, fichiers iCloud, masquage (touche C)
     generic.py           Repli pour les autres systèmes (non pris en charge)
   infra/                 Persistance, archives, réseau
-    storage.py           Store : façade de persistance (identité par contenu, écritures différées)
+    storage.py           Persistance : LibraryStore (bibliothèque) et ProfileStore (progression, journal,
+                         préférences), réunies par Store sur la base du desktop ; identité par contenu,
+                         écritures différées
     database.py          Base SQLite : schéma versionné, dépôts (une ligne par tome), écritures incrémentales
     reading_log.py       Journal de lecture : table SQL, agrégats par période des statistiques
     archive.py           Ouverture CBZ/CBR/EPUB en mémoire, rendu des PDF (QtPdf), scan des dossiers
+    imaging.py           Détection des marges à rogner (QImage, sans interface)
     metadata.py          Cascade fichier (ComicInfo/OPF/series.json) -> ISBN -> BnF -> AniList/MangaDex -> Wikidata -> Google Books
     googlebooks.py, anilist.py, mangadex.py, bnf.py, wikidata.py   Clients d'API
     net.py               Accès réseau commun : espacement des requêtes, pause après un 429, User-Agent
@@ -177,7 +181,7 @@ ruff check .
 mypy
 ```
 
-La suite couvre la logique pure (séries, appairage, molette, statistiques, règles AniList…), la persistance (SQLite, import des anciens JSON, sauvegarde), les clients réseau (réseau simulé, aucun appel réel ; faux serveurs Komga, Kavita et OPDS sur 127.0.0.1 dans `tests/fake_servers.py`) et l'interface avec **pytest-qt** (`tests/ui/` : état vide, glisser-déposer, filtres et tris, « Continuer la lecture », gestion des séries, suppression, lecteur, molette, PDF, instance unique). Les tests d'interface tournent sans fenêtre (plateforme « offscreen »), sans réseau et sans enregistrer de raccourci global. Les tests propres à un système (DPAPI, Trousseau, Corbeille du Finder, RAR par `bsdtar`) sont ignorés ailleurs ; la CI exécute la suite sous Windows et sous macOS. `ruff check .` vérifie le code avec les règles retenues dans `pyproject.toml` : noms indéfinis, imports inutiles, erreurs de syntaxe, ordre des imports et pièges courants (bugbear). `mypy` vérifie les types de la logique pure (`beheread/core/`).
+La suite couvre la logique pure (séries, appairage, molette, statistiques, règles AniList…), la persistance (SQLite, import des anciens JSON, sauvegarde), les clients réseau (réseau simulé, aucun appel réel ; faux serveurs Komga, Kavita et OPDS sur 127.0.0.1 dans `tests/fake_servers.py`) et l'interface avec **pytest-qt** (`tests/ui/` : état vide, glisser-déposer, filtres et tris, « Continuer la lecture », gestion des séries, suppression, lecteur, molette, PDF, instance unique). Les tests d'interface tournent sans fenêtre (plateforme « offscreen »), sans réseau et sans enregistrer de raccourci global. Les tests propres à un système (DPAPI, Trousseau, Corbeille du Finder, RAR par `bsdtar`) sont ignorés ailleurs ; la CI exécute la suite sous Windows, macOS et Linux (Linux n'est pas une plateforme du desktop, mais le cœur y tournera côté serveur). `ruff check .` vérifie le code avec les règles retenues dans `pyproject.toml` : noms indéfinis, imports inutiles, erreurs de syntaxe, ordre des imports et pièges courants (bugbear). `mypy` vérifie les types de la logique pure (`beheread/core/`).
 
 ## Traduction
 

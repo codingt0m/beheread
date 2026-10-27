@@ -25,6 +25,12 @@ Trois points d'architecture :
   operations rares et importantes (ajout/retrait de dossier, suppression)
   forcent une ecriture immediate. `flush()` doit etre appele a la fermeture
   de l'application pour garantir la persistance des dernieres modifications.
+
+* Bibliotheque et profil separes. LibraryStore (tomes, series, metadonnees,
+  couvertures) et ProfileStore (progression, journal, preferences, AniList)
+  reposent sur la meme mecanique (PersistentStore). Le desktop les reunit
+  dans Store, sur une seule base ; un serveur Beheread les utilise chacune
+  sur sa propre base (une bibliotheque commune, une base par profil).
 """
 
 import csv
@@ -42,8 +48,8 @@ from pathlib import Path
 from beheread import platforms
 from beheread.config import THUMB_SCALE
 from beheread.core import backup as backup_model
+from beheread.core import fingerprint, units
 from beheread.core import stats as stats_model
-from beheread.core import units
 from beheread.i18n import fmt_decimal, language, tr
 from beheread.infra import mangadex, secret_store
 from beheread.infra.database import Database, JsonTable
@@ -95,7 +101,6 @@ def _index_rows(entries) -> dict:
         if isinstance(entry, dict) and isinstance(entry.get("path"), str):
             rows[entry["path"]] = dict(entry, seq=i)
     return rows
-FP_HEAD = 65536           # octets de tete lus pour l'empreinte de contenu
 
 
 def is_cloud_placeholder(path) -> bool:
@@ -137,56 +142,38 @@ def data_dir() -> Path:
 
 
 def _compute_fingerprint(path: str) -> str:
-    """Empreinte de contenu : taille du fichier + ses premiers Ko. Suffisant
-    pour distinguer deux tomes differents, stable au deplacement/renommage."""
-    st = os.stat(path)
-    h = hashlib.sha1()
-    h.update(str(st.st_size).encode("ascii"))
+    """Empreinte de contenu du fichier (voir core/fingerprint.py)."""
+    size = os.stat(path).st_size
     with open(path, "rb") as f:
-        h.update(f.read(FP_HEAD))
-    return "c1:" + h.hexdigest()
+        return fingerprint.content_fingerprint(size, f.read(fingerprint.HEAD_BYTES))
 
 
-class Store:
-    """Regroupe les parametres, la progression et les caches de metadonnees,
-    avec identite par contenu et ecritures differees."""
+class PersistentStore:
+    """Mecanique commune des depots persistants : base SQLite, depots charges
+    en memoire (voir database.py) et ecritures differees. Chaque sous-classe
+    declare les depots qu'elle possede (REPO_NAMES) ; une meme base peut en
+    reunir plusieurs (Store, sur le desktop)."""
 
-    # valeur d'override signifiant "detache de tout regroupement de serie"
-    SERIES_DETACHED = "\x00__detached__"
+    REPO_NAMES: frozenset = frozenset({"settings"})
 
-    def __init__(self):
-        self.dir = data_dir()
-        self.thumb_dir = self.dir / "thumbnails"
-        self.thumb_dir.mkdir(exist_ok=True)
-        self.cover_dir = self.dir / "covers"      # images choisies comme couverture
+    def __init__(self, directory=None, db_name=DB_NAME):
+        if directory is None:
+            self.dir = data_dir()
+        else:
+            self.dir = Path(directory)
+            self.dir.mkdir(parents=True, exist_ok=True)
 
         # base SQLite : un depot (table cle -> JSON) par type de donnee
-        self.db = Database(self.dir / DB_NAME)
-        self._repos = {name: JsonTable(table) for name, table in REPOS.items()}
+        self.db = Database(self.dir / db_name)
+        self._repos = {name: JsonTable(table) for name, table in REPOS.items()
+                       if name in self.REPO_NAMES}
         for repo in self._repos.values():
             repo.load(self.db)
-
         # vues « dictionnaire » utilisees par le reste de l'application : ce
-        # sont les dictionnaires vivants des depots (memes objets)
+        # sont les dictionnaires vivants des depots (memes objets). Les
+        # reglages (une ligne par reglage) sont partages par les classes qui
+        # utilisent la meme base.
         self.settings = self._repos["settings"].data
-        self.progress = self._repos["progress"].data
-        self.meta_cache = {"volume": self._repos["volume_meta"].data,
-                           "series": self._repos["series_meta"].data}
-        self._fp = self._repos["fp"].data                 # chemin -> {m, s, k}
-        # donnees par tome (empreinte -> valeur), une ligne chacune
-        self._added = self._repos["added"].data           # date d'ajout
-        self._pages = self._repos["pages"].data           # nombre de pages
-        self._overrides = self._repos["overrides"].data   # regroupement manuel
-        self._directions = self._repos["directions"].data  # sens de lecture d'un tome seul
-        self._dismissed = self._repos["dismissed"].data   # masques de « Continuer »
-        # journal de lecture (statistiques) : table SQL, voir reading_log.py
-        self.reading_log = ReadingLog(self.db)
-        # empreintes deja resolues pendant la session (chemin -> cle) : evite un
-        # os.stat a CHAQUE appel de key_for, appele plusieurs fois par item a
-        # chaque reconstruction de la liste et a chaque frappe de recherche
-        # (couteux sur disque reseau). Invalide a chaque scan (voir
-        # invalidate_key_memo), qui revalide les empreintes par mtime+taille.
-        self._key_memo = {}
 
         # ecritures differees : un seul thread de sauvegarde pour toute la
         # session, reveille par _schedule (plutot qu'un threading.Timer cree a
@@ -202,129 +189,7 @@ class Store:
         self._saver = None
         self._closed = False
 
-        if self.db.get_meta(LEGACY_IMPORT_KEY) is None:
-            self._import_legacy_json()
-        self._split_settings()
-        self.settings.setdefault("folders", [])
-        self.settings.setdefault("reader", {})
-        self._migrate_meta_cache_out_of_settings()
-        # ancien rythme de lecture : il mesurait l'intervalle entre deux tours
-        # de page, feuilletage compris, et non des secondes par page lue. Sans
-        # rapport avec la mesure actuelle, il est oublie puis re-mesure.
-        # Puis rythme lisse (moyenne mobile des medianes de chaque seance) :
-        # remplace par un calcul sur le journal de lecture (reading_pace).
-        stale = [self.settings["reader"].pop(k, None)
-                 for k in ("median_page_seconds", "page_seconds")]
-        if any(v is not None for v in stale):
-            self._schedule("settings")
-        if self.db.get_meta(FINISHED_HISTORY_KEY) is None:
-            self._import_finished_history()
-
-    # ------------------------------------------------------------ schema 3
-    def _split_settings(self):
-        """Deplace dans leurs depots du schema 3 les donnees par tome et
-        l'etat AniList encore ranges dans la ligne « settings » (base d'avant
-        le schema 3, ou anciens fichiers JSON tout juste importes), ainsi que
-        l'index de la bibliotheque (un seul bloc -> une ligne par tome). Une
-        seule transaction : rien n'est perdu si elle echoue, elle est alors
-        retentee au lancement suivant."""
-        moved = set()
-        for old, name in SPLIT_SETTINGS.items():
-            values = self.settings.pop(old, None)
-            if values is None:
-                continue
-            moved.update(("settings", name))
-            if isinstance(values, dict):
-                for key, value in values.items():
-                    self._repos[name].data.setdefault(key, value)
-        anilist = self.settings.get("anilist")
-        if isinstance(anilist, dict):
-            for old, name in SPLIT_ANILIST.items():
-                values = anilist.pop(old, None)
-                if values is None:
-                    continue
-                moved.update(("settings", name))
-                if isinstance(values, dict):
-                    for key, value in values.items():
-                        self._repos[name].data.setdefault(key, value)
-        index = self._repos["index"].data.pop("entries", None)
-        if index is not None:
-            moved.update(("index", "entries"))
-            self._repos["entries"].data.update(_index_rows(index))
-        if not moved:
-            return
-        try:
-            with self._io_lock:
-                self._write_all(sorted(moved))
-        except Exception:
-            logging.error("Passage des donnees au schema 3 impossible (nouvel essai "
-                          "au prochain lancement)", exc_info=True)
-            raise
-        logging.info("Donnees deplacees vers les tables du schema 3 : %s",
-                     ", ".join(sorted(moved)))
-
-    # ------------------------------------------------------------ import des anciens JSON
-    def _import_legacy_json(self):
-        """Premier lancement sur SQLite : reprend les donnees des anciens
-        fichiers JSON, les ecrit en base avec un marqueur « import termine »
-        (une seule transaction), puis range les fichiers dans legacy-json/
-        (sauvegarde, jamais relue).
-
-        Tant que le marqueur est absent (import jamais tente, ou interrompu par
-        une erreur), l'import est retente au lancement suivant. Une fois pose,
-        plus jamais : un ancien fichier reste en place (s'il n'a pas pu etre
-        range) n'ecrasera donc jamais des donnees plus recentes."""
-        found = [f for f in LEGACY_FILES.values() if (self.dir / f).exists()]
-        if not found:
-            with self.db.transaction() as cur:
-                Database.set_meta(cur, LEGACY_IMPORT_KEY, "aucun fichier")
-            return
-        settings = self._load(self.dir / LEGACY_FILES["settings"], {})
-        meta = self._load(self.dir / LEGACY_FILES["meta"], {})
-        stats = self._load(self.dir / LEGACY_FILES["stats"], {})
-        index = self._load(self.dir / LEGACY_FILES["index"], [])
-        for key, value in (settings if isinstance(settings, dict) else {}).items():
-            self.settings[key] = value
-        self.progress.update(_as_dict(self._load(self.dir / LEGACY_FILES["progress"], {})))
-        if isinstance(meta, dict):
-            self.meta_cache["volume"].update(_as_dict(meta.get("volume")))
-            self.meta_cache["series"].update(_as_dict(meta.get("series")))
-        self._fp.update(_as_dict(self._load(self.dir / LEGACY_FILES["fp"], {})))
-        journal = {k: v for k, v in _as_dict(_as_dict(stats).get("devices")).items()
-                   if isinstance(v, dict)}
-        if isinstance(index, list):
-            self._repos["index"].data["entries"] = index
-        try:
-            self._write_all(list(self._repos),
-                            meta={LEGACY_IMPORT_KEY: f"{len(found)} fichier(s) le {time.ctime()}"},
-                            extra=lambda cur: self.reading_log.replace_devices(journal, cur))
-        except Exception:
-            logging.error("Import des anciens fichiers JSON impossible (nouvel essai "
-                          "au prochain lancement)", exc_info=True)
-            raise
-        backup = self.dir / "legacy-json"
-        backup.mkdir(exist_ok=True)
-        for name in found:
-            try:
-                (self.dir / name).replace(backup / name)
-            except OSError:
-                logging.warning("Ancien fichier non range : %s", name, exc_info=True)
-        logging.info("Donnees importees depuis %d ancien(s) fichier(s) JSON "
-                     "(ranges dans %s)", len(found), backup)
-
     # ------------------------------------------------------------ io interne
-    @staticmethod
-    def _load(path: Path, default):
-        try:
-            with open(path, "r", encoding="utf-8") as f:
-                return json.load(f)
-        except FileNotFoundError:
-            pass   # premier lancement, ou fichier pas encore cree : normal
-        except Exception:
-            logging.warning("Lecture impossible de %s, valeurs par defaut utilisees",
-                            path, exc_info=True)
-        return default
-
     def _write_all(self, names, meta=None, extra=None):
         """Ecriture immediate (hors debounce) des depots nommes, et des
         informations `meta` sur la base, dans une seule transaction (a
@@ -465,22 +330,38 @@ class Store:
             self.db.maintenance()
             self.db.close()
 
-    def _migrate_meta_cache_out_of_settings(self):
-        """Les deux caches de metadonnees vivaient autrefois dans settings.json
-        (qu'ils faisaient grossir). On les sort une fois pour toutes vers leurs
-        propres depots pour garder les preferences legeres."""
-        moved = False
-        legacy_vol = self.settings.pop("volume_meta_cache", None)
-        legacy_ser = self.settings.pop("series_meta_cache", None)
-        if legacy_vol is not None:
-            self.meta_cache.setdefault("volume", {}).update(legacy_vol)
-            moved = True
-        if legacy_ser is not None:
-            self.meta_cache.setdefault("series", {}).update(legacy_ser)
-            moved = True
-        if moved:
-            self._schedule("settings")
-            self._schedule("meta")
+
+class LibraryStore(PersistentStore):
+    """La bibliotheque : identite des tomes par contenu, metadonnees, series
+    (regroupements, noms, tomes virtuels, decoupage en chapitres), reglages
+    de lecture par defaut, couvertures et vignettes. Commune a tous ceux qui
+    lisent une meme bibliotheque (sur un serveur Beheread : bibliotheque.db)."""
+
+    REPO_NAMES = frozenset({"settings", "volume_meta", "series_meta", "fp", "index", "added",
+                            "pages", "overrides", "directions", "al_map", "entries"})
+
+    def __init__(self, directory=None, db_name=DB_NAME):
+        super().__init__(directory, db_name)
+        self.thumb_dir = self.dir / "thumbnails"
+        self.thumb_dir.mkdir(exist_ok=True)
+        self.cover_dir = self.dir / "covers"      # images choisies comme couverture
+        self.meta_cache = {"volume": self._repos["volume_meta"].data,
+                           "series": self._repos["series_meta"].data}
+        self._fp = self._repos["fp"].data                 # chemin -> {m, s, k}
+        # donnees par tome (empreinte -> valeur), une ligne chacune
+        self._added = self._repos["added"].data           # date d'ajout
+        self._pages = self._repos["pages"].data           # nombre de pages
+        self._overrides = self._repos["overrides"].data   # regroupement manuel
+        self._directions = self._repos["directions"].data  # sens de lecture d'un tome seul
+        # empreintes deja resolues pendant la session (chemin -> cle) : evite un
+        # os.stat a CHAQUE appel de key_for, appele plusieurs fois par item a
+        # chaque reconstruction de la liste et a chaque frappe de recherche
+        # (couteux sur disque reseau). Invalide a chaque scan (voir
+        # invalidate_key_memo), qui revalide les empreintes par mtime+taille.
+        self._key_memo = {}
+
+    # valeur d'override signifiant "detache de tout regroupement de serie"
+    SERIES_DETACHED = "\x00__detached__"
 
     # ------------------------------------------------------------ identite par contenu
     def key_for(self, path: str, st=None) -> str:
@@ -579,62 +460,6 @@ class Store:
                     f.unlink()
                 except OSError:
                     logging.debug("Vignette orpheline non supprimee : %s", f, exc_info=True)
-
-    def forget_content(self, key: str, path: str):
-        """Oublie les donnees rattachees a un fichier qui vient d'etre supprime
-        du disque : progression, date d'ajout et metadonnees du tome.
-
-        `key` doit avoir ete resolu AVANT la suppression (key_for doit lire le
-        fichier encore present). A n'appeler qu'une fois la suppression
-        reussie : un echec (fichier verrouille, droits) ne doit rien effacer.
-        Si une autre copie identique (meme empreinte) est encore connue, ses
-        donnees - partagees par contenu - sont conservees."""
-        path = str(Path(path))
-        self._key_memo.pop(path, None)
-        with self._save_lock:
-            if self._fp.pop(path, None) is not None:
-                self._schedule("fp")
-            shared = any(v.get("k") == key for v in self._fp.values())
-        if shared:
-            return
-        # couverture choisie : image copiee supprimee avec le tome
-        choice = self.settings.get("covers", {}).pop(key, None)
-        if isinstance(choice, dict) and choice.get("image"):
-            (self.cover_dir / Path(choice["image"]).name).unlink(missing_ok=True)
-            self._schedule("settings")
-        # cle de contenu ET eventuelle entree heritee indexee par chemin
-        for name, data in (("progress", self.progress), ("added", self._added),
-                           ("meta", self.meta_cache.get("volume", {}))):
-            removed = [data.pop(key, None), data.pop(path, None)]
-            if any(r is not None for r in removed):
-                self._schedule(name)
-
-    # ------------------------------------------------------------ dossiers sources
-    def folders(self):
-        return list(self.settings.get("folders", []))
-
-    def add_folder(self, folder: str) -> bool:
-        folder = str(Path(folder))
-        if folder in self.settings["folders"]:
-            return False
-        self.settings["folders"].append(folder)
-        self._schedule("settings")
-        self.flush()   # operation rare et importante : ecriture immediate
-        return True
-
-    def set_folders(self, folders):
-        """Remplace la liste complete des dossiers sources (normalises,
-        sans doublon, ordre preserve). Utilise par le panneau de gestion."""
-        seen = set()
-        cleaned = []
-        for f in folders:
-            f = str(Path(f))
-            if f not in seen:
-                seen.add(f)
-                cleaned.append(f)
-        self.settings["folders"] = cleaned
-        self._schedule("settings")
-        self.flush()
 
     # ------------------------------------------------- regroupement manuel en serie
     # Un tome peut etre rattache manuellement a une serie (glisser-deposer) ou
@@ -784,17 +609,6 @@ class Store:
         self.settings.setdefault("virtual_dismissed", {})[series_key] = sorted(numbers)
         self._schedule("settings")
 
-    # ------------------------------------------------ « Continuer la lecture »
-    def continue_dismissed(self) -> dict:
-        """{empreinte: horodatage} des tomes masques de la bande « Continuer
-        la lecture » (ils y reviennent s'ils sont relus apres ce masquage)."""
-        return self._dismissed
-
-    def dismiss_continue(self, path: str):
-        key = self.key_for(path)
-        self._dismissed[key] = time.time()
-        self._schedule("dismissed", key)
-
     # ------------------------------------------------------- sens de lecture
     # Choix explicite de l'utilisateur (manga = droite->gauche), memorise par
     # tome (empreinte de contenu) s'il est seul, ou par serie (cle normalisee,
@@ -821,33 +635,6 @@ class Store:
             self._schedule("directions", key)
         self.flush()
 
-    # ------------------------------------------------------------ preferences
-    def reader_pref(self, key, default=None):
-        return self.settings.get("reader", {}).get(key, default)
-
-    def set_reader_pref(self, key, value):
-        self.settings.setdefault("reader", {})[key] = value
-        self._schedule("settings")
-
-    # Reglages du lecteur retenus par serie (double page, ajustement,
-    # recadrage, decalage de parite) : un choix fait dans un tome vaut pour
-    # toute sa serie, et devient aussi le reglage general que reprennent les
-    # series sans choix propre. Indexes par cle de serie normalisee.
-    def reader_setting(self, key, series_key, default=None):
-        """Reglage du lecteur pour un tome : celui choisi dans sa serie, sinon
-        le reglage general."""
-        if series_key:
-            value = self.settings.get("series_reader", {}).get(series_key, {}).get(key)
-            if value is not None:
-                return value
-        return self.reader_pref(key, default)
-
-    def set_reader_setting(self, key, value, series_key):
-        self.set_reader_pref(key, value)
-        if series_key:
-            self.settings.setdefault("series_reader", {}).setdefault(series_key, {})[key] = value
-            self._schedule("settings")
-
     def volume_reader(self, path) -> dict:
         """Reglages du lecteur propres a ce tome (par empreinte de contenu) :
         "page_offset" pour un tome sans serie, "shifted" (debuts de section
@@ -858,20 +645,6 @@ class Store:
     def set_volume_reader(self, path, key, value):
         entry = self.settings.setdefault("volume_reader", {}).setdefault(self.key_for(path), {})
         entry[key] = value
-        self._schedule("settings")
-
-    def library_pref(self, key, default=None):
-        return self.settings.get("library", {}).get(key, default)
-
-    def set_library_pref(self, key, value):
-        self.settings.setdefault("library", {})[key] = value
-        self._schedule("settings")
-
-    def ui_pref(self, key, default=None):
-        return self.settings.get("ui", {}).get(key, default)
-
-    def set_ui_pref(self, key, value):
-        self.settings.setdefault("ui", {})[key] = value
         self._schedule("settings")
 
     # ------------------------------------------------------------ date d'ajout
@@ -892,309 +665,7 @@ class Store:
             self._schedule("added", *changed)
         return result
 
-    # ------------------------------------------------------------ progression
-    def _progress_entry(self, path: str):
-        """Entree de progression pour ce fichier (par empreinte de contenu),
-        avec migration a la volee d'une eventuelle entree indexee par chemin."""
-        key = self.key_for(path)
-        entry = self.progress.get(key)
-        if entry is not None:
-            return entry, key
-        legacy = self.progress.pop(path, None)
-        if legacy is not None:
-            self.progress[key] = legacy
-            self._schedule("progress")
-            return legacy, key
-        return None, key
-
-    def get_progress(self, path: str):
-        """Retourne (page, total, termine) ou None."""
-        entry, _ = self._progress_entry(path)
-        if not entry:
-            return None
-        return entry.get("page", 0), entry.get("total", 0), entry.get("finished", False)
-
-    def set_progress(self, path: str, page: int, total: int, finished: bool):
-        entry, key = self._progress_entry(path)
-        entry = entry or {}
-        entry.update({"page": page, "total": total, "finished": finished,
-                      "ts": time.time()})   # horodatage : sert a la rangee "Reprendre"
-        self.progress[key] = entry
-        self._schedule("progress", key)
-
-    def progress_ts(self, path: str) -> float:
-        """Date de derniere lecture (epoch) pour ce fichier, ou 0."""
-        entry, _ = self._progress_entry(path)
-        return float(entry.get("ts", 0)) if entry else 0.0
-
-    def remove_progress(self, path: str):
-        key = self.key_for(path)
-        if self.progress.pop(key, self.progress.pop(path, None)) is not None:
-            self._schedule("progress")
-
-    # ------------------------------------------------------------ appareil (statistiques par PC)
-    def device_id(self) -> str:
-        """Identifiant stable de cet appareil (cree au premier appel)."""
-        dev = self.settings.setdefault("device", {})
-        if not dev.get("id"):
-            dev["id"] = uuid.uuid4().hex
-            dev["name"] = platform.node() or "PC"
-            self._schedule("settings")
-        return dev["id"]
-
-    def device_name(self) -> str:
-        self.device_id()
-        return self.settings["device"].get("name") or "PC"
-
-    # ------------------------------------------------------------ statistiques
-    def record_reading(self, path: str, pages: int, seconds: float, finished: bool,
-                       title: str, series: str, date=None):
-        """Ajoute une seance de lecture (ou une fin de tome) au journal de cet
-        appareil : une ligne, ecrite sur-le-champ. Un echec est consigne sans
-        etre propage - les statistiques ne doivent jamais empecher de fermer
-        un tome."""
-        if pages <= 0 and seconds <= 0 and not finished:
-            return
-        device, name, key = self.device_id(), self.device_name(), self.key_for(path)
-        try:
-            with self._io_lock:
-                if self._closed:
-                    return
-                self.reading_log.add(device, name, date or datetime.date.today(), key,
-                                     pages, seconds, finished, title, series, time.time())
-                self._pace_cache = None
-                self._volume_paces_cache = None
-        except Exception:
-            logging.error("Seance de lecture non enregistree dans le journal", exc_info=True)
-
-    def _import_finished_history(self):
-        """Une seule fois (marqueur en base) : inscrit au journal les tomes
-        termines avant son premier jour, dates de leur derniere lecture (voir
-        stats.finished_before_journal). Sans cela, les fins de tome
-        anterieures au journal disparaitraient des statistiques."""
-        first = self.reading_log.first_day()
-        before = first or datetime.date.today() + datetime.timedelta(days=1)
-        rows = stats_model.finished_before_journal(self.progress, before)
-        device, name = (self.device_id(), self.device_name()) if rows else (None, None)
-        with self.db.transaction() as cur:
-            for day, key in rows:
-                self.reading_log.add(device, name, day, key, 0, 0, True, "", "",
-                                     time.time(), cur)
-            Database.set_meta(cur, FINISHED_HISTORY_KEY, f"{len(rows)} tome(s)")
-
-    # ------------------------------------------------------------ sauvegarde (export / import)
-    def backup_data(self) -> dict:
-        """Contenu d'une sauvegarde de cet appareil (export, synchronisation)."""
-        return backup_model.build_backup(self._backup_settings(), self.progress,
-                                         self.reading_log.export(),
-                                         self.meta_cache, self.continue_dismissed(),
-                                         self.device_id(), self.device_name())
-
-    def export_backup(self, path):
-        backup_model.write_json_atomic(path, self.backup_data())
-
-    @staticmethod
-    def read_backup(path) -> dict:
-        """Lit une sauvegarde sans rien fusionner (sans etat : utilisable hors
-        du thread UI). Leve ValueError si le fichier n'en est pas une."""
-        # un fichier quelconque choisi par l'utilisateur : rien n'est charge
-        # en memoire au-dela de ce qu'une vraie sauvegarde peut peser
-        if os.path.getsize(path) > MAX_BACKUP_BYTES:
-            raise ValueError(tr("Ce fichier est trop volumineux pour être une sauvegarde Beheread."))
-        with open(path, encoding="utf-8") as f:
-            data = json.load(f)
-        if not backup_model.is_valid(data):
-            raise ValueError(tr("Ce fichier n'est pas une sauvegarde Beheread."))
-        return data
-
-    def import_backup(self, path) -> dict:
-        """Fusionne une sauvegarde (voir backup.py). Leve ValueError si le
-        fichier n'en est pas une. Renvoie {"progress": n, "extras": m}."""
-        return self.merge_backup(self.read_backup(path))
-
-    def merge_backup(self, data) -> dict:
-        """Fusionne le contenu d'une sauvegarde deja validee (read_backup)."""
-        progress = len(backup_model.merge_progress(self.progress, data.get("progress", {})))
-        if progress:
-            self._schedule("progress")
-        with self._io_lock:
-            self.reading_log.replace_devices(backup_model.journal_sections_to_import(
-                self.reading_log.devices(), data.get("stats", {}), self.device_id()))
-        extras = backup_model.merge_extras(self._backup_settings(), self.meta_cache, data)
-        if backup_model.merge_dismissed(self._dismissed, data.get("continue_dismissed", {})):
-            self._schedule("dismissed")
-        if extras:
-            for name in ("settings", "meta", "overrides", "directions", "added", "pages"):
-                self._schedule(name)
-        self.flush()
-        return {"progress": progress, "extras": extras}
-
-    def export_reading_csv(self, path) -> int:
-        """Ecrit le journal de lecture en CSV (separateur « ; », virgule
-        decimale, UTF-8 avec BOM : ouvert tel quel par Excel en francais, et
-        par LibreOffice ou Google Sheets). Renvoie le nombre de lignes."""
-        rows = self.reading_log.csv_rows()
-        tmp = Path(str(path) + ".tmp")
-        with open(tmp, "w", encoding="utf-8-sig", newline="") as f:
-            # separateurs du tableur de la langue : « ; » et virgule decimale en
-            # francais, « , » et point en anglais
-            out = csv.writer(f, delimiter=";" if language() == "fr" else ",")
-            out.writerow([tr("Date"), tr("Appareil"), tr("Série"), tr("Tome"), tr("Pages lues"),
-                          tr("Temps de lecture (min)"), tr("Séances"), tr("Tome terminé")])
-            for day, device, series, title, pages, seconds, sessions, finished in rows:
-                minutes = fmt_decimal((seconds or 0) / 60)
-                out.writerow([day, device, series, title, pages, minutes, sessions,
-                              "oui" if finished else ""])
-        os.replace(tmp, path)
-        return len(rows)
-
-    def _backup_settings(self) -> dict:
-        """Reglages par tome et par serie repris par une sauvegarde (voir
-        backup.BACKUP_SETTINGS), sous leur nom d'echange : dictionnaires
-        vivants, que merge_extras complete en place."""
-        return {"series_overrides": self._overrides, "volume_direction": self._directions,
-                "added": self._added, "pages": self._pages,
-                "series_names": self.settings.setdefault("series_names", {}),
-                "series_direction": self.settings.setdefault("series_direction", {}),
-                "series_reader": self.settings.setdefault("series_reader", {}),
-                "volume_reader": self.settings.setdefault("volume_reader", {}),
-                "series_nature": self.settings.setdefault("series_nature", {}),
-                "virtual_volumes": self.settings.setdefault("virtual_volumes", {}),
-                "series_published": self.settings.setdefault("series_published", {}),
-                "chapter_ranges_manual": self.settings.setdefault("chapter_ranges_manual", {})}
-
-    # ------------------------------------------------------------ serveurs de lecture
-    def servers(self) -> list:
-        """Serveurs de lecture configures : [{"id", "kind", "name", "url",
-        "user", "secret_enc"}] (voir infra/servers.py). Le mot de passe ou la
-        cle d'API est protege comme le jeton AniList."""
-        value = self.settings.get("servers")
-        return [dict(s) for s in value if isinstance(s, dict)] if isinstance(value, list) else []
-
-    def server_secret(self, server_id):
-        for s in self.servers():
-            if s.get("id") == server_id:
-                return secret_store.unprotect(s.get("secret_enc"))
-        return None
-
-    def save_server(self, data: dict, secret=None):
-        """Ajoute ou remplace un serveur (meme "id"). `secret` : nouveau mot
-        de passe ou cle d'API, None pour garder celui enregistre."""
-        servers = self.servers()
-        old = next((s for s in servers if s.get("id") == data["id"]), None)
-        entry = {k: data[k] for k in ("id", "kind", "name", "url", "user")}
-        entry["secret_enc"] = (old or {}).get("secret_enc")
-        if secret is not None:
-            secret_store.discard(entry["secret_enc"])
-            entry["secret_enc"] = secret_store.protect(secret, f"server-{data['id']}") if secret else None
-        servers = [entry if s.get("id") == data["id"] else s for s in servers]
-        if old is None:
-            servers.append(entry)
-        self.settings["servers"] = servers
-        self._schedule("settings")
-        self.flush()
-
-    def remove_server(self, server_id):
-        servers = self.servers()
-        for s in servers:
-            if s.get("id") == server_id:
-                secret_store.discard(s.get("secret_enc"))
-        self.settings["servers"] = [s for s in servers if s.get("id") != server_id]
-        self._schedule("settings")
-        self.flush()
-
-    # ------------------------------------------------------------ AniList (suivi)
-    def cloud_sync(self) -> dict:
-        """Etat de la synchronisation par dossier cloud : folder, enabled,
-        seen, signature, peers (voir services/cloud_sync.py)."""
-        return self.settings.setdefault("cloud_sync", {})
-
-    def touch_cloud_sync(self):
-        self._schedule("settings")
-
-    def anilist(self) -> dict:
-        """Etat AniList de l'utilisateur : user, tracking, token_enc (voir
-        anilist_tracker.py) ; les donnees par serie sont dans anilist_series.
-        Le Client ID de l'application, lui, est dans beheread/config.py."""
-        return self.settings.setdefault("anilist", {})
-
-    def anilist_token(self):
-        return secret_store.unprotect(self.anilist().get("token_enc"))
-
-    def set_anilist_login(self, token, user_name):
-        a = self.anilist()
-        if token:
-            a["token_enc"] = secret_store.protect(token)
-            a["user"] = user_name
-        else:
-            secret_store.discard(a.pop("token_enc", None))
-            a.pop("user", None)
-        self._schedule("settings")
-        self.flush()
-
-    def set_anilist_value(self, name, value):
-        if value is None:
-            self.anilist().pop(name, None)
-        else:
-            self.anilist()[name] = value
-        self._schedule("settings")
-
-    def anilist_series(self, section: str) -> dict:
-        """Dictionnaire par cle de serie : "map" (oeuvre associee),
-        "pending" (mises a jour en attente), "last" (derniere mise a jour).
-        Chacun a sa table (une ligne par serie)."""
-        return self._repos[SPLIT_ANILIST[section]].data
-
-    def touch_anilist(self):
-        self._schedule("settings")
-        for name in SPLIT_ANILIST.values():
-            self._schedule(name)
-
-    # ------------------------------------------------------------ estimation du temps de lecture
-    PACE_DAYS = 180       # le rythme suit la lecture recente
-    PACE_TTL = 60.0       # secondes : une requete SQL par minute au plus
-    _pace_cache = None    # (instant, rythme)
-
-    def reading_pace(self):
-        """Rythme de lecture personnel (secondes par page) d'apres le journal
-        de lecture des derniers mois (voir ReadingLog.pace), ou None tant que
-        rien n'a ete lu. Memorise brievement : la bibliotheque le demande une
-        fois par tome affiche, et une seance l'invalide (record_reading)."""
-        now = time.monotonic()
-        cached = self._pace_cache
-        if cached is not None and now - cached[0] < self.PACE_TTL:
-            return cached[1]
-        since = datetime.date.today() - datetime.timedelta(days=self.PACE_DAYS)
-        if self._closed:   # mises a jour en file tardives, apres la fermeture
-            return None
-        pace = self.reading_log.pace(since)
-        self._pace_cache = (now, pace)
-        return pace
-
-    _volume_paces_cache = None    # (instant, {tome: (pages, secondes)})
-
-    def volume_paces(self):
-        """Pages lues et temps passe par tome, sur la meme periode et avec les
-        memes lignes que reading_pace : de quoi calculer le rythme d'une
-        serie (voir series_pace). Memorise comme reading_pace."""
-        now = time.monotonic()
-        cached = self._volume_paces_cache
-        if cached is not None and now - cached[0] < self.PACE_TTL:
-            return cached[1]
-        if self._closed:
-            return {}
-        since = datetime.date.today() - datetime.timedelta(days=self.PACE_DAYS)
-        rows = self.reading_log.volume_paces(since)
-        self._volume_paces_cache = (now, rows)
-        return rows
-
-    def series_pace(self, volumes):
-        """Rythme de lecture (secondes par page) propre a une serie, d'apres
-        la lecture de ses tomes (empreintes `volumes`), ou None s'il y en a
-        trop peu : une serie contemplative se lit plus vite qu'une serie
-        bavarde, la moyenne generale (reading_pace) n'est que le repli."""
-        return stats_model.pace_of(self.volume_paces(), volumes)
-
+    # ------------------------------------------------------------ nombre de pages
     def page_count(self, path: str):
         """Nombre de pages connu pour ce fichier (par empreinte de contenu),
         ou None. Renseigne lors de la generation de la vignette / de la lecture."""
@@ -1339,3 +810,590 @@ class Store:
         genere a une resolution inferieure."""
         h = hashlib.sha1(self.key_for(path).encode("utf-8", "replace")).hexdigest()
         return self.thumb_dir / f"{h}_{THUMB_SCALE}x.jpg"
+
+
+class ProfileStore(PersistentStore):
+    """Ce qui est propre a un lecteur : progression, journal de lecture
+    (statistiques), masquages de « Continuer la lecture », preferences,
+    appareil, serveurs de lecture et compte AniList. Sur un serveur Beheread :
+    une base par profil (profil-<id>.db).
+
+    Les tomes y sont designes par leur empreinte de contenu ; les methodes
+    acceptent aussi un chemin quand une bibliotheque sait le resoudre
+    (key_for de LibraryStore, dans Store)."""
+
+    REPO_NAMES = frozenset({"settings", "progress", "dismissed", "al_pending", "al_last"})
+
+    def __init__(self, directory=None, db_name=DB_NAME):
+        super().__init__(directory, db_name)
+        self.progress = self._repos["progress"].data
+        self._dismissed = self._repos["dismissed"].data   # masques de « Continuer »
+        # journal de lecture (statistiques) : table SQL, voir reading_log.py
+        self.reading_log = ReadingLog(self.db)
+        self.settings.setdefault("folders", [])
+        self.settings.setdefault("reader", {})
+
+    def key_for(self, path: str) -> str:
+        """Sans bibliotheque, un tome est deja designe par son empreinte."""
+        return path
+
+    # ------------------------------------------------------------ dossiers sources
+    def folders(self):
+        return list(self.settings.get("folders", []))
+
+    def add_folder(self, folder: str) -> bool:
+        folder = str(Path(folder))
+        if folder in self.settings["folders"]:
+            return False
+        self.settings["folders"].append(folder)
+        self._schedule("settings")
+        self.flush()   # operation rare et importante : ecriture immediate
+        return True
+
+    def set_folders(self, folders):
+        """Remplace la liste complete des dossiers sources (normalises,
+        sans doublon, ordre preserve). Utilise par le panneau de gestion."""
+        seen = set()
+        cleaned = []
+        for f in folders:
+            f = str(Path(f))
+            if f not in seen:
+                seen.add(f)
+                cleaned.append(f)
+        self.settings["folders"] = cleaned
+        self._schedule("settings")
+        self.flush()
+
+    # ------------------------------------------------ « Continuer la lecture »
+    def continue_dismissed(self) -> dict:
+        """{empreinte: horodatage} des tomes masques de la bande « Continuer
+        la lecture » (ils y reviennent s'ils sont relus apres ce masquage)."""
+        return self._dismissed
+
+    def dismiss_continue(self, path: str):
+        key = self.key_for(path)
+        self._dismissed[key] = time.time()
+        self._schedule("dismissed", key)
+
+    # ------------------------------------------------------------ preferences
+    def reader_pref(self, key, default=None):
+        return self.settings.get("reader", {}).get(key, default)
+
+    def set_reader_pref(self, key, value):
+        self.settings.setdefault("reader", {})[key] = value
+        self._schedule("settings")
+
+    def library_pref(self, key, default=None):
+        return self.settings.get("library", {}).get(key, default)
+
+    def set_library_pref(self, key, value):
+        self.settings.setdefault("library", {})[key] = value
+        self._schedule("settings")
+
+    def ui_pref(self, key, default=None):
+        return self.settings.get("ui", {}).get(key, default)
+
+    def set_ui_pref(self, key, value):
+        self.settings.setdefault("ui", {})[key] = value
+        self._schedule("settings")
+
+    # ------------------------------------------------------------ progression
+    def _progress_entry(self, path: str):
+        """Entree de progression pour ce fichier (par empreinte de contenu),
+        avec migration a la volee d'une eventuelle entree indexee par chemin."""
+        key = self.key_for(path)
+        entry = self.progress.get(key)
+        if entry is not None:
+            return entry, key
+        legacy = self.progress.pop(path, None)
+        if legacy is not None:
+            self.progress[key] = legacy
+            self._schedule("progress")
+            return legacy, key
+        return None, key
+
+    def get_progress(self, path: str):
+        """Retourne (page, total, termine) ou None."""
+        entry, _ = self._progress_entry(path)
+        if not entry:
+            return None
+        return entry.get("page", 0), entry.get("total", 0), entry.get("finished", False)
+
+    def set_progress(self, path: str, page: int, total: int, finished: bool):
+        entry, key = self._progress_entry(path)
+        entry = entry or {}
+        entry.update({"page": page, "total": total, "finished": finished,
+                      "ts": time.time()})   # horodatage : sert a la rangee "Reprendre"
+        self.progress[key] = entry
+        self._schedule("progress", key)
+
+    def progress_ts(self, path: str) -> float:
+        """Date de derniere lecture (epoch) pour ce fichier, ou 0."""
+        entry, _ = self._progress_entry(path)
+        return float(entry.get("ts", 0)) if entry else 0.0
+
+    def remove_progress(self, path: str):
+        key = self.key_for(path)
+        if self.progress.pop(key, self.progress.pop(path, None)) is not None:
+            self._schedule("progress")
+
+    # ------------------------------------------------------------ appareil (statistiques par PC)
+    def device_id(self) -> str:
+        """Identifiant stable de cet appareil (cree au premier appel)."""
+        dev = self.settings.setdefault("device", {})
+        if not dev.get("id"):
+            dev["id"] = uuid.uuid4().hex
+            dev["name"] = platform.node() or "PC"
+            self._schedule("settings")
+        return dev["id"]
+
+    def device_name(self) -> str:
+        self.device_id()
+        return self.settings["device"].get("name") or "PC"
+
+    # ------------------------------------------------------------ statistiques
+    def record_reading(self, path: str, pages: int, seconds: float, finished: bool,
+                       title: str, series: str, date=None):
+        """Ajoute une seance de lecture (ou une fin de tome) au journal de cet
+        appareil : une ligne, ecrite sur-le-champ. Un echec est consigne sans
+        etre propage - les statistiques ne doivent jamais empecher de fermer
+        un tome."""
+        if pages <= 0 and seconds <= 0 and not finished:
+            return
+        device, name, key = self.device_id(), self.device_name(), self.key_for(path)
+        try:
+            with self._io_lock:
+                if self._closed:
+                    return
+                self.reading_log.add(device, name, date or datetime.date.today(), key,
+                                     pages, seconds, finished, title, series, time.time())
+                self._pace_cache = None
+                self._volume_paces_cache = None
+        except Exception:
+            logging.error("Seance de lecture non enregistree dans le journal", exc_info=True)
+
+    # ------------------------------------------------------------ export du journal
+    def export_reading_csv(self, path) -> int:
+        """Ecrit le journal de lecture en CSV (separateur « ; », virgule
+        decimale, UTF-8 avec BOM : ouvert tel quel par Excel en francais, et
+        par LibreOffice ou Google Sheets). Renvoie le nombre de lignes."""
+        rows = self.reading_log.csv_rows()
+        tmp = Path(str(path) + ".tmp")
+        with open(tmp, "w", encoding="utf-8-sig", newline="") as f:
+            # separateurs du tableur de la langue : « ; » et virgule decimale en
+            # francais, « , » et point en anglais
+            out = csv.writer(f, delimiter=";" if language() == "fr" else ",")
+            out.writerow([tr("Date"), tr("Appareil"), tr("Série"), tr("Tome"), tr("Pages lues"),
+                          tr("Temps de lecture (min)"), tr("Séances"), tr("Tome terminé")])
+            for day, device, series, title, pages, seconds, sessions, finished in rows:
+                minutes = fmt_decimal((seconds or 0) / 60)
+                out.writerow([day, device, series, title, pages, minutes, sessions,
+                              "oui" if finished else ""])
+        os.replace(tmp, path)
+        return len(rows)
+
+    # ------------------------------------------------------------ serveurs de lecture
+    def servers(self) -> list:
+        """Serveurs de lecture configures : [{"id", "kind", "name", "url",
+        "user", "secret_enc"}] (voir infra/servers.py). Le mot de passe ou la
+        cle d'API est protege comme le jeton AniList."""
+        value = self.settings.get("servers")
+        return [dict(s) for s in value if isinstance(s, dict)] if isinstance(value, list) else []
+
+    def server_secret(self, server_id):
+        for s in self.servers():
+            if s.get("id") == server_id:
+                return secret_store.unprotect(s.get("secret_enc"))
+        return None
+
+    def save_server(self, data: dict, secret=None):
+        """Ajoute ou remplace un serveur (meme "id"). `secret` : nouveau mot
+        de passe ou cle d'API, None pour garder celui enregistre."""
+        servers = self.servers()
+        old = next((s for s in servers if s.get("id") == data["id"]), None)
+        entry = {k: data[k] for k in ("id", "kind", "name", "url", "user")}
+        entry["secret_enc"] = (old or {}).get("secret_enc")
+        if secret is not None:
+            secret_store.discard(entry["secret_enc"])
+            entry["secret_enc"] = secret_store.protect(secret, f"server-{data['id']}") if secret else None
+        servers = [entry if s.get("id") == data["id"] else s for s in servers]
+        if old is None:
+            servers.append(entry)
+        self.settings["servers"] = servers
+        self._schedule("settings")
+        self.flush()
+
+    def remove_server(self, server_id):
+        servers = self.servers()
+        for s in servers:
+            if s.get("id") == server_id:
+                secret_store.discard(s.get("secret_enc"))
+        self.settings["servers"] = [s for s in servers if s.get("id") != server_id]
+        self._schedule("settings")
+        self.flush()
+
+    # ------------------------------------------------------------ AniList (suivi)
+    def cloud_sync(self) -> dict:
+        """Etat de la synchronisation par dossier cloud : folder, enabled,
+        seen, signature, peers (voir services/cloud_sync.py)."""
+        return self.settings.setdefault("cloud_sync", {})
+
+    def touch_cloud_sync(self):
+        self._schedule("settings")
+
+    def anilist(self) -> dict:
+        """Etat AniList de l'utilisateur : user, tracking, token_enc (voir
+        anilist_tracker.py) ; les donnees par serie sont dans anilist_series.
+        Le Client ID de l'application, lui, est dans beheread/config.py."""
+        return self.settings.setdefault("anilist", {})
+
+    def anilist_token(self):
+        return secret_store.unprotect(self.anilist().get("token_enc"))
+
+    def set_anilist_login(self, token, user_name):
+        a = self.anilist()
+        if token:
+            a["token_enc"] = secret_store.protect(token)
+            a["user"] = user_name
+        else:
+            secret_store.discard(a.pop("token_enc", None))
+            a.pop("user", None)
+        self._schedule("settings")
+        self.flush()
+
+    def set_anilist_value(self, name, value):
+        if value is None:
+            self.anilist().pop(name, None)
+        else:
+            self.anilist()[name] = value
+        self._schedule("settings")
+
+    # ------------------------------------------------------------ estimation du temps de lecture
+    PACE_DAYS = 180       # le rythme suit la lecture recente
+    PACE_TTL = 60.0       # secondes : une requete SQL par minute au plus
+    _pace_cache = None    # (instant, rythme)
+
+    def reading_pace(self):
+        """Rythme de lecture personnel (secondes par page) d'apres le journal
+        de lecture des derniers mois (voir ReadingLog.pace), ou None tant que
+        rien n'a ete lu. Memorise brievement : la bibliotheque le demande une
+        fois par tome affiche, et une seance l'invalide (record_reading)."""
+        now = time.monotonic()
+        cached = self._pace_cache
+        if cached is not None and now - cached[0] < self.PACE_TTL:
+            return cached[1]
+        since = datetime.date.today() - datetime.timedelta(days=self.PACE_DAYS)
+        if self._closed:   # mises a jour en file tardives, apres la fermeture
+            return None
+        pace = self.reading_log.pace(since)
+        self._pace_cache = (now, pace)
+        return pace
+
+    _volume_paces_cache = None    # (instant, {tome: (pages, secondes)})
+
+    def volume_paces(self):
+        """Pages lues et temps passe par tome, sur la meme periode et avec les
+        memes lignes que reading_pace : de quoi calculer le rythme d'une
+        serie (voir series_pace). Memorise comme reading_pace."""
+        now = time.monotonic()
+        cached = self._volume_paces_cache
+        if cached is not None and now - cached[0] < self.PACE_TTL:
+            return cached[1]
+        if self._closed:
+            return {}
+        since = datetime.date.today() - datetime.timedelta(days=self.PACE_DAYS)
+        rows = self.reading_log.volume_paces(since)
+        self._volume_paces_cache = (now, rows)
+        return rows
+
+    def series_pace(self, volumes):
+        """Rythme de lecture (secondes par page) propre a une serie, d'apres
+        la lecture de ses tomes (empreintes `volumes`), ou None s'il y en a
+        trop peu : une serie contemplative se lit plus vite qu'une serie
+        bavarde, la moyenne generale (reading_pace) n'est que le repli."""
+        return stats_model.pace_of(self.volume_paces(), volumes)
+
+
+class Store(LibraryStore, ProfileStore):
+    """Persistance du desktop : la bibliotheque et le profil de l'utilisateur
+    dans une seule base locale (beheread.db). S'y ajoute ce qui touche aux
+    deux : reprise des anciennes donnees, sauvegarde (export, import), oubli
+    d'un tome supprime, reglages du lecteur par serie."""
+
+    REPO_NAMES = LibraryStore.REPO_NAMES | ProfileStore.REPO_NAMES
+
+    def __init__(self, directory=None):
+        super().__init__(directory)
+        if self.db.get_meta(LEGACY_IMPORT_KEY) is None:
+            self._import_legacy_json()
+        self._split_settings()
+        self._migrate_meta_cache_out_of_settings()
+        # ancien rythme de lecture : il mesurait l'intervalle entre deux tours
+        # de page, feuilletage compris, et non des secondes par page lue. Sans
+        # rapport avec la mesure actuelle, il est oublie puis re-mesure.
+        # Puis rythme lisse (moyenne mobile des medianes de chaque seance) :
+        # remplace par un calcul sur le journal de lecture (reading_pace).
+        stale = [self.settings["reader"].pop(k, None)
+                 for k in ("median_page_seconds", "page_seconds")]
+        if any(v is not None for v in stale):
+            self._schedule("settings")
+        if self.db.get_meta(FINISHED_HISTORY_KEY) is None:
+            self._import_finished_history()
+
+    # ------------------------------------------------------------ schema 3
+    def _split_settings(self):
+        """Deplace dans leurs depots du schema 3 les donnees par tome et
+        l'etat AniList encore ranges dans la ligne « settings » (base d'avant
+        le schema 3, ou anciens fichiers JSON tout juste importes), ainsi que
+        l'index de la bibliotheque (un seul bloc -> une ligne par tome). Une
+        seule transaction : rien n'est perdu si elle echoue, elle est alors
+        retentee au lancement suivant."""
+        moved = set()
+        for old, name in SPLIT_SETTINGS.items():
+            values = self.settings.pop(old, None)
+            if values is None:
+                continue
+            moved.update(("settings", name))
+            if isinstance(values, dict):
+                for key, value in values.items():
+                    self._repos[name].data.setdefault(key, value)
+        anilist = self.settings.get("anilist")
+        if isinstance(anilist, dict):
+            for old, name in SPLIT_ANILIST.items():
+                values = anilist.pop(old, None)
+                if values is None:
+                    continue
+                moved.update(("settings", name))
+                if isinstance(values, dict):
+                    for key, value in values.items():
+                        self._repos[name].data.setdefault(key, value)
+        index = self._repos["index"].data.pop("entries", None)
+        if index is not None:
+            moved.update(("index", "entries"))
+            self._repos["entries"].data.update(_index_rows(index))
+        if not moved:
+            return
+        try:
+            with self._io_lock:
+                self._write_all(sorted(moved))
+        except Exception:
+            logging.error("Passage des donnees au schema 3 impossible (nouvel essai "
+                          "au prochain lancement)", exc_info=True)
+            raise
+        logging.info("Donnees deplacees vers les tables du schema 3 : %s",
+                     ", ".join(sorted(moved)))
+
+    # ------------------------------------------------------------ import des anciens JSON
+    def _import_legacy_json(self):
+        """Premier lancement sur SQLite : reprend les donnees des anciens
+        fichiers JSON, les ecrit en base avec un marqueur « import termine »
+        (une seule transaction), puis range les fichiers dans legacy-json/
+        (sauvegarde, jamais relue).
+
+        Tant que le marqueur est absent (import jamais tente, ou interrompu par
+        une erreur), l'import est retente au lancement suivant. Une fois pose,
+        plus jamais : un ancien fichier reste en place (s'il n'a pas pu etre
+        range) n'ecrasera donc jamais des donnees plus recentes."""
+        found = [f for f in LEGACY_FILES.values() if (self.dir / f).exists()]
+        if not found:
+            with self.db.transaction() as cur:
+                Database.set_meta(cur, LEGACY_IMPORT_KEY, "aucun fichier")
+            return
+        settings = self._load(self.dir / LEGACY_FILES["settings"], {})
+        meta = self._load(self.dir / LEGACY_FILES["meta"], {})
+        stats = self._load(self.dir / LEGACY_FILES["stats"], {})
+        index = self._load(self.dir / LEGACY_FILES["index"], [])
+        for key, value in (settings if isinstance(settings, dict) else {}).items():
+            self.settings[key] = value
+        self.progress.update(_as_dict(self._load(self.dir / LEGACY_FILES["progress"], {})))
+        if isinstance(meta, dict):
+            self.meta_cache["volume"].update(_as_dict(meta.get("volume")))
+            self.meta_cache["series"].update(_as_dict(meta.get("series")))
+        self._fp.update(_as_dict(self._load(self.dir / LEGACY_FILES["fp"], {})))
+        journal = {k: v for k, v in _as_dict(_as_dict(stats).get("devices")).items()
+                   if isinstance(v, dict)}
+        if isinstance(index, list):
+            self._repos["index"].data["entries"] = index
+        try:
+            self._write_all(list(self._repos),
+                            meta={LEGACY_IMPORT_KEY: f"{len(found)} fichier(s) le {time.ctime()}"},
+                            extra=lambda cur: self.reading_log.replace_devices(journal, cur))
+        except Exception:
+            logging.error("Import des anciens fichiers JSON impossible (nouvel essai "
+                          "au prochain lancement)", exc_info=True)
+            raise
+        backup = self.dir / "legacy-json"
+        backup.mkdir(exist_ok=True)
+        for name in found:
+            try:
+                (self.dir / name).replace(backup / name)
+            except OSError:
+                logging.warning("Ancien fichier non range : %s", name, exc_info=True)
+        logging.info("Donnees importees depuis %d ancien(s) fichier(s) JSON "
+                     "(ranges dans %s)", len(found), backup)
+
+    @staticmethod
+    def _load(path: Path, default):
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except FileNotFoundError:
+            pass   # premier lancement, ou fichier pas encore cree : normal
+        except Exception:
+            logging.warning("Lecture impossible de %s, valeurs par defaut utilisees",
+                            path, exc_info=True)
+        return default
+
+    def _migrate_meta_cache_out_of_settings(self):
+        """Les deux caches de metadonnees vivaient autrefois dans settings.json
+        (qu'ils faisaient grossir). On les sort une fois pour toutes vers leurs
+        propres depots pour garder les preferences legeres."""
+        moved = False
+        legacy_vol = self.settings.pop("volume_meta_cache", None)
+        legacy_ser = self.settings.pop("series_meta_cache", None)
+        if legacy_vol is not None:
+            self.meta_cache.setdefault("volume", {}).update(legacy_vol)
+            moved = True
+        if legacy_ser is not None:
+            self.meta_cache.setdefault("series", {}).update(legacy_ser)
+            moved = True
+        if moved:
+            self._schedule("settings")
+            self._schedule("meta")
+
+    def forget_content(self, key: str, path: str):
+        """Oublie les donnees rattachees a un fichier qui vient d'etre supprime
+        du disque : progression, date d'ajout et metadonnees du tome.
+
+        `key` doit avoir ete resolu AVANT la suppression (key_for doit lire le
+        fichier encore present). A n'appeler qu'une fois la suppression
+        reussie : un echec (fichier verrouille, droits) ne doit rien effacer.
+        Si une autre copie identique (meme empreinte) est encore connue, ses
+        donnees - partagees par contenu - sont conservees."""
+        path = str(Path(path))
+        self._key_memo.pop(path, None)
+        with self._save_lock:
+            if self._fp.pop(path, None) is not None:
+                self._schedule("fp")
+            shared = any(v.get("k") == key for v in self._fp.values())
+        if shared:
+            return
+        # couverture choisie : image copiee supprimee avec le tome
+        choice = self.settings.get("covers", {}).pop(key, None)
+        if isinstance(choice, dict) and choice.get("image"):
+            (self.cover_dir / Path(choice["image"]).name).unlink(missing_ok=True)
+            self._schedule("settings")
+        # cle de contenu ET eventuelle entree heritee indexee par chemin
+        for name, data in (("progress", self.progress), ("added", self._added),
+                           ("meta", self.meta_cache.get("volume", {}))):
+            removed = [data.pop(key, None), data.pop(path, None)]
+            if any(r is not None for r in removed):
+                self._schedule(name)
+
+    # ------------------------------------------------------------ reglages du lecteur
+    # Reglages du lecteur retenus par serie (double page, ajustement,
+    # recadrage, decalage de parite) : un choix fait dans un tome vaut pour
+    # toute sa serie, et devient aussi le reglage general que reprennent les
+    # series sans choix propre. Indexes par cle de serie normalisee.
+    def reader_setting(self, key, series_key, default=None):
+        """Reglage du lecteur pour un tome : celui choisi dans sa serie, sinon
+        le reglage general."""
+        if series_key:
+            value = self.settings.get("series_reader", {}).get(series_key, {}).get(key)
+            if value is not None:
+                return value
+        return self.reader_pref(key, default)
+
+    def set_reader_setting(self, key, value, series_key):
+        self.set_reader_pref(key, value)
+        if series_key:
+            self.settings.setdefault("series_reader", {}).setdefault(series_key, {})[key] = value
+            self._schedule("settings")
+
+    def _import_finished_history(self):
+        """Une seule fois (marqueur en base) : inscrit au journal les tomes
+        termines avant son premier jour, dates de leur derniere lecture (voir
+        stats.finished_before_journal). Sans cela, les fins de tome
+        anterieures au journal disparaitraient des statistiques."""
+        first = self.reading_log.first_day()
+        before = first or datetime.date.today() + datetime.timedelta(days=1)
+        rows = stats_model.finished_before_journal(self.progress, before)
+        device, name = (self.device_id(), self.device_name()) if rows else (None, None)
+        with self.db.transaction() as cur:
+            for day, key in rows:
+                self.reading_log.add(device, name, day, key, 0, 0, True, "", "",
+                                     time.time(), cur)
+            Database.set_meta(cur, FINISHED_HISTORY_KEY, f"{len(rows)} tome(s)")
+
+    # ------------------------------------------------------------ sauvegarde (export / import)
+    def backup_data(self) -> dict:
+        """Contenu d'une sauvegarde de cet appareil (export, synchronisation)."""
+        return backup_model.build_backup(self._backup_settings(), self.progress,
+                                         self.reading_log.export(),
+                                         self.meta_cache, self.continue_dismissed(),
+                                         self.device_id(), self.device_name())
+
+    def export_backup(self, path):
+        backup_model.write_json_atomic(path, self.backup_data())
+
+    @staticmethod
+    def read_backup(path) -> dict:
+        """Lit une sauvegarde sans rien fusionner (sans etat : utilisable hors
+        du thread UI). Leve ValueError si le fichier n'en est pas une."""
+        # un fichier quelconque choisi par l'utilisateur : rien n'est charge
+        # en memoire au-dela de ce qu'une vraie sauvegarde peut peser
+        if os.path.getsize(path) > MAX_BACKUP_BYTES:
+            raise ValueError(tr("Ce fichier est trop volumineux pour être une sauvegarde Beheread."))
+        with open(path, encoding="utf-8") as f:
+            data = json.load(f)
+        if not backup_model.is_valid(data):
+            raise ValueError(tr("Ce fichier n'est pas une sauvegarde Beheread."))
+        return data
+
+    def import_backup(self, path) -> dict:
+        """Fusionne une sauvegarde (voir backup.py). Leve ValueError si le
+        fichier n'en est pas une. Renvoie {"progress": n, "extras": m}."""
+        return self.merge_backup(self.read_backup(path))
+
+    def merge_backup(self, data) -> dict:
+        """Fusionne le contenu d'une sauvegarde deja validee (read_backup)."""
+        progress = len(backup_model.merge_progress(self.progress, data.get("progress", {})))
+        if progress:
+            self._schedule("progress")
+        with self._io_lock:
+            self.reading_log.replace_devices(backup_model.journal_sections_to_import(
+                self.reading_log.devices(), data.get("stats", {}), self.device_id()))
+        extras = backup_model.merge_extras(self._backup_settings(), self.meta_cache, data)
+        if backup_model.merge_dismissed(self._dismissed, data.get("continue_dismissed", {})):
+            self._schedule("dismissed")
+        if extras:
+            for name in ("settings", "meta", "overrides", "directions", "added", "pages"):
+                self._schedule(name)
+        self.flush()
+        return {"progress": progress, "extras": extras}
+
+    def _backup_settings(self) -> dict:
+        """Reglages par tome et par serie repris par une sauvegarde (voir
+        backup.BACKUP_SETTINGS), sous leur nom d'echange : dictionnaires
+        vivants, que merge_extras complete en place."""
+        return {"series_overrides": self._overrides, "volume_direction": self._directions,
+                "added": self._added, "pages": self._pages,
+                "series_names": self.settings.setdefault("series_names", {}),
+                "series_direction": self.settings.setdefault("series_direction", {}),
+                "series_reader": self.settings.setdefault("series_reader", {}),
+                "volume_reader": self.settings.setdefault("volume_reader", {}),
+                "series_nature": self.settings.setdefault("series_nature", {}),
+                "virtual_volumes": self.settings.setdefault("virtual_volumes", {}),
+                "series_published": self.settings.setdefault("series_published", {}),
+                "chapter_ranges_manual": self.settings.setdefault("chapter_ranges_manual", {})}
+
+    def anilist_series(self, section: str) -> dict:
+        """Dictionnaire par cle de serie : "map" (oeuvre associee),
+        "pending" (mises a jour en attente), "last" (derniere mise a jour).
+        Chacun a sa table (une ligne par serie)."""
+        return self._repos[SPLIT_ANILIST[section]].data
+
+    def touch_anilist(self):
+        self._schedule("settings")
+        for name in SPLIT_ANILIST.values():
+            self._schedule(name)

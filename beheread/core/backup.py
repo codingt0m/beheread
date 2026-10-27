@@ -21,6 +21,8 @@ import os
 import time
 from pathlib import Path
 
+from beheread.core import fingerprint
+
 BACKUP_FORMAT = "beheread-backup"
 VERSION = 1
 
@@ -43,7 +45,7 @@ _SETTING_TYPES: dict[str, type | tuple[type, ...]] = {"series_overrides": str, "
 
 # cles de progression reprises : empreintes de contenu, et chemins des tomes
 # virtuels (identifiant stable, repris avec leur definition « virtual_volumes »)
-_PORTABLE_PREFIXES = ("c1:", "beheread-virtual:")
+_PORTABLE_PREFIXES = (fingerprint.PREFIX, "beheread-virtual:")
 
 
 def _content_keys(d):

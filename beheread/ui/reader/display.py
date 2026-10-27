@@ -13,6 +13,7 @@ from PySide6.QtCore import (
 from PySide6.QtGui import QColor, QPixmap
 
 from beheread.core.series import normalize_name, parse_path
+from beheread.infra.imaging import compute_content_rect
 from beheread.infra.storage import Store
 from beheread.ui.reader.constants import (
     AMBIENT_MS,
@@ -23,7 +24,7 @@ from beheread.ui.reader.constants import (
     TRANSITION_MS,
     TRANSITION_STEP_MS,
 )
-from beheread.ui.reader.imaging import average_color, compute_content_rect, darken
+from beheread.ui.reader.imaging import average_color, darken
 
 
 class DisplayMixin:

@@ -108,7 +108,7 @@ def aggregate_series_info(title: str, infos: Iterable[VolumeInfo]) -> SeriesInfo
     )
 
 
-def _volume_order(info: VolumeInfo):
+def volume_order(info: VolumeInfo):
     """Ordre de lecture : tomes, puis les chapitres qui les completent."""
     return (units.order_key(info.unit, info.volume), info.title.casefold())
 
@@ -142,7 +142,7 @@ def continue_reading(infos: Iterable[VolumeInfo], dismissed: Optional[dict] = No
     for vols in groups.values():
         if len(vols) < 2 or any(v.status == READING for v in vols):
             continue   # tome deja propose comme « en cours »
-        vols.sort(key=_volume_order)
+        vols.sort(key=volume_order)
         read = [v for v in vols if v.last_read]
         if not read:
             continue

@@ -17,7 +17,8 @@ from PySide6.QtWidgets import (
 )
 
 from beheread.infra.archive import Archive, ArchiveClosedError, find_next_volume
-from beheread.ui.reader.imaging import average_color, compute_content_rect, darken
+from beheread.infra.imaging import compute_content_rect
+from beheread.ui.reader.imaging import average_color, darken
 
 
 class PageAnalysis(NamedTuple):
