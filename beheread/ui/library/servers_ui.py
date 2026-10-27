@@ -3,6 +3,7 @@ ajout et leur modification (voir la maquette 6 validee). L'option est
 desactivee par defaut : tant qu'elle ne l'est pas, Beheread ne contacte
 aucun serveur."""
 
+import platform
 import uuid
 
 from PySide6.QtCore import QSize, Qt, QThreadPool
@@ -214,16 +215,28 @@ class ServerDialog(QDialog):
         self.user = QLineEdit()
         self.secret = QLineEdit()
         self.secret.setEchoMode(QLineEdit.Password)
+        # serveur Beheread : lien d'invitation, ou code « Ajouter un appareil »
+        self.invite = QLineEdit()
+        self.invite.setPlaceholderText("https://mangas.exemple.fr/i/K7M2QX9P")
+        self.invite.textChanged.connect(self._on_invite_changed)
+        self.form = f
         f.addRow(tr("Type"), self.kind)
+        f.addRow(tr("Lien ou code"), self.invite)
         f.addRow(tr("Nom affiché"), self.name)
         f.addRow(tr("Adresse"), self.url)
         f.addRow(tr("Identifiant"), self.user)
         f.addRow(tr("Mot de passe ou clé d'API"), self.secret)
         root.addLayout(f)
-        root.addWidget(self._hint(
+        self.beheread_hint = self._hint(
+            tr("Collez le lien d'invitation reçu, ou le code affiché par « Ajouter un appareil » "
+               "sur un de vos appareils déjà connectés (l'adresse du serveur est alors à saisir). "
+               "Votre progression sera la même sur tous vos appareils."))
+        root.addWidget(self.beheread_hint)
+        self.secret_hint = self._hint(
             tr("Le mot de passe est chiffré dans le Trousseau de ce Mac, comme la connexion "
                "AniList.") if platforms.IS_MACOS else
-            tr("Le mot de passe est chiffré par Windows, comme la connexion AniList.")))
+            tr("Le mot de passe est chiffré par Windows, comme la connexion AniList."))
+        root.addWidget(self.secret_hint)
         self.result = QLabel()
         self.result.setWordWrap(True)
         self.result.setTextFormat(Qt.PlainText)   # message du serveur : non fiable
@@ -259,7 +272,24 @@ class ServerDialog(QDialog):
         lab.setWordWrap(True)
         return lab
 
+    def _beheread(self) -> bool:
+        return self.kind.currentData() == "beheread"
+
+    def _on_invite_changed(self, text):
+        url, _code = remote.parse_invitation(text)
+        if url:
+            self.url.setText(url)
+
     def _update_fields(self):
+        beheread = self._beheread()
+        # deja connecte (modification) : le jeton reste, pas de nouveau code
+        self.form.setRowVisible(self.invite, beheread and self.config is None)
+        self.form.setRowVisible(self.user, not beheread)
+        self.form.setRowVisible(self.secret, not beheread)
+        self.beheread_hint.setVisible(beheread and self.config is None)
+        self.secret_hint.setVisible(not beheread)
+        self.url.setPlaceholderText("https://mangas.exemple.fr" if beheread
+                                    else "http://192.168.1.20:25600")
         kavita = self.kind.currentData() == "kavita"
         self.user.setEnabled(not kavita)
         self.user.setPlaceholderText(
@@ -285,9 +315,18 @@ class ServerDialog(QDialog):
         self.result.setStyleSheet(f"color: {GREEN if ok else RED};")
         self.result.show()
 
+    def _invitation(self):
+        """(adresse, code) saisis pour un serveur Beheread ; leve ServerError."""
+        url, code = remote.parse_invitation(self.invite.text())
+        url = remote.normalize_url(url or self.url.text())
+        if len(code) != 8:
+            raise ServerError(tr("Collez le lien d'invitation, ou un code de 8 caractères."))
+        return url, code
+
     def _test(self):
         try:
             config, secret = self._current()
+            invitation = self._invitation() if self._beheread() and self.config is None else None
         except ServerError as e:
             self._show_result(str(e), False)
             return
@@ -296,7 +335,11 @@ class ServerDialog(QDialog):
         self.test_btn.setEnabled(False)
         self._show_result(tr("Connexion en cours…"), True)
         self.result.setStyleSheet("")
-        self._call = CallWorker(lambda: remote.make_client(config, secret).check())
+        if invitation is not None:
+            # sans consommer l'invitation : on ne fait que la lire
+            self._call = CallWorker(lambda: remote.preview_invitation(*invitation))
+        else:
+            self._call = CallWorker(lambda: remote.make_client(config, secret).check())
         self._call.signals.done.connect(self._on_tested)
         QThreadPool.globalInstance().start(self._call)
 
@@ -315,10 +358,35 @@ class ServerDialog(QDialog):
     def _accept(self):
         try:
             config, secret = self._current()
+            invitation = self._invitation() if self._beheread() and self.config is None else None
         except ServerError as e:
             QMessageBox.warning(self, self.windowTitle(), str(e))
             return
-        self.store.save_server(config.to_dict(), secret)
+        if invitation is None:
+            self.store.save_server(config.to_dict(), secret)
+            self.accept()
+            return
+        # serveur Beheread : cet ordinateur est lie au profil de l'invitation
+        url, code = invitation
+        config.url = url
+        self.ok_btn.setEnabled(False)
+        self._show_result(tr("Connexion en cours…"), True)
+        self.result.setStyleSheet("")
+        self._call = CallWorker(lambda: remote.enroll(url, code, platform.node() or "PC"))
+        self._call.signals.done.connect(lambda result, err: self._on_enrolled(config, result, err))
+        QThreadPool.globalInstance().start(self._call)
+
+    def _on_enrolled(self, config, result, err):
+        self._call = None
+        self.ok_btn.setEnabled(True)
+        if err is not None:
+            self._show_result(str(err) if isinstance(err, ServerError)
+                              else tr("Réponse inattendue du serveur."), False)
+            return
+        token, profile = result
+        if not self.name.text().strip() and profile.get("name"):
+            config.name = tr("Serveur Beheread · {name}", name=profile["name"])
+        self.store.save_server(config.to_dict(), token)
         self.accept()
 
     def done(self, result):

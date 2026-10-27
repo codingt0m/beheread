@@ -4,6 +4,13 @@ Les numéros de version suivent [SemVer](https://semver.org/lang/fr/). Chaque se
 
 ## [Non publié]
 
+### Serveur Beheread
+
+* Nouveau type de serveur de lecture, **Serveur Beheread** (Préférences › Serveurs › Ajouter) : on s'y connecte en collant le lien d'invitation reçu, ou le code affiché par « Ajouter un appareil » sur un autre appareil déjà connecté, sans mot de passe.
+* Ses tomes rejoignent la bibliothèque, à côté des dossiers de l'ordinateur ; un tome présent des deux côtés n'apparaît qu'une fois. La progression, les statistiques et les réglages d'un tome sont les mêmes que ceux de sa copie locale.
+* La progression suit la lecture la plus récente, sur n'importe quel appareil, même si elle revient en arrière.
+* Si le serveur demande une version plus récente de Beheread, un message le dit.
+
 ### Statistiques
 
 * **Statistiques par série** : un clic sur une série du classement, « Statistiques de la série » dans son menu ou le lien « Statistiques › » de la ligne « Temps de lecture » de son panneau d'informations ouvre sa page. On y trouve le temps passé, ce que prend un tome (médiane), la vitesse comparée à votre moyenne et le reste à lire en jours de lecture. Suivent l'avancement case par case (lus dans le lecteur, lus avant le journal ou marqués lus, en cours, à lire), le temps et les secondes par page de chaque tome (« d'une traite » quand il a été lu en une séance), un carnet des jours de lecture et quelques repères.

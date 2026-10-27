@@ -61,6 +61,9 @@ SAVE_DELAY = 0.6          # secondes d'inactivite avant une ecriture differee
 # journal de lecture)
 MAX_BACKUP_BYTES = 64 * 1024 * 1024
 DB_NAME = "beheread.db"
+# chemins des tomes de serveur (voir infra/servers.py, non importe ici)
+REMOTE_PREFIX = "beheread-server:"
+REMOTE_FP_BOOK = "c1-"
 
 # depot -> table SQLite (voir database.py)
 REPOS = {"settings": "settings", "progress": "progress", "volume_meta": "volume_meta",
@@ -370,6 +373,12 @@ class LibraryStore(PersistentStore):
         Memorise pour la session (voir _key_memo) : seul le premier appel apres
         un scan touche au disque. `st` : stat deja obtenu par le scan,
         sur lequel l'empreinte est revalidee sans appel systeme."""
+        # tome d'un serveur Beheread : son empreinte est dans son chemin
+        # (voir infra/servers.FP_BOOK), commune avec une copie locale
+        if isinstance(path, str) and path.startswith(REMOTE_PREFIX):
+            book_id = path.rpartition(":")[2]
+            if book_id.startswith(REMOTE_FP_BOOK):
+                return fingerprint.PREFIX + book_id[len(REMOTE_FP_BOOK):]
         scanned = st is not None
         if not scanned:
             memo = self._key_memo.get(path)

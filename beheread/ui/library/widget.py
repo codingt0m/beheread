@@ -458,6 +458,9 @@ class LibraryWidget(ChromeMixin, DetailPanelMixin, ActionsMixin, MenusMixin,
                 added=added.get(p, 0), detached=detached,
                 manual=bool(override) and not detached))
         entries = self._dedupe_by_series_volume(entries)
+        local_entries = entries
+        # bibliotheque unifiee : tomes des serveurs Beheread absents en local
+        entries = self._with_server_entries(entries)
         # Ne reconstruit la liste QUE si le contenu a change. Pendant le
         # telechargement des tomes cloud, chaque bloc ecrit sur le disque
         # reveille la surveillance des dossiers, qui relance un scan : sans ce
@@ -466,7 +469,7 @@ class LibraryWidget(ChromeMixin, DetailPanelMixin, ActionsMixin, MenusMixin,
         changed = entries != self._file_entries
         if changed:
             self._set_entries(entries)
-            self.store.save_library_index([e.to_dict() for e in entries])
+            self.store.save_library_index([e.to_dict() for e in local_entries])
         # scan reel termine : purge les vignettes/empreintes orphelines (fichiers
         # supprimes ou sortis des dossiers sources depuis le dernier scan). Base
         # sur TOUS les fichiers presents, ni sur `entries` (deja fusionnees par
@@ -478,7 +481,9 @@ class LibraryWidget(ChromeMixin, DetailPanelMixin, ActionsMixin, MenusMixin,
         # leurs empreintes/vignettes ne doivent pas etre purgees non plus.
         try:
             present = paths if local_paths is None else local_paths
-            self.store.purge_orphan_caches(list(present) + list(cloud_paths))
+            # vignettes des tomes des serveurs Beheread : gardees aussi
+            served = [e.path for e in entries if self._is_remote(e.path)]
+            self.store.purge_orphan_caches(list(present) + list(cloud_paths) + served)
         except Exception:
             logging.warning("Purge des caches orphelins en echec", exc_info=True)
         if changed:

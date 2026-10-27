@@ -118,7 +118,7 @@ beheread/
     googlebooks.py, anilist.py, mangadex.py, bnf.py, wikidata.py   Clients d'API
     net.py               Accès réseau commun : espacement des requêtes, pause après un 429, User-Agent
     updates.py           Vérification des mises à jour (dernière release GitHub), facultative
-    servers.py           Serveurs de lecture : clients Komga, Kavita, OPDS, archive distante (RemoteArchive)
+    servers.py           Serveurs de lecture : clients Beheread, Komga, Kavita, OPDS, archive distante (RemoteArchive)
     anilist_auth.py      Connexion AniList (récepteur local du jeton)
     secret_store.py      Protection du jeton AniList (DPAPI, Trousseau : voir platforms)
     single_instance.py   Instance unique (verrou + canal local)

@@ -154,11 +154,20 @@ class ServerManager(Tracker):
 
     def _merge_progress(self, books):
         """Reprend la progression du serveur quand elle est plus avancee que
-        celle de Beheread (jamais l'inverse : rien n'est perdu ici)."""
+        celle de Beheread (jamais l'inverse : rien n'est perdu ici). Serveur
+        Beheread : la plus recente l'emporte, qu'elle avance ou recule (meme
+        regle que la synchro, core/profile_sync.py)."""
         for book in books:
-            if book.progress is None or not book.pages:
+            if book.progress is None:
                 continue
             page, finished = book.progress
+            if book.progress_ts:
+                if book.progress_ts > self.store.progress_ts(book.path):
+                    total = book.pages or max(page + 1, 1)
+                    self.store.set_progress(book.path, page, total, finished)
+                continue
+            if not book.pages:
+                continue
             local = self.store.get_progress(book.path)
             if local is not None and local[2]:
                 continue

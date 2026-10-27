@@ -5,9 +5,14 @@ services/servers.py), choisie dans l'en-tete.
 Mixin de LibraryWidget. Pendant la consultation d'un serveur, la grille
 montre ses tomes (memes series, tris, filtres et recherche) ; le scan des
 dossiers locaux continue en arriere-plan et ses resultats sont appliques au
-retour sur « Sur cet ordinateur »."""
+retour sur « Sur cet ordinateur ».
 
-from PySide6.QtCore import Qt
+Un serveur Beheread n'est pas une source a part : ses tomes rejoignent la
+bibliotheque, a cote des dossiers locaux (bibliotheque unifiee). Un tome
+present des deux cotes (meme empreinte de contenu) n'y figure qu'une fois,
+sous son fichier local."""
+
+from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import QButtonGroup, QHBoxLayout, QPushButton, QWidget
 
 from beheread.core import units
@@ -18,6 +23,7 @@ from beheread.infra import servers as remote
 from beheread.infra.storage import Store
 
 LOCAL = "local"
+UNIFIED_REFRESH_MS = 2 * 60 * 1000
 
 
 class SourcesMixin:
@@ -56,8 +62,41 @@ class SourcesMixin:
     def _source_choices(self):
         choices = [(LOCAL, tr("Sur cet ordinateur"))]
         if self.servers is not None and self.servers.enabled():
-            choices += [(c.id, c.name) for c in self.servers.configs()]
+            choices += [(c.id, c.name) for c in self.servers.configs() if c.kind != "beheread"]
         return choices
+
+    # ----- bibliotheque unifiee (serveurs Beheread) -----
+    def _unified_servers(self) -> list:
+        if self.servers is None or not self.servers.enabled():
+            return []
+        return [c.id for c in self.servers.configs() if c.kind == "beheread"]
+
+    def _with_server_entries(self, local_entries) -> list:
+        """Entrees locales completees par les tomes des serveurs Beheread
+        absents en local (meme empreinte = meme tome)."""
+        local_keys = {self.store.key_for(e.path) for e in local_entries}
+        books = []
+        for server_id in self._unified_servers():
+            books += [b for b in self.servers.books(server_id) or ()
+                      if self.store.key_for(b.path) not in local_keys]
+        if not books:
+            return list(local_entries)
+        return self._dedupe_by_series_volume(list(local_entries) + self._entries_of_books(books))
+
+    def _merge_server_entries(self):
+        """Nouvelle liste d'un serveur Beheread : bibliotheque recomposee."""
+        if self.is_remote_source():
+            return
+        local = [e for e in self._file_entries if not remote.is_remote(e.path)]
+        entries = self._with_server_entries(local)
+        if entries != self._file_entries:
+            self._set_entries(entries)
+            self._rebuild_list()
+
+    def fetch_unified(self):
+        """Redemande la liste des serveurs Beheread (demarrage, F5)."""
+        for server_id in self._unified_servers():
+            self.servers.fetch(server_id)
 
     def _refresh_sources(self):
         """Boutons de l'en-tete d'apres les serveurs configures (masques s'il
@@ -106,10 +145,18 @@ class SourcesMixin:
         self.servers = manager
         manager.listed.connect(self._on_server_listed)
         manager.changed.connect(self._refresh_sources)
+        manager.changed.connect(self.fetch_unified)
+        # nouveaux tomes et lectures des autres appareils : liste reprise
+        # regulierement (en attendant le flux en temps reel)
+        self._unified_timer = QTimer(self)
+        self._unified_timer.setInterval(UNIFIED_REFRESH_MS)
+        self._unified_timer.timeout.connect(self.fetch_unified)
+        self._unified_timer.start()
         self._refresh_sources()
         wanted = self.store.ui_pref("library_source", LOCAL)
         if wanted in self._source_buttons:
             self.select_source(wanted)
+        self.fetch_unified()
 
     def is_remote_source(self) -> bool:
         return self._source != LOCAL
@@ -166,6 +213,10 @@ class SourcesMixin:
 
     def _on_server_listed(self, server_id, books, _error):
         self._update_source_status()
+        if server_id in self._unified_servers():
+            if books is not None:
+                self._merge_server_entries()
+            return
         if server_id != self._source:
             return
         if books is not None:
@@ -173,7 +224,7 @@ class SourcesMixin:
         elif not self._entries:
             self._update_empty_state(False, self._search_hits is not None)
 
-    def _apply_remote_books(self, books, keep_position=True):
+    def _entries_of_books(self, books) -> list:
         added = self.store.ensure_added([b.path for b in books])
         entries = []
         for b in books:
@@ -187,6 +238,10 @@ class SourcesMixin:
                 path=b.path, title=b.title, series=series, volume=b.number,
                 kind=self._remote_kind(b), added=added.get(b.path, 0),
                 detached=detached, manual=bool(override) and not detached))
+        return entries
+
+    def _apply_remote_books(self, books, keep_position=True):
+        entries = self._entries_of_books(books)
         if entries != self._file_entries:
             self._set_entries(entries)
             self._rebuild_list(keep_position=keep_position)
