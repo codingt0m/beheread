@@ -200,3 +200,30 @@ def download(color) -> QIcon:
         p.drawLine(QPointF(44, 29), QPointF(32, 41))
         p.drawLine(QPointF(14, 53), QPointF(50, 53))
     return _make(draw, color)
+
+
+def drive(color) -> QIcon:
+    """Disque (tome present sur ce PC : bibliotheque unifiee)."""
+    def draw(p):
+        p.drawRoundedRect(QRectF(8, 35, 48, 18), 5, 5)
+        p.drawPoint(QPointF(18, 44))
+        path = QPainterPath()
+        path.moveTo(13, 35)
+        path.lineTo(19, 13)
+        path.lineTo(45, 13)
+        path.lineTo(51, 35)
+        p.drawPath(path)
+    return _make(draw, color)
+
+
+def cloud(color) -> QIcon:
+    """Nuage (tome lu depuis le serveur Beheread)."""
+    def draw(p):
+        path = QPainterPath()
+        path.moveTo(19, 48)
+        path.lineTo(45, 48)
+        path.cubicTo(58, 48, 59, 28, 46, 27)
+        path.cubicTo(43, 13, 22, 12, 17, 25)
+        path.cubicTo(5, 27, 6, 48, 19, 48)
+        p.drawPath(path)
+    return _make(draw, color)

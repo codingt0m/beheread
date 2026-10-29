@@ -32,6 +32,7 @@ from beheread.ui.library.constants import (
     ROLE_SERIES_PATHS,
     ROLE_SMALL,
     ROLE_VIRTUAL,
+    ROLE_WHERE,
     SECTION_H,
     STACK_PEEK,
     THUMB_H,
@@ -263,6 +264,23 @@ def _paint_section(painter, option, index, store, left_pad):
     painter.restore()
 
 
+def draw_where_badge(painter, cover, where, c, shift=0):
+    """Provenance d'un tome (bibliotheque unifiee, maquette validee) : sur ce
+    PC, sur le serveur, ou du serveur et garde hors ligne. Pastille sombre en
+    haut a droite de la couverture, a gauche de la coche « termine »."""
+    from beheread.ui.library.beheread_ui import where_icon
+    d = 22
+    badge = QRect(cover.right() - 6 - d - shift, cover.y() + 6, d, d)
+    painter.save()
+    painter.setOpacity(1.0)
+    painter.setPen(Qt.NoPen)
+    painter.setBrush(QColor(15, 17, 22, 217))
+    painter.drawEllipse(badge)
+    icon = where_icon(where, c)
+    painter.drawPixmap(badge.adjusted(5, 5, -5, -5), icon.pixmap(48, 48))
+    painter.restore()
+
+
 class MangaDelegate(QStyledItemDelegate):
     """Dessine la vignette, le titre, la barre de progression et le badge.
     La taille des couvertures est pilotee par un facteur d'echelle (curseur de
@@ -359,7 +377,8 @@ class MangaDelegate(QStyledItemDelegate):
             content = ("missing", tuple(index.data(ROLE_MISSING)))
         else:
             path = index.data(ROLE_PATH)
-            content = (False, bool(index.data(ROLE_VIRTUAL)), index.data(ROLE_IN_VOLUME),
+            content = (False, bool(index.data(ROLE_VIRTUAL)), index.data(ROLE_WHERE),
+                       index.data(ROLE_IN_VOLUME),
                        _cover_key(_cover(self.covers, path)),
                        _cover_error(self.covers, path), index.data(ROLE_FRACTION),
                        index.data(ROLE_PROG_TEXT))
@@ -459,6 +478,9 @@ class MangaDelegate(QStyledItemDelegate):
 
         if finished:
             self._draw_finished_badge(painter, cover)
+        where = index.data(ROLE_WHERE)
+        if where:
+            draw_where_badge(painter, cover, where, c, shift=26 if finished else 0)
         if index.data(ROLE_VIRTUAL):
             _draw_virtual_chip(painter, cover, c, option.font)
 

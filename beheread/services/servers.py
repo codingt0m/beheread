@@ -1,5 +1,5 @@
-"""Serveurs de lecture (Komga, Kavita, OPDS) : configuration active, liste
-des tomes de chaque serveur et synchronisation de la progression.
+"""Serveurs de lecture (Komga, Kavita, OPDS, serveur Beheread) : configuration
+active, liste des tomes de chaque serveur et synchronisation de la progression.
 
 Desactive par defaut (preference « servers_enabled ») : sans cette option,
 aucun client n'est cree et rien ne part sur le reseau. La synchronisation
@@ -7,35 +7,25 @@ aucun client n'est cree et rien ne part sur le reseau. La synchronisation
 service de suivi (voir tracking.py) : la progression d'un tome distant est
 envoyee a son serveur a la fin de chaque seance ; a chaque liste, celle du
 serveur est reprise quand elle est plus avancee (lue sur un autre appareil).
+
+Un serveur Beheread a sa propre synchronisation, toujours active
+(cross-progression : voir beheread_sync.py), et son cache hors ligne (voir
+offline_files.py). Sa derniere liste est gardee sur le disque : ses tomes
+restent dans la bibliotheque, et ceux du cache lisibles, sans connexion.
 """
 
+import json
 import logging
+import os
 
-from PySide6.QtCore import QObject, QRunnable, QThreadPool, Signal
+from PySide6.QtCore import QThreadPool, Signal
 
 from beheread.i18n import tr
 from beheread.infra import servers
-from beheread.infra.servers import ServerConfig, ServerError
+from beheread.infra.servers import ServerConfig, ServerError, UpdateRequired
+from beheread.services.beheread_sync import BeheReadSync
+from beheread.services.jobs import JobRunner
 from beheread.services.tracking import Tracker
-
-
-class _Signals(QObject):
-    done = Signal(object, object)   # resultat, exception (ou None)
-
-
-class _Job(QRunnable):
-    def __init__(self, fn):
-        super().__init__()
-        self.fn = fn
-        self.signals = _Signals()
-
-    def run(self):
-        try:
-            result = self.fn()
-        except Exception as e:   # erreur reseau ou reponse inattendue : rapportee
-            self.signals.done.emit(None, e)
-            return
-        self.signals.done.emit(result, None)
 
 
 class ServerManager(Tracker):
@@ -43,16 +33,22 @@ class ServerManager(Tracker):
 
     listed = Signal(str, object, str)   # serveur, tomes (ou None), message d'erreur
     changed = Signal()                  # serveurs ou options modifies (preferences)
+    syncChanged = Signal(str)           # serveur Beheread : etat de la connexion
+    updateRequired = Signal(str)        # serveur Beheread : version plus recente exigee
+    progressChanged = Signal(str)       # empreinte lue sur un autre appareil
+    journalChanged = Signal()           # journal d'un autre appareil recu
 
     def __init__(self, store, parent=None):
         super().__init__(parent)
         self.store = store
         self.pool = QThreadPool(self)
         self.pool.setMaxThreadCount(2)
+        self._jobs = JobRunner(self.pool)
         self._books = {}        # serveur -> tomes de la derniere liste
         self._errors = {}       # serveur -> message de la derniere erreur
         self._fetching = set()
-        self._jobs = set()      # references des taches en cours (sinon GC)
+        self._syncs = {}        # serveur Beheread -> BeheReadSync
+        self.offline = None     # OfflineFiles, des qu'un serveur Beheread est configure
         self.reload()
 
     # ----- configuration
@@ -86,7 +82,77 @@ class ServerManager(Tracker):
         for gone in set(self._books) - set(clients):
             self._books.pop(gone, None)
             self._errors.pop(gone, None)
+        self._reload_beheread(clients)
         self.changed.emit()
+
+    def _reload_beheread(self, clients):
+        """Synchronisation et cache hors ligne des serveurs Beheread."""
+        for sync in self._syncs.values():
+            sync.stop()
+            sync.deleteLater()
+        self._syncs = {}
+        beheread = {sid: c for sid, c in clients.items() if c.config.kind == "beheread"}
+        if beheread and self.offline is None:
+            from beheread.services.offline_files import OfflineFiles
+            self.offline = OfflineFiles(self.store, self)
+        for sid, client in beheread.items():
+            if sid not in self._books:
+                books = self._cached_books(client)
+                if books:
+                    servers.registry.add_books(books)
+                    self._books[sid] = books
+            sync = BeheReadSync(self.store, client, self)
+            sync.stateChanged.connect(lambda sid=sid: self._on_sync_state(sid))
+            sync.libraryChanged.connect(lambda sid=sid: self.fetch(sid))
+            sync.progressChanged.connect(self.progressChanged)
+            sync.journalChanged.connect(self.journalChanged)
+            self._syncs[sid] = sync
+            sync.start()
+        if not beheread and self.offline is not None:
+            self.offline.clear()   # serveur retire : ses fichiers aussi
+
+    def sync(self, server_id):
+        """BeheReadSync d'un serveur Beheread, ou None."""
+        return self._syncs.get(server_id)
+
+    def syncs(self) -> dict:
+        return dict(self._syncs)
+
+    def _on_sync_state(self, server_id):
+        sync = self._syncs.get(server_id)
+        if sync is not None and sync.update is not None:
+            self.updateRequired.emit(server_id)
+        self.syncChanged.emit(server_id)
+
+    # ----- liste gardee (serveur Beheread)
+    def _listing_file(self, server_id):
+        return os.path.join(str(self.store.dir), "servers", f"{server_id}.json")
+
+    def _cached_books(self, client):
+        path = self._listing_file(client.config.id)
+        try:
+            with open(path, encoding="utf-8") as f:
+                data = json.load(f)
+            return client.parse_books(data.get("library"), data.get("profile"))
+        except FileNotFoundError:
+            return None
+        except (OSError, ValueError, AttributeError, ServerError):
+            logging.warning("Liste gardee du serveur %s illisible", client.config.id)
+            return None
+
+    def _save_listing(self, client):
+        if not getattr(client, "last_listing", None):
+            return
+        library, profile = client.last_listing
+        path = self._listing_file(client.config.id)
+        try:
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            tmp = path + ".tmp"
+            with open(tmp, "w", encoding="utf-8") as f:
+                json.dump({"library": library, "profile": profile}, f, ensure_ascii=False)
+            os.replace(tmp, path)
+        except OSError:
+            logging.warning("Liste du serveur %s non gardee", client.config.id, exc_info=True)
 
     # ----- liste des tomes
     def books(self, server_id):
@@ -109,24 +175,20 @@ class ServerManager(Tracker):
         self._run(client.books, lambda books, err: self._on_listed(server_id, books, err))
 
     def _run(self, fn, callback):
-        job = _Job(fn)
-        self._jobs.add(job)
-
-        def done(result, err, job=job):
-            self._jobs.discard(job)
-            callback(result, err)
-        job.signals.done.connect(done)
-        self.pool.start(job)
+        self._jobs.run(fn, callback)
 
     def _on_listed(self, server_id, books, err):
         self._fetching.discard(server_id)
-        if servers.registry.client(server_id) is None:
+        client = servers.registry.client(server_id)
+        if client is None:
             return   # serveur retire ou desactive pendant la requete
         if err is not None:
             message = str(err) if isinstance(err, ServerError) else tr("Réponse inattendue du serveur.")
             if not isinstance(err, ServerError):
                 logging.warning("Liste du serveur %s en echec", server_id, exc_info=err)
             self._errors[server_id] = message
+            if isinstance(err, UpdateRequired) and server_id in self._syncs:
+                self.updateRequired.emit(server_id)
             self.listed.emit(server_id, None, message)
             return
         self._errors.pop(server_id, None)
@@ -135,7 +197,9 @@ class ServerManager(Tracker):
         for book in books:
             self.store.set_page_count(book.path, book.pages)
             self._remember_meta(book)
-        if self.sync_enabled():
+        if server_id in self._syncs:
+            self._save_listing(client)   # la progression : par la synchronisation
+        elif self.sync_enabled():
             self._merge_progress(books)
         self.listed.emit(server_id, books, "")
 
@@ -154,20 +218,11 @@ class ServerManager(Tracker):
 
     def _merge_progress(self, books):
         """Reprend la progression du serveur quand elle est plus avancee que
-        celle de Beheread (jamais l'inverse : rien n'est perdu ici). Serveur
-        Beheread : la plus recente l'emporte, qu'elle avance ou recule (meme
-        regle que la synchro, core/profile_sync.py)."""
+        celle de Beheread (jamais l'inverse : rien n'est perdu ici)."""
         for book in books:
-            if book.progress is None:
+            if book.progress is None or not book.pages:
                 continue
             page, finished = book.progress
-            if book.progress_ts:
-                if book.progress_ts > self.store.progress_ts(book.path):
-                    total = book.pages or max(page + 1, 1)
-                    self.store.set_progress(book.path, page, total, finished)
-                continue
-            if not book.pages:
-                continue
             local = self.store.get_progress(book.path)
             if local is not None and local[2]:
                 continue
@@ -183,9 +238,21 @@ class ServerManager(Tracker):
 
     def on_session_end(self, path):
         self._push(path)
+        for sync in self._syncs.values():
+            sync.flush_now()   # fin de seance : sans attendre l'envoi groupe
+        if self.offline is not None:
+            self.offline.schedule()   # tome suivant a garder hors ligne
 
     def flush_pending(self):
-        pass   # rien n'est mis en attente : la prochaine seance renverra l'etat
+        for sync in self._syncs.values():
+            sync.flush()
+
+    def shutdown(self):
+        """Fermeture de l'application : flux arretes (la file reste en base)."""
+        for sync in self._syncs.values():
+            sync.stop()
+        if self.offline is not None:
+            self.offline.shutdown()
 
     def _push(self, path):
         if not servers.is_remote(path) or not self.sync_enabled():
@@ -195,6 +262,8 @@ class ServerManager(Tracker):
         progress = self.store.get_progress(path)
         if client is None or not client.supports_progress or progress is None:
             return
+        if book.server_id in self._syncs:
+            return   # serveur Beheread : par sa file d'evenements
         page, _total, finished = progress
         book.progress = (page, bool(finished))
 

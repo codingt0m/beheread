@@ -136,6 +136,10 @@ class ChromeMixin:
         root.addWidget(self._header_right, 1)
         hl.addStretch(1)
 
+        # -- serveur Beheread connecte : etat, profil (voir beheread_ui.py)
+        hl.addWidget(self._build_server_pill())
+        hl.addSpacing(4)
+
         # -- gestion des dossiers (un seul bouton -> panneau facon Plex)
         self.btn_folders = self._icon_button(tr("Gérer les dossiers sources"))
         self.btn_folders.clicked.connect(self.manage_folders)
@@ -238,7 +242,8 @@ class ChromeMixin:
                 color: {c['border']};
                 margin: 0 4px;
             }}
-        """ + self.source_switch_css(c, theme.ACCENT))
+        """ + self.source_switch_css(c, theme.ACCENT) + self.server_ui_css(c))
+        self._style_server_footer(c)
 
         # logo et titre bicolore : "BEHE" en accent, "READ" dans la couleur du texte
         self.logo_label.setPixmap(appicon.app_icon().pixmap(QSize(28, 28)))

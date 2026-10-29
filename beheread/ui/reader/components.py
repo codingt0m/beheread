@@ -7,6 +7,7 @@ from typing import NamedTuple
 from PySide6.QtCore import (
     QObject,
     QPointF,
+    QRectF,
     QRunnable,
     Qt,
     Signal,
@@ -43,15 +44,21 @@ class _PageSlider(QSlider):
         # tome virtuel : premiere page de chaque chapitre (sauf le premier),
         # marquee d'un petit point sur la barre
         self.markers = []
+        # reprise depuis un autre appareil : page lue ici avant, trait gris
+        self.back_marker = None
 
     def set_markers(self, pages):
         self.markers = list(pages)
         self.update()
 
+    def set_back_marker(self, page):
+        self.back_marker = page
+        self.update()
+
     def paintEvent(self, event):
         super().paintEvent(event)
         span = self.maximum() - self.minimum()
-        if not self.markers or span <= 0:
+        if (not self.markers and self.back_marker is None) or span <= 0:
             return
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
@@ -61,6 +68,10 @@ class _PageSlider(QSlider):
         for page in self.markers:
             x = (page - self.minimum()) / span * self.width()
             painter.drawEllipse(QPointF(x, y), d / 2, d / 2)
+        if self.back_marker is not None:
+            x = (self.back_marker - self.minimum()) / span * self.width()
+            painter.setBrush(QColor("#8b93a1"))
+            painter.drawRect(QRectF(x - 1, 0, 2, self.height()))
         painter.end()
 
     def _value_at(self, x):

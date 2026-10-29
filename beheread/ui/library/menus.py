@@ -132,6 +132,9 @@ class MenusMixin:
         count = units.count_text(n - chapters, chapters)   # « 3 tomes · 2 chapitres »
         # tome d'un serveur de lecture : pas de fichier sur ce disque
         remote = any(self._is_remote(p) for p in paths)
+        # tomes d'un serveur Beheread : bibliotheque en lecture seule (le
+        # serveur fait foi ; seul l'administrateur la corrige)
+        locked = self._server_locked(paths)
         progress = [self.store.get_progress(p) for p in paths]
         finished = [bool(pr and pr[2]) for pr in progress]
 
@@ -147,7 +150,7 @@ class MenusMixin:
         if one:
             m.add(tr("Ouvrir"), lambda: self.mangaActivated.emit(paths[0]), default=True)
         # plusieurs chapitres d'une meme serie : les regrouper en tome virtuel
-        if (n >= 2 and chapters == n
+        if (n >= 2 and chapters == n and not locked
                 and len({normalize_name(e.series) for e in entries}) == 1):
             m.add(tr("Regrouper en tome…"), lambda: self._group_chapters(paths))
 
@@ -167,18 +170,8 @@ class MenusMixin:
 
         # --- informations et rangement ---
         m.separator()
-        if one:
-            m.add(tr("Modifier les informations…"), lambda: self._edit_volume_info(paths[0]))
-            m.add(tr("Choisir la couverture…"), lambda: self._choose_cover(paths[0]))
-        ranger = m.submenu(tr("Ranger"))
-        m.add(tr("Dans une autre série…"), lambda: self._move_to_series(paths), menu=ranger)
-        if any(self._is_grouped_in_series(p) for p in paths):
-            m.add(tr("Sortir de la série"), lambda: self._detach_from_series(paths), menu=ranger)
-        if any(self.store.series_override(p) is not None for p in paths):
-            m.add(tr("Rétablir le regroupement automatique"),
-                  lambda: self._restore_auto_grouping(paths), menu=ranger)
-        for act, folder in self._add_folder_actions(ranger, paths).items():
-            m.on(act, lambda f=folder: self._move_paths(paths, f))
+        if not locked:
+            self._add_volume_edit_actions(m, paths, one)
         # fichier et depannage
         file_actions = []
         if one and not remote:
@@ -204,6 +197,21 @@ class MenusMixin:
                 label = tr("Supprimer {count}…", count=count)
             m.add(label, lambda: self._delete_many(paths))
         m.exec(global_pos)
+
+    def _add_volume_edit_actions(self, m, paths, one):
+        """Informations et rangement d'un tome (ou d'une selection)."""
+        if one:
+            m.add(tr("Modifier les informations…"), lambda: self._edit_volume_info(paths[0]))
+            m.add(tr("Choisir la couverture…"), lambda: self._choose_cover(paths[0]))
+        ranger = m.submenu(tr("Ranger"))
+        m.add(tr("Dans une autre série…"), lambda: self._move_to_series(paths), menu=ranger)
+        if any(self._is_grouped_in_series(p) for p in paths):
+            m.add(tr("Sortir de la série"), lambda: self._detach_from_series(paths), menu=ranger)
+        if any(self.store.series_override(p) is not None for p in paths):
+            m.add(tr("Rétablir le regroupement automatique"),
+                  lambda: self._restore_auto_grouping(paths), menu=ranger)
+        for act, folder in self._add_folder_actions(ranger, paths).items():
+            m.on(act, lambda f=folder: self._move_paths(paths, f))
 
     def _confirm_reset(self, paths, count):
         """Efface la progression apres confirmation (page courante et
@@ -246,20 +254,25 @@ class MenusMixin:
             m.add(tr("Marquer la série comme lue"), lambda: self._mark_series_finished(key))
         m.add(tr("Statistiques de la série"), lambda: self.open_series_stats(key))
         m.separator()
-        m.add(tr("Modifier les informations…"), lambda: self._edit_series_info(key))
-        m.add(tr("Renommer la série…"), lambda: self._rename_series(key))
-        # nature de publication : tomes, chapitres, ou detection automatique
-        nature_menu = m.submenu(tr("Publiée en"))
-        current_nature = self.store.series_nature(key)
-        for nature, label in units.NATURES:
-            m.add(tr(label), lambda v=nature: self._set_series_nature(key, v),
-                  menu=nature_menu, checked=nature == current_nature)
+        # serie avec des tomes du serveur Beheread : lecture seule
+        locked = self._server_locked(paths)
+        if not locked:
+            m.add(tr("Modifier les informations…"), lambda: self._edit_series_info(key))
+            m.add(tr("Renommer la série…"), lambda: self._rename_series(key))
+            # nature de publication : tomes, chapitres, ou detection automatique
+            nature_menu = m.submenu(tr("Publiée en"))
+            current_nature = self.store.series_nature(key)
+            for nature, label in units.NATURES:
+                m.add(tr(label), lambda v=nature: self._set_series_nature(key, v),
+                      menu=nature_menu, checked=nature == current_nature)
         if self.tracker is not None and self.tracker.connected():
             m.add(tr("Associer à AniList…"), lambda: self._associate_anilist(key, paths[0]))
-        ranger = m.submenu(tr("Ranger"))
-        m.add(tr("Fusionner avec une autre série…"), lambda: self._merge_series(key), menu=ranger)
-        for act, folder in self._add_folder_actions(ranger, paths).items():
-            m.on(act, lambda f=folder: self._move_paths(paths, f))
+        if not locked:
+            ranger = m.submenu(tr("Ranger"))
+            m.add(tr("Fusionner avec une autre série…"), lambda: self._merge_series(key),
+                  menu=ranger)
+            for act, folder in self._add_folder_actions(ranger, paths).items():
+                m.on(act, lambda f=folder: self._move_paths(paths, f))
         if not any(self._is_remote(p) for p in paths):
             m.extend(self, "series", key)
             m.separator()

@@ -137,6 +137,9 @@ class MainWindow(QMainWindow):
         # serveurs de lecture (Komga, Kavita, OPDS ; desactives par defaut) :
         # la progression de leurs tomes leur est renvoyee comme a un service de suivi
         self.servers = ServerManager(store, self)
+        # serveur Beheread : lecture faite sur un autre appareil (reprise)
+        self.servers.progressChanged.connect(self._on_remote_progress)
+        QApplication.instance().aboutToQuit.connect(self.servers.shutdown)
         # synchronisation de la lecture entre appareils par un dossier cloud
         self.cloud_sync = CloudSync(store, self)
         self.cloud_sync.synced.connect(lambda _r: self.library.refresh())
@@ -144,7 +147,7 @@ class MainWindow(QMainWindow):
         self.library.set_services(tracker=self.tracker, cloud_sync=self.cloud_sync)
         self.library.set_servers(self.servers)
         self.library.volumesFinished.connect(self.trackers.on_volumes_finished)
-        QTimer.singleShot(3000, self.trackers.flush_pending)   # envois restes en attente
+        QTimer.singleShot(3000, self, self.trackers.flush_pending)   # envois restes en attente
         QTimer.singleShot(5000, self.library.check_updates)    # si l'option est activee
         self.setCentralWidget(self.library)
         if perso is not None:
@@ -225,6 +228,7 @@ class MainWindow(QMainWindow):
         old_reader = self.reader
         self.reader = reader
         self._session_paths.add(path)
+        self._offer_resume(reader, path)
         reader.closed.connect(self.close_reader)
         reader.next_volume_requested.connect(self.open_manga)
         reader.session_ended.connect(self.trackers.on_session_end)
@@ -255,6 +259,41 @@ class MainWindow(QMainWindow):
             # release() sauvegarde aussi le rythme de lecture mesure sur ce tome.
             old_reader.release()
             old_reader.deleteLater()
+
+    def _resume_info(self, path):
+        """(page lue ici avant, nom de l'appareil, heure) si la progression de
+        ce tome vient d'un autre appareil et n'a pas encore ete montree, ou None."""
+        entry = self.store.progress_entry(path)
+        if not entry or "before" not in entry or not entry.get("device"):
+            return None
+        name = ""
+        for sync in self.servers.syncs().values():
+            name = sync.device_name(entry["device"]) or name
+        return int(entry["before"]), name, float(entry.get("ts") or 0)
+
+    def _offer_resume(self, reader, path):
+        """Ouverture d'un tome lu plus loin ailleurs : le lecteur y est deja
+        (progression synchronisee) ; bandeau pour revenir a la page d'ici."""
+        for sync in self.servers.syncs().values():
+            sync.pull()   # derniere progression, si le flux en temps reel est coupe
+        info = self._resume_info(path)
+        if info is None:
+            return
+        self.store.forget_resume(path)
+        reader.show_resume(*info)
+
+    def _on_remote_progress(self, key):
+        """Progression d'un autre appareil pour le tome ouvert : le lecteur y
+        saute s'il n'a pas encore quitte sa page d'ouverture."""
+        reader = self.reader
+        if reader is None or self.store.key_for(reader.path) != key:
+            return
+        info = self._resume_info(reader.path)
+        prog = self.store.get_progress(reader.path)
+        if info is None or prog is None:
+            return
+        if reader.resume_to(prog[0], *info):
+            self.store.forget_resume(reader.path)
 
     def show_library_unless_file_arrives(self, delay_ms=LAUNCH_FILE_WAIT_MS):
         """Lancement sous macOS : la bibliotheque ne s'affiche qu'apres un

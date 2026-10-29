@@ -27,7 +27,6 @@ import json
 import logging
 import re
 import threading
-import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -94,6 +93,15 @@ class ServerError(Exception):
     def __init__(self, message="", status=None):
         super().__init__(message)
         self.status = status
+
+
+class UpdateRequired(ServerError):
+    """Le serveur Beheread exige une version plus recente de l'application
+    (« tout le monde a jour ») : `minimum` demandee, `current` installee."""
+
+    def __init__(self, message, minimum, current):
+        super().__init__(message)
+        self.minimum, self.current = minimum, current
 
 
 # ---------------------------------------------------------------- chemins
@@ -172,6 +180,8 @@ class RemoteBook:
     author: str = ""
     year: Optional[int] = None
     progress_ts: float = 0.0   # heure de cette progression (serveur Beheread), 0 si inconnue
+    size: int = 0         # taille du fichier d'origine (serveur Beheread), 0 si inconnue
+    ext: str = ""         # extension du fichier d'origine (serveur Beheread) : ".cbz"...
     stream: str = ""      # gabarit d'adresse des pages (OPDS-PSE) : {pageNumber}
     download: str = ""    # adresse du fichier complet (OPDS sans PSE)
     cover: str = ""       # adresse de la vignette
@@ -238,9 +248,22 @@ class _Http:
             all_headers["Content-Type"] = "application/json"
         req = urllib.request.Request(self.url(path), data=data, method=method,
                                      headers=all_headers)
-        try:
-            with self._opener.open(req, timeout=TIMEOUT) as resp:
+        with self.open(req) as resp:
+            try:
                 content = resp.read(limit + 1)
+            except (OSError, ValueError) as e:
+                raise ServerError(tr("Serveur injoignable : {reason}", reason=e)) from e
+        if len(content) > limit:
+            raise ServerError(tr("Réponse du serveur anormalement volumineuse."))
+        return content
+
+    def open(self, req, timeout=TIMEOUT):
+        """Reponse ouverte (a refermer : `with`) d'une requete, ou ServerError.
+        `req` : requete preparee, ou chemin du serveur (GET)."""
+        if isinstance(req, str):
+            req = urllib.request.Request(self.url(req), headers=self.headers)
+        try:
+            return self._opener.open(req, timeout=timeout)
         except urllib.error.HTTPError as e:
             if e.code in (401, 403):
                 raise ServerError(tr("Identifiants refusés par le serveur."), e.code) from e
@@ -254,9 +277,6 @@ class _Http:
         except (urllib.error.URLError, OSError, ValueError) as e:
             reason = getattr(e, "reason", None) or e
             raise ServerError(tr("Serveur injoignable : {reason}", reason=reason)) from e
-        if len(content) > limit:
-            raise ServerError(tr("Réponse du serveur anormalement volumineuse."))
-        return content
 
     def json(self, path, method="GET", body=None):
         content = self.request(path, method, body, accept="application/json")
@@ -623,32 +643,53 @@ class KavitaClient(OpdsClient):
 class BeheReadClient(Client):
     """Serveur Beheread : catalogue, pages et progression d'un profil. Le
     secret est le jeton de cet appareil, obtenu par enroll() (lien
-    d'invitation ou code « Ajouter un appareil »)."""
+    d'invitation ou code « Ajouter un appareil »).
+
+    La synchronisation (evenements, flux de changements, journal) est
+    conduite par services/beheread_sync.py ; ce client n'en fait que les
+    requetes. Le cache hors ligne telecharge les fichiers d'origine par
+    download()."""
 
     supports_progress = True
     streams = True          # pages toujours en continu (nombre lu au besoin)
     PAGE_WIDTH = 2752       # plus grand palier : le serveur n'agrandit jamais
+    STREAM_TIMEOUT = 60     # flux SSE : battement toutes les 25 s
+    CHUNK = 256 * 1024
 
     def __init__(self, config, secret):
         super().__init__(config, secret)
         self.http = _Http(config.url, {"Authorization": f"Bearer {self.secret}"})
+        self.last_listing = None   # (bibliotheque, profil) bruts de la derniere liste
 
-    def check(self):
+    def version(self) -> dict:
+        """Version du serveur ; leve UpdateRequired si l'application est trop ancienne."""
         version = self.http.json("/api/v1/version") or {}
         require_version(version.get("desktop_min"))
-        me = self.http.json("/api/v1/me") or {}
+        return version
+
+    def check(self):
+        self.version()
+        me = self.me()
         library = self.http.json("/api/v1/library") or {}
         name = (me.get("profile") or {}).get("name") or ""
         return {"version": tr("Serveur Beheread, profil {name}", name=name) if name else "Serveur Beheread",
                 "count": len(library.get("volumes") or [])}
 
     def books(self):
-        require_version((self.http.json("/api/v1/version") or {}).get("desktop_min"))
+        self.version()
         library = self.http.json("/api/v1/library")
         profile = self.http.json("/api/v1/profile") or {}
+        books = self.parse_books(library, profile)
+        self.last_listing = (library, profile)
+        return books
+
+    def parse_books(self, library, profile) -> list:
+        """Tomes d'une liste du serveur (bibliotheque et instantane du profil),
+        recue a l'instant ou gardee de la derniere fois (demarrage hors ligne)."""
         if not isinstance(library, dict) or not isinstance(library.get("volumes"), list):
             raise ServerError(tr("Réponse inattendue du serveur : est-ce bien un serveur "
                                  "de ce type ?"))
+        profile = profile if isinstance(profile, dict) else {}
         series = {s.get("key"): s for s in library.get("series") or [] if isinstance(s, dict)}
         progress = profile.get("progress") if isinstance(profile.get("progress"), dict) else {}
         books = []
@@ -662,6 +703,7 @@ class BeheReadClient(Client):
             state = None
             if isinstance(p, dict) and isinstance(p.get("page"), int):
                 state = (p["page"], bool(p.get("finished")))
+            ext = v.get("ext") if isinstance(v.get("ext"), str) else ""
             books.append(RemoteBook(
                 server_id=self.config.id, book_id=FP_BOOK + fp[3:],
                 title=str(v.get("title") or fp), series=str(s.get("name") or v.get("title") or ""),
@@ -669,6 +711,8 @@ class BeheReadClient(Client):
                 progress_ts=float(p.get("ts") or 0) if isinstance(p, dict) else 0.0,
                 author=str(s.get("author") or ""),
                 year=s.get("year") if isinstance(s.get("year"), int) else None,
+                size=v.get("size") if isinstance(v.get("size"), int) else 0,
+                ext=ext.lower() if re.match(r"^\.[A-Za-z0-9]{1,5}$", ext) else "",
                 ids={"fp": fp}))
         return books
 
@@ -684,13 +728,112 @@ class BeheReadClient(Client):
         return self.http.image(f"/api/v1/covers/{_q(book.ids['fp'])}")
 
     def push_progress(self, book, index, finished):
-        from beheread.core.profile_sync import new_event_id
-        now = time.time()
-        # l'appareil est celui du jeton : le serveur ignore ce champ
-        event = {"id": new_event_id(now), "type": "progress", "device": "desktop", "ts": now,
-                 "fp": book.ids["fp"], "page": int(index), "total": int(book.pages),
-                 "finished": bool(finished)}
-        self.http.json("/api/v1/events", method="POST", body={"events": [event]})
+        pass   # par la file d'evenements (services/beheread_sync.py)
+
+    # ----- profil et synchronisation
+    def me(self) -> dict:
+        """Profil, appareil courant et appareils du profil."""
+        me = self.http.json("/api/v1/me")
+        if not isinstance(me, dict):
+            raise ServerError(tr("Réponse inattendue du serveur."))
+        return me
+
+    def pair(self) -> dict:
+        """Code « Ajouter un appareil » : {"code", "expires"}."""
+        result = self.http.json("/api/v1/devices/pair", method="POST", body={})
+        if not isinstance(result, dict) or not isinstance(result.get("code"), str):
+            raise ServerError(tr("Réponse inattendue du serveur."))
+        return result
+
+    def send_events(self, events) -> dict:
+        """POST /api/v1/events : {"accepted": [id], "rejected": {id: motif}}."""
+        result = self.http.json("/api/v1/events", method="POST", body={"events": list(events)})
+        return result if isinstance(result, dict) else {}
+
+    def changes(self, since: int, library: int) -> dict:
+        """Changements du profil depuis `since`, et de la bibliotheque depuis
+        la generation `library` (voir l'API du serveur)."""
+        result = self.http.json(f"/api/v1/changes?since={int(since)}&library={int(library)}")
+        if not isinstance(result, dict):
+            raise ServerError(tr("Réponse inattendue du serveur."))
+        return result
+
+    def profile(self) -> dict:
+        """Instantane du profil : progress, dismissed, overrides, cursor."""
+        result = self.http.json("/api/v1/profile")
+        return result if isinstance(result, dict) else {}
+
+    def progress(self, fp: str):
+        result = self.http.json(f"/api/v1/progress/{_q(fp)}")
+        return result if isinstance(result, dict) else None
+
+    def journal(self, device: str = "") -> dict:
+        """Journal de lecture des autres appareils du profil :
+        {appareil: {"name", "rows": [...]}} (un seul appareil si `device`)."""
+        query = f"?device={_q(device)}" if device else ""
+        result = self.http.json(f"/api/v1/journal{query}")
+        devices = result.get("devices") if isinstance(result, dict) else None
+        return devices if isinstance(devices, dict) else {}
+
+    def listen(self, on_event, stop: threading.Event):
+        """Ecoute le flux SSE du profil jusqu'a `stop` ou une coupure (leve
+        alors ServerError) : on_event(nom, donnee) pour chaque evenement."""
+        req = urllib.request.Request(self.http.url("/api/v1/stream"),
+                                     headers={**self.http.headers, "Accept": "text/event-stream"})
+        with self.http.open(req, timeout=self.STREAM_TIMEOUT) as resp:
+            name, data = "message", []
+            while not stop.is_set():
+                try:
+                    raw = resp.readline(64 * 1024)
+                except (OSError, ValueError) as e:
+                    raise ServerError(tr("Serveur injoignable : {reason}", reason=e)) from e
+                if not raw:
+                    raise ServerError(tr("Connexion au serveur interrompue."))
+                line = raw.decode("utf-8", "replace").rstrip("\r\n")
+                if not line:
+                    if data:
+                        on_event(name, "\n".join(data))
+                    name, data = "message", []
+                elif line.startswith(":"):
+                    continue   # battement
+                elif line.startswith("event:"):
+                    name = line[6:].strip()
+                elif line.startswith("data:"):
+                    data.append(line[5:].strip())
+
+    def download(self, book, dest, stop: Optional[threading.Event] = None) -> int:
+        """Telecharge le fichier d'origine dans `dest` (via un fichier
+        temporaire), verifie son empreinte, et renvoie sa taille. Leve
+        ServerError ; rien n'est laisse sur le disque en cas d'echec."""
+        from beheread.core import fingerprint
+        fp = book.ids["fp"]
+        dest = Path(dest)
+        part = dest.with_name(dest.name + ".part")
+        size = 0
+        head = b""
+        try:
+            with self.http.open(f"/api/v1/volumes/{_q(fp)}/file", timeout=60) as resp, \
+                    open(part, "wb") as out:
+                while True:
+                    if stop is not None and stop.is_set():
+                        raise ServerError(tr("Téléchargement interrompu."))
+                    try:
+                        chunk = resp.read(self.CHUNK)
+                    except (OSError, ValueError) as e:
+                        raise ServerError(tr("Serveur injoignable : {reason}", reason=e)) from e
+                    if not chunk:
+                        break
+                    if len(head) < fingerprint.HEAD_BYTES:
+                        head += chunk[:fingerprint.HEAD_BYTES - len(head)]
+                    out.write(chunk)
+                    size += len(chunk)
+            if fingerprint.content_fingerprint(size, head) != fp:
+                raise ServerError(tr("Fichier reçu incomplet ou différent du tome attendu."))
+            part.replace(dest)
+        except BaseException:
+            part.unlink(missing_ok=True)
+            raise
+        return size
 
 
 def _version_tuple(text):
@@ -702,9 +845,10 @@ def require_version(minimum):
     de l'application (« tout le monde a jour »)."""
     from beheread.version import __version__
     if minimum and _version_tuple(__version__) < _version_tuple(minimum):
-        raise ServerError(tr("Mettez Beheread à jour pour lire sur ce serveur (version {version} "
-                             "demandée, vous avez la {current}).",
-                             version=minimum, current=__version__))
+        raise UpdateRequired(tr("Mettez Beheread à jour pour lire sur ce serveur (version "
+                                "{version} demandée, vous avez la {current}).",
+                                version=minimum, current=__version__),
+                             str(minimum), __version__)
 
 
 def parse_invitation(text):
@@ -852,6 +996,9 @@ class Registry:
         self._clients = {}
         self._books = {}
         self._files = OrderedDict()
+        # copie hors ligne d'un tome de serveur Beheread : chemin -> fichier
+        # local ou None (voir services/offline_files.py)
+        self.local_copy = None
 
     def set_clients(self, clients: dict):
         with self._lock:
@@ -906,8 +1053,16 @@ class Registry:
             while len(self._files) > self.FILES_KEPT:
                 self._files.popitem(last=False)
 
-    def open(self, path) -> RemoteArchive:
+    def open(self, path):
+        """RemoteArchive du tome, ou Archive de sa copie hors ligne."""
         book, client, data = self._parts(path)
+        local = self.local_copy(path) if self.local_copy is not None else None
+        if local:
+            try:
+                return Archive(local)
+            except ArchiveError:
+                logging.warning("Copie hors ligne illisible, lecture depuis le serveur : %s",
+                                book.title)
         if not book.pages and getattr(client, "streams", False):
             try:
                 book.pages = client.page_count(book)

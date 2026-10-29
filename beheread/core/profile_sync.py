@@ -148,10 +148,17 @@ def _journal_row(row) -> dict:
         day = dt.date.fromisoformat(str(row.get("day"))).isoformat()
     except (TypeError, ValueError):
         raise EventError("jour invalide") from None
-    return {"day": day, "fp": _text(row.get("fp"), "fp"),
-            "pages": int(_number(row.get("pages", 0), "pages")),
-            "seconds": float(_number(row.get("seconds", 0), "seconds")),
-            "finished": bool(row.get("finished"))}
+    clean = {"day": day, "fp": _text(row.get("fp"), "fp"),
+             "pages": int(_number(row.get("pages", 0), "pages")),
+             "seconds": float(_number(row.get("seconds", 0), "seconds")),
+             "finished": bool(row.get("finished"))}
+    # titre et serie vus par le desktop : utiles pour un tome que la
+    # bibliotheque du serveur ne connait pas (present seulement sur un PC)
+    for name in ("title", "series"):
+        value = row.get(name)
+        if isinstance(value, str) and value:
+            clean[name] = value[:300]
+    return clean
 
 
 # ------------------------------------------------------------------ horloge

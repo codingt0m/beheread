@@ -45,6 +45,10 @@ ROLE_SMALL = Qt.UserRole + 15
 ROLE_VIRTUAL = Qt.UserRole + 16
 # chapitre : tome officiel qui le contient (« Tome 43 »), quand on le sait
 ROLE_IN_VOLUME = Qt.UserRole + 17
+# provenance d'un tome quand un serveur Beheread est connecte : WHERE_LOCAL,
+# WHERE_SERVER ou WHERE_CACHED (icone sur la couverture), None sinon
+ROLE_WHERE = Qt.UserRole + 18
+WHERE_LOCAL, WHERE_SERVER, WHERE_CACHED = "local", "server", "cached"
 SECTION_H = 56
 # taille des couvertures des chapitres par rapport a celle des tomes
 CHAPTER_SCALE = 0.62

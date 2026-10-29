@@ -76,11 +76,12 @@ from beheread.ui.reader.end_card import EndCardMixin
 from beheread.ui.reader.hud import HudMixin
 from beheread.ui.reader.input import InputMixin
 from beheread.ui.reader.page_cache import PageCache
+from beheread.ui.reader.resume_banner import ResumeMixin
 from beheread.ui.reader.session import SessionMixin
 
 
 class ReaderWidget(HudMixin, EndCardMixin, DisplayMixin, InputMixin,
-                   SessionMixin, QWidget):
+                   SessionMixin, ResumeMixin, QWidget):
     closed = Signal()
     next_volume_requested = Signal(str)
     volume_finished = Signal(str)   # ce tome vient de passer « termine »
@@ -255,6 +256,8 @@ class ReaderWidget(HudMixin, EndCardMixin, DisplayMixin, InputMixin,
         self._preview_target = None
 
         self._build_end_card()
+        # reprise d'une lecture faite sur un autre appareil (serveur Beheread)
+        self._build_resume_banner()
         # aide des raccourcis (F1 ou ?), par-dessus la page
         self._help = ShortcutOverlay(READER_SHORTCUTS, self)
 
@@ -338,6 +341,7 @@ class ReaderWidget(HudMixin, EndCardMixin, DisplayMixin, InputMixin,
             f"#pagePreview {{ background: {c['panel']}; color: {c['text_dim']};"
             f" border: 1px solid {c['border']}; border-radius: 6px; }}")
         self._style_end_card(c)
+        self._style_resume_banner(c)
         self._help.apply_colors(c)
         self._update_ambient_target(animate=False)
         self.update()
@@ -618,6 +622,7 @@ class ReaderWidget(HudMixin, EndCardMixin, DisplayMixin, InputMixin,
         self._place_hud()
         self._place_corner_buttons()
         self._place_end_card()
+        self._place_resume_banner()
         if self._help.isVisible():
             self._help.show_centered()
         super().resizeEvent(event)

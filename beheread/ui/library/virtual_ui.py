@@ -223,8 +223,8 @@ class VirtualMixin:
     def _update_group_bar(self):
         bar = self._group_bar
         chapters = self._selected_chapters()
-        if not chapters:
-            bar.hide()
+        if not chapters or self._server_locked([e.path for e in chapters]):
+            bar.hide()   # tomes du serveur Beheread : lecture seule
             return
         text = trn(len(chapters), "{n} chapitre sélectionné", "{n} chapitres sélectionnés")
         numbers = [e.volume for e in chapters if e.volume is not None]

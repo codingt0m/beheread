@@ -23,7 +23,9 @@ from beheread.infra import servers as remote
 from beheread.infra.storage import Store
 
 LOCAL = "local"
-UNIFIED_REFRESH_MS = 2 * 60 * 1000
+# liste reprise regulierement, en plus des changements signales par le flux
+# du serveur (voir services/beheread_sync.py)
+UNIFIED_REFRESH_MS = 15 * 60 * 1000
 
 
 class SourcesMixin:
@@ -146,8 +148,7 @@ class SourcesMixin:
         manager.listed.connect(self._on_server_listed)
         manager.changed.connect(self._refresh_sources)
         manager.changed.connect(self.fetch_unified)
-        # nouveaux tomes et lectures des autres appareils : liste reprise
-        # regulierement (en attendant le flux en temps reel)
+        # filet de securite : nouveaux tomes signales par le flux du serveur
         self._unified_timer = QTimer(self)
         self._unified_timer.setInterval(UNIFIED_REFRESH_MS)
         self._unified_timer.timeout.connect(self.fetch_unified)
@@ -156,6 +157,7 @@ class SourcesMixin:
         wanted = self.store.ui_pref("library_source", LOCAL)
         if wanted in self._source_buttons:
             self.select_source(wanted)
+        self._connect_beheread(manager)
         self.fetch_unified()
 
     def is_remote_source(self) -> bool:
@@ -180,6 +182,7 @@ class SourcesMixin:
             self._local_entries = list(self._file_entries)
         self._source = source
         self.store.set_ui_pref("library_source", source)
+        self._refresh_server_footer()
         btn = self._source_buttons.get(source)
         if btn is not None:
             btn.setChecked(True)

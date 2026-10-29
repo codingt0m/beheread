@@ -44,6 +44,7 @@ from beheread.ui.help_overlay import LIBRARY_SHORTCUTS, ShortcutOverlay
 # modules extraits (voir chacun) : constantes de rendu, delegates, dialogues et
 # taches d'arriere-plan. LibraryWidget (ci-dessous) orchestre le tout.
 from beheread.ui.library.actions import ActionsMixin
+from beheread.ui.library.beheread_ui import BeheReadMixin
 from beheread.ui.library.chrome import ChromeMixin
 from beheread.ui.library.constants import (
     CHAPTER_SCALE,
@@ -58,6 +59,7 @@ from beheread.ui.library.constants import (
     ROLE_SECTION,
     ROLE_SERIES_KEY,
     ROLE_SERIES_PATHS,
+    ROLE_WHERE,
     THUMB_H,
     THUMB_W,
 )
@@ -86,7 +88,8 @@ from beheread.ui.safe_text import plain
 
 class LibraryWidget(ChromeMixin, DetailPanelMixin, ActionsMixin, MenusMixin,
                     SearchMixin, SeriesViewMixin,
-                    ServicesMixin, SourcesMixin, VirtualMixin, RelocateMixin, QWidget):
+                    ServicesMixin, SourcesMixin, BeheReadMixin, VirtualMixin, RelocateMixin,
+                    QWidget):
     mangaActivated = Signal(str)
     preferencesChanged = Signal()   # preferences modifiees (theme, raccourci global...)
     restartRequested = Signal()     # langue changee : l'interface doit etre reconstruite
@@ -187,6 +190,7 @@ class LibraryWidget(ChromeMixin, DetailPanelMixin, ActionsMixin, MenusMixin,
         self.tracker = None
         self.cloud_sync = None
         self._init_sources()
+        self._init_beheread()
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -264,6 +268,8 @@ class LibraryWidget(ChromeMixin, DetailPanelMixin, ActionsMixin, MenusMixin,
         self.detail = DetailPanel()
         self.detail.setVisible(self._show_details)
         body.addWidget(self.detail)
+        # serveur Beheread : provenance des tomes et cache hors ligne
+        layout.addWidget(self._build_server_footer())
         self._help = ShortcutOverlay(LIBRARY_SHORTCUTS, self, take_focus=True)
 
         # glisser-deposer : un dossier l'ajoute a la bibliotheque, un fichier
@@ -822,11 +828,15 @@ class LibraryWidget(ChromeMixin, DetailPanelMixin, ActionsMixin, MenusMixin,
             item.setData(ROLE_FINISHED, finished)
             if total:
                 txt = tr("Terminé") if finished else tr("Page {page} / {total}", page=page + 1, total=total)
+                elsewhere = "" if finished else self._remote_reader_text(path)
+                if elsewhere:   # « Page 87 · lu sur l'iPad »
+                    txt = tr("Page {page}", page=page + 1) + " · " + elsewhere
                 item.setData(ROLE_PROG_TEXT, txt)
         else:
             item.setData(ROLE_FRACTION, 0.0)
             item.setData(ROLE_FINISHED, False)
             item.setData(ROLE_PROG_TEXT, "")
+        item.setData(ROLE_WHERE, self._server_where(path))
 
     def _cover_display_size(self) -> QSize:
         """Taille (pixels physiques) des couvertures gardees en memoire : la

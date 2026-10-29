@@ -24,7 +24,7 @@ from beheread.core.models import VolumeInfo
 
 GB = 1024 ** 3
 # budgets par defaut (reglables)
-DESKTOP_BUDGET = 10 * GB
+DESKTOP_BUDGET = 5 * GB
 WEB_BUDGET = 3 * GB
 
 

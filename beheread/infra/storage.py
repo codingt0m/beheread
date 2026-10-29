@@ -841,10 +841,24 @@ class ProfileStore(PersistentStore):
         self.reading_log = ReadingLog(self.db)
         self.settings.setdefault("folders", [])
         self.settings.setdefault("reader", {})
+        # synchronisation d'un profil (serveur Beheread, voir
+        # services/beheread_sync.py) : appelees a chaque action de ce lecteur
+        # sur un tome, fn(nature, cle, donnee) - « progress » (entree ou None
+        # si effacee), « journal » (seance), « dismiss » (heure). Les
+        # changements venus du serveur (apply_remote_*) ne les appellent pas.
+        self.sync_listeners = []
 
     def key_for(self, path: str) -> str:
         """Sans bibliotheque, un tome est deja designe par son empreinte."""
         return path
+
+    def _notify(self, kind, key, data):
+        for listener in list(self.sync_listeners):
+            try:
+                listener(kind, key, data)
+            except Exception:
+                logging.error("Synchronisation : evenement %s non pris en compte", kind,
+                              exc_info=True)
 
     # ------------------------------------------------------------ dossiers sources
     def folders(self):
@@ -883,6 +897,16 @@ class ProfileStore(PersistentStore):
         key = self.key_for(path)
         self._dismissed[key] = time.time()
         self._schedule("dismissed", key)
+        self._notify("dismiss", key, self._dismissed[key])
+
+    def apply_remote_dismiss(self, key: str, ts: float) -> bool:
+        """Masquage fait sur un autre appareil (synchronisation) : garde s'il
+        est plus recent que celui d'ici. Renvoie True s'il a ete applique."""
+        if float(ts) <= self._dismissed.get(key, 0):
+            return False
+        self._dismissed[key] = float(ts)
+        self._schedule("dismissed", key)
+        return True
 
     # ------------------------------------------------------------ preferences
     def reader_pref(self, key, default=None):
@@ -933,8 +957,40 @@ class ProfileStore(PersistentStore):
         entry = entry or {}
         entry.update({"page": page, "total": total, "finished": finished,
                       "ts": time.time()})   # horodatage : sert a la rangee "Reprendre"
+        # lue ici : plus une progression venue d'un autre appareil (reprise)
+        entry.pop("device", None)
+        entry.pop("before", None)
         self.progress[key] = entry
         self._schedule("progress", key)
+        self._notify("progress", key, dict(entry))
+
+    def progress_entry(self, path: str):
+        """Copie de l'entree de progression (page, total, finished, ts et,
+        venue d'un autre appareil, device et before), ou None."""
+        entry, _ = self._progress_entry(path)
+        return dict(entry) if entry else None
+
+    def apply_remote_progress(self, key: str, page: int, total: int, finished: bool,
+                              ts: float, device: str = "", before=None):
+        """Progression lue sur un autre appareil (synchronisation), sans la
+        renvoyer au serveur. `device` : cet appareil-la ; `before` : page lue
+        ici avant cette reprise (bandeau « Revenir page 40 »), ou None."""
+        entry = dict(self.progress.get(key) or {})
+        entry.update({"page": int(page), "total": int(total), "finished": bool(finished),
+                      "ts": float(ts)})
+        for name, value in (("device", device), ("before", before)):
+            if value is None or value == "":
+                entry.pop(name, None)
+            else:
+                entry[name] = value
+        self.progress[key] = entry
+        self._schedule("progress", key)
+
+    def forget_resume(self, path: str):
+        """Le bandeau de reprise a ete montre : il ne l'est plus pour ce tome."""
+        entry, key = self._progress_entry(path)
+        if entry and entry.pop("before", None) is not None:
+            self._schedule("progress", key)
 
     def progress_ts(self, path: str) -> float:
         """Date de derniere lecture (epoch) pour ce fichier, ou 0."""
@@ -943,8 +999,10 @@ class ProfileStore(PersistentStore):
 
     def remove_progress(self, path: str):
         key = self.key_for(path)
-        if self.progress.pop(key, self.progress.pop(path, None)) is not None:
+        removed = self.progress.pop(key, self.progress.pop(path, None))
+        if removed is not None:
             self._schedule("progress")
+            self._notify("progress", key, None)
 
     # ------------------------------------------------------------ appareil (statistiques par PC)
     def device_id(self) -> str:
@@ -980,6 +1038,11 @@ class ProfileStore(PersistentStore):
                 self._volume_paces_cache = None
         except Exception:
             logging.error("Seance de lecture non enregistree dans le journal", exc_info=True)
+            return
+        self._notify("journal", key, {
+            "day": (date or datetime.date.today()).isoformat(), "pages": max(0, int(pages)),
+            "seconds": round(max(0.0, float(seconds)), 1), "finished": bool(finished),
+            "title": title or "", "series": series or ""})
 
     # ------------------------------------------------------------ export du journal
     def export_reading_csv(self, path) -> int:
@@ -1038,8 +1101,23 @@ class ProfileStore(PersistentStore):
             if s.get("id") == server_id:
                 secret_store.discard(s.get("secret_enc"))
         self.settings["servers"] = [s for s in servers if s.get("id") != server_id]
+        self.settings.get("beheread_sync", {}).pop(server_id, None)
         self._schedule("settings")
         self.flush()
+
+    def sync_state(self, server_id) -> dict:
+        """Etat de la synchronisation avec un serveur Beheread (dictionnaire
+        vivant : file d'evenements, curseurs, appareil), voir
+        services/beheread_sync.py. Apres une modification : save_sync_state()."""
+        return self.settings.setdefault("beheread_sync", {}).setdefault(server_id, {})
+
+    def save_sync_state(self):
+        self._schedule("settings", "beheread_sync")
+
+    def apply_remote_removal(self, key: str):
+        """Progression effacee sur un autre appareil (synchronisation)."""
+        if self.progress.pop(key, None) is not None:
+            self._schedule("progress")
 
     # ------------------------------------------------------------ AniList (suivi)
     def cloud_sync(self) -> dict:

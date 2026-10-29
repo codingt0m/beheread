@@ -352,7 +352,12 @@ class Archive:
         # beheread.infra.servers)
         if cls is Archive and isinstance(path, str) and path.startswith("beheread-server:"):
             from beheread.infra import servers
-            return servers.registry.open(path)
+            opened = servers.registry.open(path)
+            if isinstance(opened, Archive):
+                # copie hors ligne, deja ouverte : Python rappellerait
+                # __init__ avec le chemin du serveur
+                opened._opened = True
+            return opened
         # tome virtuel : ses chapitres a la suite (VirtualArchive, meme interface)
         if cls is Archive and isinstance(path, str) and path.startswith("beheread-virtual:"):
             from beheread.infra import virtual
@@ -367,6 +372,8 @@ class Archive:
         return obj
 
     def __init__(self, path: str):
+        if self.__dict__.pop("_opened", False):
+            return   # voir __new__ (copie hors ligne d'un tome de serveur)
         self.path = path
         self._lock = threading.Lock()
         self.closed = False
@@ -755,6 +762,8 @@ class PdfArchive(Archive):
     prechargement."""
 
     def __init__(self, path: str):
+        if self.__dict__.pop("_opened", False):
+            return   # voir Archive.__new__
         self.path = path
         self._lock = threading.Lock()
         self.closed = False

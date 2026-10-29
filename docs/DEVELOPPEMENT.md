@@ -12,7 +12,7 @@ pip install -r requirements-dev.txt      # + tests, vérification du code, const
 python -m beheread                       # lancer l'application
 ```
 
-`requirements.txt` installe PySide6 (interface graphique ; son module QtPdf assure la lecture des PDF), rarfile (lecture des RAR), send2trash (corbeille de Windows) et, sous macOS seulement, keyring (Trousseau). En développement, `UnRAR.exe` (ou `unrar` sous macOS) se dépose à la racine du projet. Si l'application ne se lance pas, vérifier `python --version` et réinstaller les dépendances.
+`requirements.txt` installe PySide6 (interface graphique ; son module QtPdf assure la lecture des PDF), rarfile (lecture des RAR), send2trash (corbeille de Windows), segno (QR code « Ajouter un appareil ») et, sous macOS seulement, keyring (Trousseau). En développement, `UnRAR.exe` (ou `unrar` sous macOS) se dépose à la racine du projet. Si l'application ne se lance pas, vérifier `python --version` et réinstaller les dépendances.
 
 ## Construire l'application et l'installateur
 
