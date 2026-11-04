@@ -12,6 +12,8 @@ Un serveur Beheread a sa propre synchronisation, toujours active
 (cross-progression : voir beheread_sync.py), et son cache hors ligne (voir
 offline_files.py). Sa derniere liste est gardee sur le disque : ses tomes
 restent dans la bibliotheque, et ceux du cache lisibles, sans connexion.
+Chaque liste apporte aussi les corrections de bibliotheque de
+l'administrateur, recopiees ici (voir infra/shared_library.py).
 """
 
 import json
@@ -21,7 +23,7 @@ import os
 from PySide6.QtCore import QThreadPool, Signal
 
 from beheread.i18n import tr
-from beheread.infra import servers
+from beheread.infra import servers, shared_library
 from beheread.infra.servers import ServerConfig, ServerError, UpdateRequired
 from beheread.services.beheread_sync import BeheReadSync
 from beheread.services.jobs import JobRunner
@@ -49,6 +51,7 @@ class ServerManager(Tracker):
         self._fetching = set()
         self._syncs = {}        # serveur Beheread -> BeheReadSync
         self.offline = None     # OfflineFiles, des qu'un serveur Beheread est configure
+        self.shared_skip = None  # (section, cle) -> bool : voir _apply_shared
         self.reload()
 
     # ----- configuration
@@ -199,9 +202,25 @@ class ServerManager(Tracker):
             self._remember_meta(book)
         if server_id in self._syncs:
             self._save_listing(client)   # la progression : par la synchronisation
+            self._apply_shared(server_id, client)
         elif self.sync_enabled():
             self._merge_progress(books)
         self.listed.emit(server_id, books, "")
+
+    def _apply_shared(self, server_id, client):
+        """Corrections de bibliotheque du serveur Beheread (series, tomes
+        virtuels, metadonnees, couvertures) recopiees ici : le serveur fait
+        foi (voir infra/shared_library.py). `shared_skip(section, cle)`,
+        pose par Beheread Admin, garde ses corrections pas encore envoyees."""
+        library = (getattr(client, "last_listing", None) or (None,))[0]
+        shared = library.get("shared") if isinstance(library, dict) else None
+        if not isinstance(shared, dict):
+            return
+        try:
+            shared_library.apply(self.store, server_id, shared, self.shared_skip)
+        except Exception:
+            logging.warning("Donnees de bibliotheque du serveur %s non reprises", server_id,
+                            exc_info=True)
 
     def _remember_meta(self, book):
         """Auteur et annee donnes par le serveur, ranges comme les

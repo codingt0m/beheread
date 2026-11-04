@@ -20,14 +20,17 @@ from beheread.version import __version__  # noqa: E402
 
 MACOS = sys.platform == 'darwin'
 
-# module local facultatif (absent du depot) : charge dynamiquement par app.py,
-# donc invisible pour l'analyse de PyInstaller. Inclus quand il est present.
+# modules locaux facultatifs (absents du depot) : charges dynamiquement (par
+# app.py, puis par le premier), donc invisibles pour l'analyse de
+# PyInstaller. Inclus quand ils sont presents.
 from pathlib import Path  # noqa: E402
 
 from PyInstaller.utils.hooks import collect_submodules  # noqa: E402
 
-_LOCAL = (collect_submodules('beheread.perso')
-          if (Path(SPECPATH) / 'beheread' / 'perso' / '__init__.py').exists() else [])
+_LOCAL = []
+for _package in ('beheread.perso', 'beheread.server.admin_ui'):
+    if (Path(SPECPATH).joinpath(*_package.split('.')) / '__init__.py').exists():
+        _LOCAL += collect_submodules(_package)
 
 # Composants que les hooks PySide6 embarquent d'office et que Beheread (Qt
 # Widgets, QtPdf, QtNetwork) ne charge jamais - environ 45 Mo :
