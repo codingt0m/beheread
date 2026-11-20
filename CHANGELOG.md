@@ -13,14 +13,14 @@ Les numéros de version suivent [SemVer](https://semver.org/lang/fr/). Chaque se
 
 ### Serveur Beheread
 
-* Nouveau type de serveur de lecture, **Serveur Beheread** (Préférences › Serveurs › Ajouter) : on s'y connecte en collant le lien d'invitation reçu, ou le code affiché par « Ajouter un appareil » sur un autre appareil déjà connecté, sans mot de passe.
+* Nouveau type de serveur de lecture, **Serveur Beheread** (Préférences › Serveurs › Ajouter) : on s'y connecte en collant le lien ou le code d'appareil reçu (donné par le serveur à son premier lancement, ou par « Ajouter un appareil » sur un appareil déjà connecté), sans mot de passe.
 * Ses tomes rejoignent la bibliothèque, à côté des dossiers de l'ordinateur ; un tome présent des deux côtés n'apparaît qu'une fois. La progression, les statistiques et les réglages d'un tome sont les mêmes que ceux de sa copie locale.
 * La progression suit la lecture la plus récente, sur n'importe quel appareil, même si elle revient en arrière. Elle part vers le serveur **pendant** la lecture (toutes les 5 secondes) et arrive des autres appareils en quelques secondes. Sans connexion, elle attend sur ce PC et part au retour du réseau.
 * **Reprise** : un tome lu plus loin sur un autre appareil s'ouvre à cette page, avec un bandeau « Repris à la page 87, lue sur l'iPad · Revenir page 40 ». Un repère gris marque l'ancienne page sur la barre de position. Si le tome est déjà ouvert sans avoir été lu ici, il y saute de lui-même.
 * « Continuer la lecture » indique où un tome a été lu (« Page 87 · lu sur l'iPad »). Les séances des autres appareils du profil rejoignent les statistiques, chacune sous le nom de son appareil.
-* **Cache hors ligne** : les tomes du serveur en cours, le suivant et le précédent de chaque série sont gardés sur ce PC (5 Go au plus), pour les lire sans connexion. Rien n'est téléchargé sur une connexion facturée à l'usage. La liste du serveur est gardée elle aussi : ses tomes restent dans la bibliothèque hors ligne.
-* Une icône sur chaque couverture indique où se trouve le tome : sur ce PC, sur le serveur, ou du serveur et gardé hors ligne. Une légende en bas de la bibliothèque rappelle les trois icônes et l'espace occupé par le cache.
-* L'en-tête de la bibliothèque montre l'état du serveur et le profil connecté. Son menu propose **Ajouter un appareil** : un code et son QR code, valables 10 minutes, relient un autre appareil au même profil.
+* La liste du serveur est gardée sur ce PC : ses tomes restent dans la bibliothèque sans connexion.
+* Une icône sur chaque couverture indique où se trouve le tome : sur ce PC ou sur le serveur. Une légende en bas de la bibliothèque rappelle les deux icônes.
+* L'en-tête de la bibliothèque montre l'état du serveur. Son menu propose **Ajouter un appareil** : un code et son QR code, valables 10 minutes, relient un autre appareil au même profil.
 * Les tomes du serveur sont en lecture seule : ni suppression, ni rangement, ni correction des informations depuis le desktop (c'est l'administrateur du serveur qui les gère).
 * Si le serveur demande une version plus récente de Beheread, une fenêtre le dit et mène au téléchargement. Les dossiers locaux restent lisibles en attendant.
 

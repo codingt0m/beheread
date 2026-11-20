@@ -801,39 +801,6 @@ class BeheReadClient(Client):
                 elif line.startswith("data:"):
                     data.append(line[5:].strip())
 
-    def download(self, book, dest, stop: Optional[threading.Event] = None) -> int:
-        """Telecharge le fichier d'origine dans `dest` (via un fichier
-        temporaire), verifie son empreinte, et renvoie sa taille. Leve
-        ServerError ; rien n'est laisse sur le disque en cas d'echec."""
-        from beheread.core import fingerprint
-        fp = book.ids["fp"]
-        dest = Path(dest)
-        part = dest.with_name(dest.name + ".part")
-        size = 0
-        head = b""
-        try:
-            with self.http.open(f"/api/v1/volumes/{_q(fp)}/file", timeout=60) as resp, \
-                    open(part, "wb") as out:
-                while True:
-                    if stop is not None and stop.is_set():
-                        raise ServerError(tr("Téléchargement interrompu."))
-                    try:
-                        chunk = resp.read(self.CHUNK)
-                    except (OSError, ValueError) as e:
-                        raise ServerError(tr("Serveur injoignable : {reason}", reason=e)) from e
-                    if not chunk:
-                        break
-                    if len(head) < fingerprint.HEAD_BYTES:
-                        head += chunk[:fingerprint.HEAD_BYTES - len(head)]
-                    out.write(chunk)
-                    size += len(chunk)
-            if fingerprint.content_fingerprint(size, head) != fp:
-                raise ServerError(tr("Fichier reçu incomplet ou différent du tome attendu."))
-            part.replace(dest)
-        except BaseException:
-            part.unlink(missing_ok=True)
-            raise
-        return size
 
 
 def _version_tuple(text):
@@ -996,9 +963,6 @@ class Registry:
         self._clients = {}
         self._books = {}
         self._files = OrderedDict()
-        # copie hors ligne d'un tome de serveur Beheread : chemin -> fichier
-        # local ou None (voir services/offline_files.py)
-        self.local_copy = None
 
     def set_clients(self, clients: dict):
         with self._lock:
@@ -1054,15 +1018,8 @@ class Registry:
                 self._files.popitem(last=False)
 
     def open(self, path):
-        """RemoteArchive du tome, ou Archive de sa copie hors ligne."""
+        """RemoteArchive du tome."""
         book, client, data = self._parts(path)
-        local = self.local_copy(path) if self.local_copy is not None else None
-        if local:
-            try:
-                return Archive(local)
-            except ArchiveError:
-                logging.warning("Copie hors ligne illisible, lecture depuis le serveur : %s",
-                                book.title)
         if not book.pages and getattr(client, "streams", False):
             try:
                 book.pages = client.page_count(book)

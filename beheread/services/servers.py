@@ -9,9 +9,8 @@ envoyee a son serveur a la fin de chaque seance ; a chaque liste, celle du
 serveur est reprise quand elle est plus avancee (lue sur un autre appareil).
 
 Un serveur Beheread a sa propre synchronisation, toujours active
-(cross-progression : voir beheread_sync.py), et son cache hors ligne (voir
-offline_files.py). Sa derniere liste est gardee sur le disque : ses tomes
-restent dans la bibliotheque, et ceux du cache lisibles, sans connexion.
+(cross-progression : voir beheread_sync.py). Sa derniere liste est gardee
+sur le disque : ses tomes restent dans la bibliotheque sans connexion.
 Chaque liste apporte aussi les corrections de bibliotheque de
 l'administrateur, recopiees ici (voir infra/shared_library.py).
 """
@@ -50,7 +49,6 @@ class ServerManager(Tracker):
         self._errors = {}       # serveur -> message de la derniere erreur
         self._fetching = set()
         self._syncs = {}        # serveur Beheread -> BeheReadSync
-        self.offline = None     # OfflineFiles, des qu'un serveur Beheread est configure
         self.shared_skip = None  # (section, cle) -> bool : voir _apply_shared
         self.reload()
 
@@ -89,15 +87,12 @@ class ServerManager(Tracker):
         self.changed.emit()
 
     def _reload_beheread(self, clients):
-        """Synchronisation et cache hors ligne des serveurs Beheread."""
+        """Synchronisation des serveurs Beheread."""
         for sync in self._syncs.values():
             sync.stop()
             sync.deleteLater()
         self._syncs = {}
         beheread = {sid: c for sid, c in clients.items() if c.config.kind == "beheread"}
-        if beheread and self.offline is None:
-            from beheread.services.offline_files import OfflineFiles
-            self.offline = OfflineFiles(self.store, self)
         for sid, client in beheread.items():
             if sid not in self._books:
                 books = self._cached_books(client)
@@ -111,8 +106,6 @@ class ServerManager(Tracker):
             sync.journalChanged.connect(self.journalChanged)
             self._syncs[sid] = sync
             sync.start()
-        if not beheread and self.offline is not None:
-            self.offline.clear()   # serveur retire : ses fichiers aussi
 
     def sync(self, server_id):
         """BeheReadSync d'un serveur Beheread, ou None."""
@@ -259,8 +252,6 @@ class ServerManager(Tracker):
         self._push(path)
         for sync in self._syncs.values():
             sync.flush_now()   # fin de seance : sans attendre l'envoi groupe
-        if self.offline is not None:
-            self.offline.schedule()   # tome suivant a garder hors ligne
 
     def flush_pending(self):
         for sync in self._syncs.values():
@@ -270,8 +261,6 @@ class ServerManager(Tracker):
         """Fermeture de l'application : flux arretes (la file reste en base)."""
         for sync in self._syncs.values():
             sync.stop()
-        if self.offline is not None:
-            self.offline.shutdown()
 
     def _push(self, path):
         if not servers.is_remote(path) or not self.sync_enabled():

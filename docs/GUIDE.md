@@ -157,14 +157,13 @@ Beheread peut lire les tomes de votre serveur personnel **sans les copier sur vo
 
 ### Serveur Beheread
 
-Un serveur Beheread partage une bibliothèque avec quelques proches : chacun y a son **profil**, et retrouve sa page sur tous ses appareils (ce PC, un autre ordinateur, une tablette ou un téléphone par Beheread Web).
+Un serveur Beheread garde une bibliothèque et votre progression, et vous retrouvez votre page sur tous vos appareils (ce PC, un autre ordinateur, une tablette ou un téléphone par Beheread Web).
 
-* **Se connecter** : *Ajouter…*, type « Serveur Beheread », puis collez le **lien d'invitation** reçu. Depuis un appareil déjà connecté, *Ajouter un appareil* donne aussi un code de 8 caractères : collez-le avec l'adresse du serveur. Aucun mot de passe.
-* **Une seule bibliothèque** : les tomes du serveur rejoignent ceux de vos dossiers. Un tome présent des deux côtés n'apparaît qu'une fois, et s'ouvre depuis votre copie. Une icône sur la couverture dit où est le tome : sur ce PC (disque), sur le serveur (nuage), ou du serveur et gardé hors ligne (flèche verte). La légende en bas de la fenêtre indique l'espace utilisé par le cache.
+* **Se connecter** : *Ajouter…*, type « Serveur Beheread », puis collez le **lien** ou le **code de 8 caractères** reçu (avec l'adresse du serveur) : le serveur en donne un à son premier lancement, puis *Ajouter un appareil* sur un appareil déjà connecté. Un code ne sert qu'une fois. Aucun mot de passe.
+* **Une seule bibliothèque** : les tomes du serveur rejoignent ceux de vos dossiers. Un tome présent des deux côtés n'apparaît qu'une fois, et s'ouvre depuis votre copie. Une icône sur la couverture dit où est le tome : sur ce PC (disque) ou sur le serveur (nuage), rappelée par la légende en bas de la fenêtre.
 * **Progression partagée** : la page atteinte part vers le serveur pendant la lecture et arrive sur vos autres appareils en quelques secondes. La lecture la plus récente l'emporte. Un tome lu plus loin ailleurs s'ouvre à la bonne page, avec un bandeau pour revenir à celle d'ici ; un repère gris la marque sur la barre de position. Hors connexion, rien n'est perdu : tout part au retour du réseau.
-* **Statistiques** : vos séances sur les autres appareils du profil s'ajoutent à celles de ce PC, chacune sous le nom de son appareil.
-* **Hors ligne** : les tomes en cours, le suivant et le précédent de chaque série sont gardés sur ce PC (5 Go au plus), dans le dossier `offline` des données de Beheread. Rien n'est téléchargé sur une connexion facturée à l'usage (partage de connexion d'un téléphone). Un tome qui n'est plus utile est supprimé de ce cache.
-* **L'indicateur du serveur** (en haut à droite) montre l'état de la connexion et votre profil. Son menu : *Ajouter un appareil…* (code et QR code valables 10 minutes, avec la liste de vos appareils), *Actualiser*, *Préférences…*.
+* **Statistiques** : vos séances sur vos autres appareils s'ajoutent à celles de ce PC, chacune sous le nom de son appareil.
+* **L'indicateur du serveur** (en haut à droite) montre l'état de la connexion. Son menu : *Ajouter un appareil…* (code et QR code valables 10 minutes, avec la liste de vos appareils), *Actualiser*, *Préférences…*.
 * **Lecture seule** : les tomes du serveur ne se suppriment, ne se rangent et ne se corrigent pas d'ici ; l'administrateur du serveur s'en charge. Marquer lu, masquer de « Continuer la lecture » et associer à AniList restent possibles.
 * **Mise à jour** : quand le serveur demande une version plus récente de Beheread, une fenêtre le signale et mène au téléchargement. En attendant, vos dossiers restent lisibles et votre progression attend sur ce PC.
 

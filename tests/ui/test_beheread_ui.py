@@ -52,7 +52,7 @@ def test_library_shows_the_server_and_where_volumes_are(qtbot, store, mangas):
     qtbot.waitUntil(lambda: lib.server_pill.isVisible()
                     and "hors ligne" in lib._pill_text.text(), timeout=10000)
     assert lib.server_footer.isVisible()
-    assert "Cache hors ligne : 0,0 Go sur 5,0 Go" == lib._cache_label.text()
+    assert not hasattr(lib, "_cache_label")         # ASTRAL bis : plus de cache hors ligne
     qtbot.waitUntil(lambda: lib.list.count() > 0, timeout=10000)
     item = lib.list.item(0)
     assert item.data(ROLE_WHERE) == WHERE_LOCAL
