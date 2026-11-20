@@ -12,6 +12,7 @@ from PySide6.QtGui import (
     QDesktopServices,
     QIcon,
     QImage,
+    QKeySequence,
     QPainter,
     QPen,
     QPixmap,
@@ -28,6 +29,7 @@ from PySide6.QtWidgets import (
     QGridLayout,
     QGroupBox,
     QHBoxLayout,
+    QKeySequenceEdit,
     QLabel,
     QLineEdit,
     QListWidget,
@@ -48,16 +50,17 @@ from beheread.core import sync
 from beheread.i18n import N_, fmt_decimal, tr, trn
 from beheread.infra import anilist, archive
 from beheread.infra.anilist_auth import LocalAuthReceiver
-from beheread.ui import icons, style, theme
+from beheread.ui import icons, keys, style, theme
 from beheread.ui.flow import FlowLayout
 from beheread.ui.help_overlay import (
     LIBRARY_SHORTCUTS,
-    READER_SHORTCUTS,
+    reader_shortcuts,
     sections_css,
     sections_layout,
 )
 from beheread.ui.library.servers_ui import ServersTabMixin
 from beheread.ui.library.workers import CallWorker, PagesWorker, _FolderCountWorker
+from beheread.ui.reader import capture
 from beheread.ui.reader.constants import FIT_NAMES, normalize_fit
 from beheread.ui.safe_text import plain
 
@@ -76,6 +79,11 @@ class _ElidedPathLabel(QLabel):
 
     def minimumSizeHint(self):
         return QSize(0, super().minimumSizeHint().height())
+
+    def set_path(self, path):
+        self._full = path
+        self.setToolTip(plain(path))
+        self.setText(self.fontMetrics().elidedText(path, Qt.ElideMiddle, max(1, self.width())))
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
@@ -483,7 +491,9 @@ class PreferencesDialog(ServersTabMixin, QDialog):
         self._restyle()
         for combo in (self.theme, self.language, self.direction, self.fit):
             combo.currentIndexChanged.connect(self._changed)
+        self.capture_keys.editingFinished.connect(self._changed)
         for box in (self.double_page, self.ambilight, self.page_fade, self.boss_key,
+                    self.capture_clipboard, self.capture_save,
                     self.global_hotkey, self.babelio, self.online, self.check_updates,
                     self.tracking, self.servers_enabled, self.servers_sync):
             box.toggled.connect(self._changed)
@@ -544,6 +554,7 @@ class PreferencesDialog(ServersTabMixin, QDialog):
             QLabel#shortcutGroup {{ font-size: 15px; font-weight: 700; }}
             QLabel#syncPath {{ background: {c['panel']}; border: 1px solid {c['border']};
                                border-radius: 6px; padding: 5px 8px; font-size: 12px; }}
+            QKeySequenceEdit#captureKeys QLineEdit:focus {{ border: 1px solid {theme.ACCENT}; }}
             QLabel#syncPath[empty="true"] {{ color: {c['text_dim']}; font-style: italic; }}
             QLabel#syncWarning {{ color: {c['warning']}; background: {c['warning_bg']};
                                   border: 1px solid {c['warning_border']};
@@ -832,6 +843,8 @@ class PreferencesDialog(ServersTabMixin, QDialog):
         self.page_fade = self._switch(tr("Fondu entre les pages"), s.reader_pref("page_fade", True))
         v.addWidget(self._setting(tr("Fondu entre les pages"), self.page_fade))
 
+        self._capture_group(v)
+
         self._group(v, tr("Discrétion"))
         self.boss_key = self._switch(tr("Touche C : masquer la fenêtre du lecteur"),
                                      s.reader_pref("boss_key", True))
@@ -855,6 +868,70 @@ class PreferencesDialog(ServersTabMixin, QDialog):
                "titre du tome, à votre clic.")))
         v.addStretch(1)
         return page
+
+    def _capture_group(self, v):
+        """Capture d'une zone de la page dans le lecteur (voir
+        ui/reader/capture.py) : raccourci et destination."""
+        s = self.store
+        self._group(v, tr("Capture d'une zone"))
+        self.capture_keys = QKeySequenceEdit(capture.shortcut_sequence(s))
+        self.capture_keys.setObjectName("captureKeys")
+        self.capture_keys.setMaximumSequenceLength(1)
+        self.capture_keys.setClearButtonEnabled(True)
+        self.capture_keys.setFixedWidth(170)
+        reset_keys = QPushButton(tr("Par défaut"))
+        reset_keys.clicked.connect(self._reset_capture_keys)
+        v.addWidget(self._setting(
+            tr("Raccourci"), self._buttons(self.capture_keys, reset_keys),
+            tr("Dans le lecteur, tracez la zone à la souris. Vide : désactivé."),
+            tr("Cliquez dans le champ puis tapez la combinaison voulue ({key} par défaut). "
+               "La zone est prise dans le scan, à sa pleine résolution ; en double page, "
+               "une zone à cheval sur les deux pages donne une seule image. Un clic droit "
+               "prend toutes les pages affichées, {esc} annule.",
+               key=keys.label(capture.shortcut_label(capture.DEFAULT_SHORTCUT)),
+               esc=keys.label("Échap"))))
+        self.capture_clipboard = self._switch(tr("Copier dans le presse-papiers"),
+                                              s.reader_pref("capture_clipboard", True))
+        v.addWidget(self._setting(tr("Copier dans le presse-papiers"), self.capture_clipboard))
+        self.capture_save = self._switch(tr("Enregistrer dans un dossier"),
+                                         s.reader_pref("capture_save", True))
+        v.addWidget(self._setting(tr("Enregistrer dans un dossier"), self.capture_save,
+                                  tr("Une image PNG nommée d'après le tome et la page")))
+        self.capture_path = _ElidedPathLabel(capture.capture_dir(s))
+        self.capture_path.setObjectName("syncPath")
+        change = QPushButton(tr("Modifier…"))
+        change.clicked.connect(self._pick_capture_dir)
+        self.capture_dir_reset = QPushButton(tr("Par défaut"))
+        self.capture_dir_reset.clicked.connect(lambda: self._set_capture_dir(None))
+        self.capture_dir_reset.setEnabled(bool(s.reader_pref("capture_dir")))
+        path_row = QWidget()
+        pr = QHBoxLayout(path_row)
+        pr.setContentsMargins(0, 0, 0, 0)
+        pr.setSpacing(6)
+        pr.addWidget(self.capture_path, 1)
+        pr.addWidget(change)
+        pr.addWidget(self.capture_dir_reset)
+        self.capture_dir_row = self._setting(tr("Dossier des captures"), path_row, wide=True)
+        self.capture_dir_row.setEnabled(self.capture_save.isChecked())
+        self.capture_save.toggled.connect(self.capture_dir_row.setEnabled)
+        v.addWidget(self.capture_dir_row)
+
+    def _reset_capture_keys(self):
+        self.capture_keys.setKeySequence(
+            QKeySequence(capture.DEFAULT_SHORTCUT, QKeySequence.PortableText))
+        self._changed()
+
+    def _pick_capture_dir(self):
+        folder = QFileDialog.getExistingDirectory(
+            self, tr("Dossier des captures"), capture.capture_dir(self.store))
+        if folder:
+            self._set_capture_dir(folder)
+
+    def _set_capture_dir(self, folder):
+        # None = dossier par defaut (Images/Beheread)
+        self.store.set_reader_pref("capture_dir", folder or None)
+        self.capture_path.set_path(capture.capture_dir(self.store))
+        self.capture_dir_reset.setEnabled(bool(folder))
 
     def _accounts_section(self):
         page, v = self._section(tr("Comptes et synchronisation"))
@@ -1060,7 +1137,9 @@ class PreferencesDialog(ServersTabMixin, QDialog):
         hv.setContentsMargins(0, 0, 10, 0)
         hv.setSpacing(12)
         for title, sections in ((tr("Dans la bibliothèque"), LIBRARY_SHORTCUTS),
-                                (tr("Dans le lecteur"), READER_SHORTCUTS)):
+                                (tr("Dans le lecteur"), reader_shortcuts(capture.shortcut_label(
+                                    self.store.reader_pref("capture_shortcut",
+                                                           capture.DEFAULT_SHORTCUT))))):
             head = QLabel(title)
             head.setObjectName("shortcutGroup")
             hv.addWidget(head)
@@ -1351,6 +1430,10 @@ class PreferencesDialog(ServersTabMixin, QDialog):
         s.set_reader_pref("ambilight", self.ambilight.isChecked())
         s.set_reader_pref("page_fade", self.page_fade.isChecked())
         s.set_reader_pref("boss_key", self.boss_key.isChecked())
+        s.set_reader_pref("capture_shortcut",
+                          self.capture_keys.keySequence().toString(QKeySequence.PortableText))
+        s.set_reader_pref("capture_clipboard", self.capture_clipboard.isChecked())
+        s.set_reader_pref("capture_save", self.capture_save.isChecked())
         s.set_reader_pref("babelio_button", self.babelio.isChecked())
         s.set_ui_pref("global_hotkey", self.global_hotkey.isChecked())
         s.set_ui_pref("check_updates", self.check_updates.isChecked())

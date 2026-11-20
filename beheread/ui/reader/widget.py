@@ -61,7 +61,8 @@ from beheread.infra import servers
 from beheread.infra.archive import Archive, find_next_volume
 from beheread.infra.storage import Store
 from beheread.ui import icons, theme
-from beheread.ui.help_overlay import READER_SHORTCUTS, ShortcutOverlay
+from beheread.ui.help_overlay import ShortcutOverlay, reader_shortcuts
+from beheread.ui.reader import capture
 from beheread.ui.reader.components import NextVolumeProbe, _PageSlider
 from beheread.ui.reader.constants import (
     CHROME_HIDE_MS,
@@ -81,7 +82,7 @@ from beheread.ui.reader.session import SessionMixin
 
 
 class ReaderWidget(HudMixin, EndCardMixin, DisplayMixin, InputMixin,
-                   SessionMixin, ResumeMixin, QWidget):
+                   SessionMixin, ResumeMixin, capture.CaptureMixin, QWidget):
     closed = Signal()
     next_volume_requested = Signal(str)
     volume_finished = Signal(str)   # ce tome vient de passer « termine »
@@ -259,7 +260,10 @@ class ReaderWidget(HudMixin, EndCardMixin, DisplayMixin, InputMixin,
         # reprise d'une lecture faite sur un autre appareil (serveur Beheread)
         self._build_resume_banner()
         # aide des raccourcis (F1 ou ?), par-dessus la page
-        self._help = ShortcutOverlay(READER_SHORTCUTS, self)
+        self._help = ShortcutOverlay(reader_shortcuts(capture.shortcut_label(
+            store.reader_pref("capture_shortcut", capture.DEFAULT_SHORTCUT))), self)
+        # capture d'une zone de la page (raccourci des preferences)
+        self._build_capture()
 
         # interface auto-masquable
         self._chrome_visible = True
@@ -343,6 +347,7 @@ class ReaderWidget(HudMixin, EndCardMixin, DisplayMixin, InputMixin,
         self._style_end_card(c)
         self._style_resume_banner(c)
         self._help.apply_colors(c)
+        self._capture_toast.apply_colors(c)
         self._update_ambient_target(animate=False)
         self.update()
 
@@ -527,6 +532,7 @@ class ReaderWidget(HudMixin, EndCardMixin, DisplayMixin, InputMixin,
             painter.setOpacity(1.0)
 
     def _draw_pages(self, painter):
+        self._placed_pages = []
         indices = self._current_indices()
         for i in indices:
             img = self.cache.get(i)
@@ -586,6 +592,11 @@ class ReaderWidget(HudMixin, EndCardMixin, DisplayMixin, InputMixin,
 
         dpr = self.devicePixelRatioF()
         frame = []
+        # position de chaque page a l'ecran, pour la capture d'une zone
+        px = x
+        for (i, crop, _sw, _sh), w in zip(items, widths, strict=True):
+            self._placed_pages.append((i, crop, QRectF(round(px), round(y), w, h)))
+            px += w
         for (i, crop, _sw, _sh), w in zip(items, widths, strict=True):
             # on met a l'echelle en pixels physiques (dpr) puis on indique ce
             # ratio au pixmap, sinon Qt re-etire une image deja sous-echantillonnee
@@ -625,6 +636,10 @@ class ReaderWidget(HudMixin, EndCardMixin, DisplayMixin, InputMixin,
         self._place_resume_banner()
         if self._help.isVisible():
             self._help.show_centered()
+        if self._capture_overlay.isVisible():
+            self._capture_overlay.setGeometry(self.rect())
+        if self._capture_toast.isVisible():
+            self._capture_toast.place()
         super().resizeEvent(event)
 
 

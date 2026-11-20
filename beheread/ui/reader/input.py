@@ -12,6 +12,7 @@ from PySide6.QtCore import (
 )
 
 from beheread import platforms
+from beheread.ui.reader import capture
 
 
 class InputMixin:
@@ -31,6 +32,9 @@ class InputMixin:
             self._help.hide()
             if key == Qt.Key_Escape:
                 return
+        if capture.matches(event, capture.shortcut_sequence(self.store)):
+            self.start_capture()
+            return
         # touche maintenue (auto-repeat) : on saute le fondu pour ne pas
         # empiler les transitions et effondrer les perfs en navigation rapide.
         animate = not event.isAutoRepeat()

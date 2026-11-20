@@ -17,7 +17,10 @@ from beheread.ui import keys, style, theme
 _GLOBAL_BOSS = ([("Ctrl + Alt + C", N_("Masquer / réafficher depuis n'importe où"))]
                 if platforms.GLOBAL_HOTKEY else [])
 
-READER_SHORTCUTS = [
+def reader_shortcuts(capture="Ctrl + Maj + S"):
+    """Raccourcis du lecteur ; `capture` : raccourci de capture choisi dans
+    les preferences, ecrit a la maniere de Windows (vide : desactive)."""
+    return [
     (N_("Navigation"), [
         ("↓ / Espace / Molette", N_("Page suivante (fait d'abord défiler une page plus haute que l'écran)")),
         ("↑ / Retour arrière", N_("Page précédente")),
@@ -42,11 +45,15 @@ READER_SHORTCUTS = [
     ]),
     (N_("Général"), [
         ("Échap", N_("Retour à la bibliothèque")),
+        *([(capture, N_("Capturer une zone de la page"))] if capture else []),
         ("C", N_("Masquer la fenêtre")),
         *_GLOBAL_BOSS,
         ("F1 / ?", N_("Afficher / masquer cette aide")),
     ]),
-]
+    ]
+
+
+READER_SHORTCUTS = reader_shortcuts()
 
 LIBRARY_SHORTCUTS = [
     (N_("Bibliothèque"), [
