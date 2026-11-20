@@ -38,6 +38,7 @@ def reader_shortcuts(capture="P"):
         ("F", N_("Ajustement : hauteur / largeur")),
         ("R", N_("Recadrage automatique des marges")),
         ("A", N_("Ambilight")),
+        ("U", N_("Upscaling des pages (si activé dans les préférences)")),
         ("+ / − / 0", N_("Zoom avant / arrière / réinitialiser")),
         ("Ctrl + Molette", N_("Zoom")),
         ("Glisser", N_("Déplacer une image plus grande que l'écran")),

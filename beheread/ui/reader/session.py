@@ -98,6 +98,7 @@ class SessionMixin:
         self._save_progress()
         self._forget_barely_started()
         self._record_session()
+        self._release_upscale()
         self.pages.shutdown()
         self.archive.close()
         self.session_ended.emit(self.path)

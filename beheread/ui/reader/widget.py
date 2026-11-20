@@ -13,6 +13,8 @@ Navigation :
   F : ajustement hauteur <-> largeur
   R : recadrage automatique des marges (rogne les bords vides du scan)
   A : activer/desactiver l'Ambilight (fond teinte par la couleur de la page)
+  U : upscaling des pages de la serie (si l'option est activee dans les
+      preferences, voir upscale.py)
   + / - : zoom, 0 : reinitialiser le zoom, Ctrl+molette : zoom
   F11 ou bouton en haut a droite : quitter / reprendre le plein ecran (le
       lecteur s'ouvre toujours en plein ecran)
@@ -79,10 +81,11 @@ from beheread.ui.reader.input import InputMixin
 from beheread.ui.reader.page_cache import PageCache
 from beheread.ui.reader.resume_banner import ResumeMixin
 from beheread.ui.reader.session import SessionMixin
+from beheread.ui.reader.upscale import UpscaleMixin
 
 
 class ReaderWidget(HudMixin, EndCardMixin, DisplayMixin, InputMixin,
-                   SessionMixin, ResumeMixin, capture.CaptureMixin, QWidget):
+                   SessionMixin, ResumeMixin, capture.CaptureMixin, UpscaleMixin, QWidget):
     closed = Signal()
     next_volume_requested = Signal(str)
     volume_finished = Signal(str)   # ce tome vient de passer « termine »
@@ -176,7 +179,7 @@ class ReaderWidget(HudMixin, EndCardMixin, DisplayMixin, InputMixin,
         self.cache = self.pages.images
         self.pool = QThreadPool.globalInstance()
 
-        self._scaled_cache = {}  # (index, w, h, crop) -> QPixmap deja mis a l'echelle
+        self._scaled_cache = {}  # (index, crop, w, h, amelioree) -> QPixmap deja mis a l'echelle
         self._scaled_order = []
         self._crop_cache = {}    # index -> QRect de contenu (recadrage marges) ou None
         # zoom en cours : apercu etire, puis rendu net a la fin du geste
@@ -276,6 +279,9 @@ class ReaderWidget(HudMixin, EndCardMixin, DisplayMixin, InputMixin,
         self._chrome_timer.setSingleShot(True)
         self._chrome_timer.timeout.connect(self._hide_chrome)
 
+        # upscaling des pages (option des preferences, bouton du HUD)
+        self._build_upscale()
+
         self.apply_theme()
         self._place_slider()
 
@@ -348,6 +354,8 @@ class ReaderWidget(HudMixin, EndCardMixin, DisplayMixin, InputMixin,
         self._preview.setStyleSheet(
             f"#pagePreview {{ background: {c['panel']}; color: {c['text_dim']};"
             f" border: 1px solid {c['border']}; border-radius: 6px; }}")
+        self._hud_text_color = QColor(c["text"])   # anneau de chargement du bouton Upscaling
+        self._upscale_badge.apply_colors(c)
         self._style_end_card(c)
         self._style_resume_banner(c)
         self._help.apply_colors(c)
@@ -459,6 +467,7 @@ class ReaderWidget(HudMixin, EndCardMixin, DisplayMixin, InputMixin,
         self.page_slider.setValue(self.page)
         if self.ambilight:
             self._update_ambient_target()
+        self._request_upscale()
         self._update_hud()
         self.update()
 
@@ -515,6 +524,10 @@ class ReaderWidget(HudMixin, EndCardMixin, DisplayMixin, InputMixin,
         if index in self._current_indices():
             if self.ambilight:
                 self._update_ambient_target()
+            # page decodee : on sait enfin si elle attend une version amelioree
+            if self._upscale_active():
+                self._refresh_upscale_indicator()
+                self._update_hud()
             self.update()
 
 
@@ -638,6 +651,8 @@ class ReaderWidget(HudMixin, EndCardMixin, DisplayMixin, InputMixin,
         self._place_corner_buttons()
         self._place_end_card()
         self._place_resume_banner()
+        if self._upscale_badge.isVisible():
+            self._upscale_badge.place()
         if self._help.isVisible():
             self._help.show_centered()
         if self._capture_overlay.isVisible():

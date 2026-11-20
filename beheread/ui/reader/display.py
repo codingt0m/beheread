@@ -181,7 +181,12 @@ class DisplayMixin:
         la taille cible, memorise par (index, recadrage, taille). Evite de
         refaire un rescale couteux a chaque frame (fondu, panoramique)."""
         crop_key = (crop.x(), crop.y(), crop.width(), crop.height()) if crop is not None else None
-        key = (index, crop_key, target_w, target_h)
+        # version amelioree (upscaling) si toute la vue l'est, sinon
+        # l'originale : `sharp` fait partie de la cle, une page vue nette
+        # dans une paire ne reste pas nette a cote d'une voisine pas prete
+        img, src_crop = self._display_source(index, crop)
+        sharp = img is not self.cache[index]
+        key = (index, crop_key, target_w, target_h, sharp)
         pm = self._scaled_cache.get(key)
         if pm is not None:
             return pm
@@ -189,11 +194,10 @@ class DisplayMixin:
             # zoom en cours (molette, +/-) : on reutilise la derniere mise a
             # l'echelle de cette page, etiree par le peintre ; la mise a
             # l'echelle de qualite est faite une fois le geste termine
-            for (i, ck, _w, _h), cached in reversed(self._scaled_cache.items()):
-                if i == index and ck == crop_key:
+            for (i, ck, _w, _h, sh), cached in reversed(self._scaled_cache.items()):
+                if i == index and ck == crop_key and sh == sharp:
                     return cached
-        img = self.cache[index]
-        src = img.copy(crop) if crop is not None else img
+        src = img.copy(src_crop) if src_crop is not None else img
         pm = QPixmap.fromImage(src).scaled(
             QSize(target_w, target_h), Qt.IgnoreAspectRatio, Qt.SmoothTransformation)
         pm.setDevicePixelRatio(dpr)

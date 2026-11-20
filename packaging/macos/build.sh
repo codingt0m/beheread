@@ -18,6 +18,9 @@ python3 -m ruff check .
 python3 -m mypy
 python3 -m pytest -q
 
+echo "=== Moteur d'upscaling (beheread/resources/upscaler) ==="
+python3 tools/fetch_upscaler.py macos
+
 echo "=== Application (dist/Beheread.app) ==="
 python3 -m PyInstaller beheread.spec --noconfirm
 APP=dist/Beheread.app

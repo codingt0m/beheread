@@ -71,6 +71,8 @@ class InputMixin:
             self.toggle_smart_crop()
         elif key == Qt.Key_A:
             self.toggle_ambilight()
+        elif key == Qt.Key_U:
+            self.toggle_upscale()
         elif key in (Qt.Key_Plus, Qt.Key_Equal):
             self._set_zoom(self.zoom * 1.15)
         elif key == Qt.Key_Minus:

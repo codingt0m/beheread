@@ -294,7 +294,8 @@ def test_reading_direction_stays_per_series(window, qtbot, mangas, store):
 def test_settings_bar_is_compact(window, qtbot, mangas, store):
     store.set_reader_pref("fit_mode", 0)       # ancien « fenetre » : fusionne avec la hauteur
     reader = _open(window, qtbot, make_cbz(mangas, "Alpha - Tome 1"))
-    labels = [b.text() for b in reader.hud_bar.findChildren(QPushButton)]
+    # (le bouton Upscaling n'apparait que si l'option est activee : test_upscale_ui)
+    labels = [b.text() for b in reader.hud_bar.findChildren(QPushButton) if not b.isHidden()]
     assert labels == ["Double page", "Manga", "Recadrage auto", "", "Décalage"]
 
     # ajustement : une icone (double fleche) sans libelle, deux etats

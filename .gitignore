@@ -7,6 +7,9 @@ __pycache__/
 build/
 dist/
 
+# Moteur d'upscaling, recupere au build par tools/fetch_upscaler.py
+beheread/resources/upscaler/
+
 # Reglages Claude Code locaux a la machine (permissions personnelles)
 .claude/settings.local.json
 

@@ -60,6 +60,7 @@ class HudMixin:
                 w.setVisible(True)
             self.page_slider.setVisible(self.total > 1)
             self.unsetCursor()
+            self._refresh_upscale_indicator()   # la pastille cede la place au bouton
         self._chrome_timer.start(CHROME_HIDE_MS)
 
     def _wake_chrome(self, pos) -> None:
@@ -86,6 +87,7 @@ class HudMixin:
             w.setVisible(False)
         self._hide_preview()
         self.setCursor(Qt.BlankCursor)
+        self._refresh_upscale_indicator()   # le bouton cede la place a la pastille
 
     # ------------------------------------------------------------ apercu au survol du slider
     PREVIEW_W, PREVIEW_H = 150, 210
@@ -217,6 +219,12 @@ class HudMixin:
             tr("Décalage"), self._shift_parity,
             tr("Décaler l'appairage des planches") + "   S",
             checkable=False, name="hudSel")
+        # bascule de l'upscaling (voir upscale.py) : presente seulement si
+        # l'option est activee dans les preferences
+        self.chip_upscale = chip(
+            tr("Upscaling"), self.toggle_upscale,
+            tr("Rendre les pages plus nettes") + "   U")
+        self.chip_upscale.setVisible(False)
 
     def _update_hud(self, extra=""):
         pages = self._current_indices()
@@ -236,6 +244,8 @@ class HudMixin:
             sub.append(remaining)
         if self.zoom != 1.0:
             sub.append(f"Zoom {int(self.zoom * 100)}%")
+        if self._upscale_waiting():
+            sub.append(tr("Amélioration de la page…"))
         if extra:
             sub.append(extra)
         self.hud_sub.setText("  ·  ".join(sub))
@@ -254,6 +264,7 @@ class HudMixin:
         # decalage : pertinent seulement en double page. Desactive (grise) au
         # lieu de masque, pour que la barre garde une largeur stable.
         self.chip_offset.setEnabled(self.double_page)
+        self._update_upscale_chip()
 
         self.hud_info.adjustSize()
         self.hud_bar.adjustSize()

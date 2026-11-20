@@ -24,13 +24,15 @@ La construction se fait sur le système visé : la version Windows sur un PC Win
 build.bat
 ```
 
-enchaîne la vérification du code (ruff) et des types (mypy), les tests, la construction de l'exécutable par PyInstaller (`beheread.spec`) et la compilation de l'installateur par Inno Setup (`installer\beheread.iss`, à installer une fois : `winget install JRSoftware.InnoSetup`). Résultats, dans `dist\` :
+enchaîne la vérification du code (ruff) et des types (mypy), les tests, la récupération du moteur d'upscaling (`toolsetch_upscaler.py`, voir plus bas), la construction de l'exécutable par PyInstaller (`beheread.spec`) et la compilation de l'installateur par Inno Setup (`installer\beheread.iss`, à installer une fois : `winget install JRSoftware.InnoSetup`). Résultats, dans `dist\` :
 * `Beheread\` : l'application en mode dossier (`Beheread.exe` + ses bibliothèques). Ce mode démarre immédiatement (rien à extraire à chaque lancement, contrairement à un exe unique) et déclenche beaucoup moins de faux positifs antivirus ;
 * `Beheread-Setup-<version>.exe` : l'installateur ;
 * `Beheread-<version>-windows-x64.zip` : le même dossier, pour un usage sans installation ;
 * `SHA256SUMS.txt` : les sommes de contrôle des deux fichiers précédents.
 
 `build_and_install.bat` fait la même chose puis installe et lance Beheread sur ce PC, sans demande d'élévation.
+
+**Moteur d'upscaling.** L'upscaling des pages (option des préférences) utilise Real-ESRGAN dans sa version ncnn + Vulkan (licence BSD-3, comme ncnn). `tools/fetch_upscaler.py` télécharge l'archive officielle (release v0.2.5.0), vérifie sa somme SHA-256 et n'en garde que l'exécutable, sa bibliothèque OpenMP (Windows), le modèle AnimeVideo v3 ×2 et les licences, dans `beheread/resources/upscaler/` (non versionné), d'où PyInstaller l'embarque : ~7,6 Mo sous Windows, ~28 Mo sous macOS. En développement, lancer `python tools/fetch_upscaler.py` une fois ; sans lui, l'option est indiquée « Indisponible ». Les tests utilisent un faux moteur.
 
 Limites : l'outil de décompression RAR n'est pas embarqué (voir [Lire les fichiers CBR](../README.md#lire-les-fichiers-cbr)). L'exe n'est pas signé numériquement : Windows SmartScreen peut afficher un avertissement au premier lancement de l'installateur.
 
@@ -40,7 +42,7 @@ Limites : l'outil de décompression RAR n'est pas embarqué (voir [Lire les fich
 bash packaging/macos/build.sh
 ```
 
-enchaîne la vérification du code, les tests, la construction de `dist/Beheread.app` par PyInstaller (le même `beheread.spec`, dont une branche produit l'application macOS), sa signature « ad hoc », une vérification de démarrage (l'application emballée est lancée avec `BEHEREAD_SMOKE_TEST=1`, dans un dossier personnel jetable, et doit se fermer d'elle-même après avoir créé sa base), puis l'image disque. Résultats, dans `dist/` :
+enchaîne la vérification du code, les tests, la récupération du moteur d'upscaling, la construction de `dist/Beheread.app` par PyInstaller (le même `beheread.spec`, dont une branche produit l'application macOS), sa signature « ad hoc », une vérification de démarrage (l'application emballée est lancée avec `BEHEREAD_SMOKE_TEST=1`, dans un dossier personnel jetable, et doit se fermer d'elle-même après avoir créé sa base), puis l'image disque. Résultats, dans `dist/` :
 * `Beheread.app` : l'application, pour Mac à puce Apple (arm64) ;
 * `Beheread-<version>-macos.dmg` : l'image disque à publier (l'application et un raccourci vers Applications) ;
 * `SHA256SUMS-macos.txt` : sa somme de contrôle.
@@ -85,7 +87,7 @@ beheread/
   version.py             Numéro de version (SemVer)
   i18n.py                Langue de l'interface : tr, trn (pluriels), N_, nombres
   locale/en.py           Traductions anglaises (le texte français sert de clé)
-  resources/             Icône
+  resources/             Icône ; upscaler/ (moteur d'upscaling, récupéré au build, non versionné)
   core/                  Logique pure, sans Qt ni accès disque/réseau, testée isolément
     models.py            Modèles typés (LibraryEntry, VolumeInfo, SeriesInfo)
     fingerprint.py       Empreinte de contenu d'un tome (identité indépendante du chemin)
@@ -102,6 +104,7 @@ beheread/
     backup.py            Sauvegarde (export, fusion à l'import)
     anilist_track.py     Règles du suivi AniList (uniquement des ajouts)
     barcode.py           Lecture d'un code-barres EAN-13 (ISBN) dans les lignes d'une image
+    upscale_plan.py      Upscaling : pages qui en ont besoin, taille gardée, ordre et lots de préparation
   platforms/             Tout ce qui dépend du système, derrière une seule interface (__init__.py)
     windows.py           DPAPI, raccourci global Ctrl+Alt+C, explorateur, outils RAR, fichiers cloud
     macos.py             Trousseau, Finder, Corbeille, bsdtar / 7-Zip, fichiers iCloud, masquage (touche C)
@@ -123,10 +126,12 @@ beheread/
     secret_store.py      Protection du jeton AniList (DPAPI, Trousseau : voir platforms)
     single_instance.py   Instance unique (verrou + canal local)
     applogging.py        Journal beheread.log
+    upscaler.py          Moteur d'upscaling (Real-ESRGAN ncnn-vulkan) : essai du GPU, lots de pages, cache disque
   services/
     tracking.py          Interface commune des services de suivi, diffusion des événements de lecture
     anilist_tracker.py   Suivi AniList : file d'attente, envois en fin de séance
     servers.py           Serveurs de lecture : clients actifs, listes des tomes, synchronisation de la progression
+    upscaling.py         Upscaling des pages du tome ouvert, en tâche de fond (thread, signaux)
   ui/
     theme.py, style.py (rayons, tailles, bouton principal communs), icons.py, help_overlay.py
     stats_view.py        Fenêtre des statistiques (assemblage du rapport)
@@ -154,6 +159,7 @@ beheread/
       widget.py          ReaderWidget : navigation, rendu
       page_cache.py      Pages décodées : préchargement et éviction
       display.py         Recadrage, planches doubles, Ambilight, fondu, zoom, sens de lecture
+      upscale.py         Upscaling : bouton du HUD, pages améliorées affichées, animation de chargement
       hud.py, end_card.py, input.py, session.py, imaging.py, components.py, constants.py
 tests/                   Tests pytest (logique, persistance, réseau simulé)
   ui/                    Tests d'interface (pytest-qt) : bibliothèque et lecteur
@@ -163,6 +169,7 @@ build.bat                Windows : vérification du code, tests, exe (mode dossi
 build_and_install.bat    build.bat puis installation et lancement sur ce PC
 packaging/macos/         macOS : build.sh (application, image disque), icon.icns
 tools/screenshots.py     Captures d'écran de l'interface sur une fausse bibliothèque
+tools/fetch_upscaler.py  Récupère le moteur d'upscaling (sommes SHA-256 vérifiées), lancé par les builds
 beheread.spec            Configuration PyInstaller (Windows et macOS)
 pyproject.toml           Configuration de ruff, de mypy et de pytest
 requirements.txt         Dépendances de l'application

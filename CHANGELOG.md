@@ -4,6 +4,13 @@ Les numéros de version suivent [SemVer](https://semver.org/lang/fr/). Chaque se
 
 ## [Non publié]
 
+### Lecteur
+
+* **Upscaling des pages** (*Préférences › Lecture › Amélioration des pages*, désactivé par défaut) : les scans de faible définition, que le lecteur devait agrandir et qui paraissaient flous sur un grand écran, sont rendus nets par Real-ESRGAN AnimeVideo v3, calculé sur la carte graphique (Vulkan). Les pages déjà assez grandes ne changent pas.
+* Une fois l'option activée, un bouton **Upscaling** (touche U) s'ajoute à la barre de réglages du lecteur. Il l'active ou non pour chaque série.
+* Les pages affichées passent en premier, les suivantes sont préparées pendant la lecture. Une page affichée avant d'être prête (ouverture, saut) s'affiche telle quelle puis devient nette en fondu, en 3 secondes environ (en double page, les deux pages passent nettes ensemble) ; en attendant, un anneau tourne dans le bouton (ou une pastille en bas à droite, HUD masqué).
+* Les pages améliorées sont gardées sur le disque (2 Go au plus) : relire un tome est instantané. Les préférences indiquent le GPU utilisé et la place prise, avec un bouton pour vider ce cache.
+
 ### Serveur Beheread
 
 * Nouveau type de serveur de lecture, **Serveur Beheread** (Préférences › Serveurs › Ajouter) : on s'y connecte en collant le lien d'invitation reçu, ou le code affiché par « Ajouter un appareil » sur un autre appareil déjà connecté, sans mot de passe.

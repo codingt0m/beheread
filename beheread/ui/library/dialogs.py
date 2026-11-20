@@ -48,7 +48,7 @@ from PySide6.QtWidgets import (
 from beheread import config, i18n, platforms
 from beheread.core import sync
 from beheread.i18n import N_, fmt_decimal, tr, trn
-from beheread.infra import anilist, archive
+from beheread.infra import anilist, archive, upscaler
 from beheread.infra.anilist_auth import LocalAuthReceiver
 from beheread.ui import icons, keys, style, theme
 from beheread.ui.flow import FlowLayout
@@ -492,7 +492,7 @@ class PreferencesDialog(ServersTabMixin, QDialog):
         for combo in (self.theme, self.language, self.direction, self.fit):
             combo.currentIndexChanged.connect(self._changed)
         self.capture_keys.editingFinished.connect(self._changed)
-        for box in (self.double_page, self.ambilight, self.page_fade, self.boss_key,
+        for box in (self.double_page, self.ambilight, self.page_fade, self.upscale, self.boss_key,
                     self.capture_clipboard, self.capture_save,
                     self.global_hotkey, self.babelio, self.online, self.check_updates,
                     self.tracking, self.servers_enabled, self.servers_sync):
@@ -842,6 +842,7 @@ class PreferencesDialog(ServersTabMixin, QDialog):
         self.page_fade = self._switch(tr("Fondu entre les pages"), s.reader_pref("page_fade", True))
         v.addWidget(self._setting(tr("Fondu entre les pages"), self.page_fade))
 
+        self._upscale_group(v)
         self._capture_group(v)
 
         self._group(v, tr("Discrétion"))
@@ -867,6 +868,97 @@ class PreferencesDialog(ServersTabMixin, QDialog):
                "titre du tome, à votre clic.")))
         v.addStretch(1)
         return page
+
+    def _upscale_group(self, v):
+        """Upscaling des pages (voir ui/reader/upscale.py) : desactive par
+        defaut ; active, le lecteur gagne le bouton « Upscaling » et les deux
+        lignes suivantes apparaissent (etat du moteur, cache disque)."""
+        s = self.store
+        self._group(v, tr("Amélioration des pages"))
+        self.upscale = self._switch(tr("Upscaling des pages"),
+                                    s.reader_pref("upscale_enabled", False))
+        v.addWidget(self._setting(
+            tr("Upscaling des pages"), self.upscale,
+            tr("Rend nettes les pages de faible définition. Les pages déjà assez grandes "
+               "ne changent pas. {key} dans le lecteur.", key="U"),
+            tr("Les pages plus petites que l'écran sont agrandies par {engine}, un modèle libre "
+               "entraîné sur le dessin animé, qui calcule sur la carte graphique (Vulkan). "
+               "Elles sont préparées pendant la lecture des précédentes ; une page affichée "
+               "avant d'être prête devient nette après quelques secondes. Le bouton "
+               "« Upscaling » du lecteur l'active ou non pour chaque série. Sur les trames "
+               "et les textures fines, le modèle redessine parfois la texture au lieu de la "
+               "reproduire.", engine=upscaler.ENGINE_NAME)))
+        self._upscale_status = QLabel()
+        self._upscale_status.setObjectName("upscaleStatus")
+        self._upscale_engine_hint = self._hint("")
+        self._upscale_engine_row = self._setting(tr("Moteur"), self._upscale_status,
+                                                 self._upscale_engine_hint)
+        v.addWidget(self._upscale_engine_row)
+        self._upscale_cache = upscaler.default_cache()
+        self._upscale_cache_hint = self._hint("")
+        clear = QPushButton(tr("Vider"))
+        clear.clicked.connect(self._clear_upscaled)
+        self._upscale_cache_row = self._setting(tr("Pages améliorées gardées sur le disque"),
+                                                clear, self._upscale_cache_hint)
+        v.addWidget(self._upscale_cache_row)
+        self._upscale_probe_call = None
+        self.upscale.toggled.connect(self._show_upscale_rows)
+        self._show_upscale_rows(self.upscale.isChecked())
+
+    def _show_upscale_rows(self, on):
+        self._upscale_engine_row.setVisible(on)
+        self._upscale_cache_row.setVisible(on)
+        if not on:
+            return
+        self._refresh_upscale_cache()
+        probe = upscaler.known_probe()
+        if probe is not None:
+            self._show_upscale_probe(probe)
+            return
+        self._set_upscale_status(tr("Vérification…"), "check")
+        self._upscale_engine_hint.setText(tr("Essai du moteur sur la carte graphique…"))
+        if self._upscale_probe_call is None:
+            # quelques secondes (pilote graphique) : hors du thread UI
+            self._upscale_probe_call = CallWorker(upscaler.cached_probe)
+            self._upscale_probe_call.signals.done.connect(self._on_upscale_probe)
+            QThreadPool.globalInstance().start(self._upscale_probe_call)
+
+    def _on_upscale_probe(self, probe, err):
+        self._upscale_probe_call = None
+        self._show_upscale_probe(probe if err is None else upscaler.Probe(False, reason="gpu"))
+
+    def _show_upscale_probe(self, probe):
+        if probe.ok:
+            self._set_upscale_status(tr("Prêt"), "on")
+            self._upscale_engine_hint.setText(
+                tr("{engine} sur {gpu}", engine=upscaler.ENGINE_NAME, gpu=probe.gpu)
+                if probe.gpu else upscaler.ENGINE_NAME)
+        elif probe.reason == "engine":
+            self._set_upscale_status(tr("Indisponible"), "warn")
+            self._upscale_engine_hint.setText(tr("Moteur d'upscaling absent de cette installation"))
+        else:
+            self._set_upscale_status(tr("Indisponible"), "warn")
+            self._upscale_engine_hint.setText(tr("Aucun GPU compatible (Vulkan)"))
+
+    def _set_upscale_status(self, text, state):
+        fg, bg = {"on": ("#8fe0a8", "#1f3a2a"), "warn": ("#f0b070", "#3d2c18")}.get(
+            state, (self.c["text_dim"], self.c["button"]))
+        self._upscale_status.setText(text)
+        self._upscale_status.setStyleSheet(
+            f"#upscaleStatus {{ color: {fg}; background: {bg}; border-radius: 10px;"
+            " padding: 3px 10px; font-weight: 600; }")
+
+    def _refresh_upscale_cache(self):
+        self._upscale_cache_hint.setText(
+            tr("{used} sur {limit} · les plus anciennes partent d'abord. Relire un tome est "
+               "instantané.", used=format_size(self._upscale_cache.size()),
+               limit=format_size(self._upscale_cache.limit)))
+
+    def _clear_upscaled(self):
+        """Vide le cache disque ; la ligne affiche aussitot la place liberee
+        (« 0 Ko sur 2 Go »). Les pages se recalculeront a la lecture."""
+        self._upscale_cache.clear()
+        self._refresh_upscale_cache()
 
     def _capture_group(self, v):
         """Capture d'une zone de la page dans le lecteur (voir
@@ -1427,6 +1519,7 @@ class PreferencesDialog(ServersTabMixin, QDialog):
         s.set_reader_pref("double_page", self.double_page.isChecked())
         s.set_reader_pref("ambilight", self.ambilight.isChecked())
         s.set_reader_pref("page_fade", self.page_fade.isChecked())
+        s.set_reader_pref("upscale_enabled", self.upscale.isChecked())
         s.set_reader_pref("boss_key", self.boss_key.isChecked())
         # raccourci d'origine : rien d'enregistre (il suivra un changement du defaut)
         keys_text = self.capture_keys.keySequence().toString(QKeySequence.PortableText)

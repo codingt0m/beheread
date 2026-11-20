@@ -33,6 +33,13 @@ if errorlevel 1 (
     exit /b 1
 )
 
+echo === Moteur d'upscaling (beheread\resources\upscaler) ===
+python tools\fetch_upscaler.py windows
+if errorlevel 1 (
+    echo Recuperation du moteur d'upscaling impossible : build annule.
+    exit /b 1
+)
+
 echo === Exe (dossier dist\Beheread) ===
 pyinstaller beheread.spec --noconfirm
 if errorlevel 1 (
