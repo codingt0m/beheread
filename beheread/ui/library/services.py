@@ -234,7 +234,7 @@ class ServicesMixin:
         for e in self._entries:
             info = self._info.get(e.path) or self._entry_info(e)
             library[info.status] = library.get(info.status, 0) + 1
-            titles[info.key] = info.title
+            titles[info.key] = self._display_title(e)   # comme dans la grille
             if info.series_key:
                 resolve[info.key] = (info.series_key,
                                      self._series_display_name.get(info.series_key, e.series))

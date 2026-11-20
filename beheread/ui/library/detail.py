@@ -110,17 +110,17 @@ class DetailPanel(QFrame):
         self._v = QVBoxLayout(host)
         self._v.setSizeConstraint(QLayout.SetNoConstraint)
         self._v.setContentsMargins(20, 20, 20, 20)
-        self._v.setSpacing(10)
+        self._v.setSpacing(8)
 
         # en-tete : petite couverture a gauche ; titre, auteur et annee,
         # genres a droite
         header = QHBoxLayout()
-        header.setSpacing(14)
+        header.setSpacing(12)
         self.cover = QLabel()
         self.cover.setAlignment(Qt.AlignTop | Qt.AlignHCenter)
         header.addWidget(self.cover, 0, Qt.AlignTop)
         names = QVBoxLayout()
-        names.setSpacing(6)
+        names.setSpacing(8)
         # titres, auteurs... viennent de sources non fiables : jamais lus
         # comme du HTML (voir beheread/ui/safe_text.py)
         self.title = QLabel()
@@ -158,7 +158,7 @@ class DetailPanel(QFrame):
 
         self.form = QFormLayout()
         self.form.setHorizontalSpacing(12)
-        self.form.setVerticalSpacing(6)
+        self.form.setVerticalSpacing(8)
         self.form.setLabelAlignment(Qt.AlignLeft)
         self._v.addLayout(self.form)
 
@@ -166,7 +166,7 @@ class DetailPanel(QFrame):
         self.notice = QFrame()
         self.notice.setObjectName("detailNotice")
         nv = QVBoxLayout(self.notice)
-        nv.setContentsMargins(12, 10, 12, 10)
+        nv.setContentsMargins(12, 8, 12, 8)
         nv.setSpacing(8)
         self.notice_text = QLabel()
         self.notice_text.setObjectName("detailNoticeText")
@@ -183,8 +183,8 @@ class DetailPanel(QFrame):
         self._v.addWidget(self.notice)
 
         self._actions_box = QVBoxLayout()
-        self._actions_box.setSpacing(6)
-        self._v.addSpacing(6)
+        self._actions_box.setSpacing(8)
+        self._v.addSpacing(8)
         self._v.addLayout(self._actions_box)
         self._v.addStretch(1)
 
@@ -280,7 +280,7 @@ class DetailPanel(QFrame):
             host = QWidget()
             row = QHBoxLayout(host)
             row.setContentsMargins(0, 0, 0, 0)
-            row.setSpacing(6)
+            row.setSpacing(8)
             for b in buttons:
                 # marges internes plus etroites (feuille de style) ; la place
                 # se partage selon la longueur des libelles
@@ -376,7 +376,7 @@ class DetailPanel(QFrame):
         self.setStyleSheet(f"""
             #detailPanel {{ background: {c['panel']}; border-left: 1px solid {c['border']}; }}
             #detailScroll, #detailHost {{ background: {c['panel']}; border: none; }}
-            #detailTitle {{ color: {c['text']}; font-size: 17px; font-weight: 700; }}
+            #detailTitle {{ color: {c['text']}; font-size: 17px; font-weight: 600; }}
             #detailSub {{ color: {c['text_dim']}; font-size: 13px; }}
             #detailKey {{ color: {c['text_dim']}; font-size: 12px; }}
             #detailVal {{ color: {c['text']}; font-size: 12px; }}
@@ -393,18 +393,18 @@ class DetailPanel(QFrame):
             QPushButton#detailAction {{
                 color: {c['text']}; background: {c['button']};
                 border: 1px solid {c['border']}; border-radius: 8px;
-                padding: 6px 6px; font-size: 12px;
+                padding: 8px 8px; font-size: 12px;
             }}
             QPushButton#detailAction:hover {{ background: {c['button_hover']}; }}
             QPushButton#detailMore {{
                 color: {c['text']}; background: {c['button']};
                 border: 1px solid {c['border']}; border-radius: 8px;
-                padding: 2px 0 5px 0; font-size: 18px; font-weight: 700;
+                padding: 2px 0 4px 0; font-size: 18px; font-weight: 600;
             }}
             QPushButton#detailMore:hover {{ background: {c['button_hover']}; }}
             QPushButton:focus {{ border: 2px solid {c['text']}; }}
             {style.primary_button("QPushButton#detailPrimary",
-                                  "border-radius: 8px; padding: 8px 14px; font-size: 13px;")}
+                                  "border-radius: 8px; padding: 8px 12px; font-size: 13px;")}
             #detailNotice {{
                 background: {c['warning_bg']}; border: 1px solid {c['warning_border']};
                 border-radius: 8px;
@@ -413,7 +413,7 @@ class DetailPanel(QFrame):
             QPushButton#detailNoticeButton {{
                 color: {c['text']}; background: {c['button']};
                 border: 1px solid {c['text_dim']}; border-radius: 6px;
-                padding: 5px 12px; font-size: 12px;
+                padding: 4px 12px; font-size: 12px;
             }}
             QPushButton#detailNoticeButton:hover {{ background: {c['button_hover']}; }}
         """)

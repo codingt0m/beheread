@@ -21,7 +21,7 @@ class SeriesBand(QWidget):
         self.setObjectName("seriesBand")
         self.setAttribute(Qt.WA_StyledBackground, True)
         v = QVBoxLayout(self)
-        v.setContentsMargins(24, 14, 24, 6)
+        v.setContentsMargins(24, 12, 24, 8)
         v.setSpacing(12)
 
         top = QHBoxLayout()
@@ -77,7 +77,7 @@ class SeriesBand(QWidget):
     def apply_colors(self, c):
         self.setStyleSheet(f"""
             #seriesBand {{ background: {c['list_bg']}; }}
-            #bandName {{ color: {c['text']}; font-size: 18px; font-weight: 700; }}
+            #bandName {{ color: {c['text']}; font-size: 18px; font-weight: 600; }}
             #bandSub, #bandCount {{ color: {c['text_dim']}; font-size: 13px; }}
             #bandCount b {{ color: {c['text']}; }}
             QProgressBar#bandBar {{ background: {c['button']}; border: none; border-radius: 4px; }}

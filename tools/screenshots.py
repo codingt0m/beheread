@@ -154,7 +154,10 @@ def main(out: Path):
     # -- statistiques
     library = {"unread": 6, "reading": 2, "finished": 4, "remaining_pages": 48,
                "unknown_pages": 0}
-    stats = StatsDialog(store, library, "dark")
+    # titres des tomes tels que la grille les affiche (comme LibraryWidget.open_stats)
+    titles = {(lib._info.get(e.path) or lib._entry_info(e)).key: lib._display_title(e)
+              for e in lib._entries}
+    stats = StatsDialog(store, library, "dark", titles=titles)
     _offscreen(stats)
     grab(stats, "05-statistiques")
     stats.close()
@@ -162,7 +165,8 @@ def main(out: Path):
     # -- lecteur (dans un conteneur : pas de vrai plein ecran pendant la capture)
     host = QWidget()
     QVBoxLayout(host).setContentsMargins(0, 0, 0, 0)
-    reader = ReaderWidget(paths[("Berserk", 3)], store)
+    path = paths[("Berserk", 3)]
+    reader = ReaderWidget(path, store, entry=lib.entry(path), title=lib.display_title)
     host.layout().addWidget(reader)
     _offscreen(host)
     _wait(app, lambda: 0 in reader.cache and not reader.cache[0].isNull())

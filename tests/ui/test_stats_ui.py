@@ -58,8 +58,6 @@ def test_every_figure_follows_the_chosen_period(store, qtbot, mangas):
         "Tomes terminés : 1 - = identique - Dernier : Berserk - Tome 1, 27 sept.",
         "Jours de lecture : 3 sur 30 - ▲ 2"]
     assert dlg.tiles[0].toolTip() == ("35 min de plus que les 30 jours précédents (25 min).")
-    assert dlg.days_meter.ratio == 0.1
-    assert dlg.pages_spark.values[-1] == 40 and len(dlg.pages_spark.values) == 30
     assert len(dlg.time_chart.bars) == 30 and dlg.time_chart.bars[-1][1] == 1200
     # infobulle : la valeur d'abord, puis ce qui la situe
     assert dlg.time_chart.bars[-1][2] == "20 min\n27/09 · 40 pages · 1 tome terminé"

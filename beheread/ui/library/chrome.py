@@ -69,7 +69,7 @@ class ChromeMixin:
         self.header.setObjectName("headerBar")
         root = QHBoxLayout(self.header)
         root.setContentsMargins(16, 8, 16, 8)
-        root.setSpacing(6)
+        root.setSpacing(8)
         # trois zones : [identite] [recherche] [boutons]. Les deux zones
         # laterales recoivent toujours la meme largeur (voir _balance_header),
         # de sorte que la recherche soit exactement au centre de la fenetre,
@@ -77,7 +77,7 @@ class ChromeMixin:
         self._header_left = QWidget()
         hl = QHBoxLayout(self._header_left)
         hl.setContentsMargins(0, 0, 0, 0)
-        hl.setSpacing(6)
+        hl.setSpacing(8)
         root.addWidget(self._header_left, 1)
 
         # -- identite : logo + titre, cliquable pour revenir a la racine de
@@ -88,7 +88,7 @@ class ChromeMixin:
         self.home_btn.clicked.connect(self._go_home)
         home_layout = QHBoxLayout(self.home_btn)
         home_layout.setContentsMargins(0, 0, 0, 0)
-        home_layout.setSpacing(6)
+        home_layout.setSpacing(8)
 
         self.logo_label = QLabel()   # image posee par apply_theme (suit l'accent)
         self.title_label = QLabel()
@@ -109,14 +109,14 @@ class ChromeMixin:
         self.btn_back.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
         self.btn_back.clicked.connect(self._exit_series)
         self.btn_back.hide()
-        hl.addSpacing(6)
+        hl.addSpacing(8)
         hl.addWidget(self.btn_back)
         hl.addStretch(1)
 
         # -- recherche, exactement au centre
         self.search_edit = QLineEdit()
         self.search_edit.setObjectName("searchEdit")
-        self.search_edit.setPlaceholderText(tr("Rechercher un titre, une série ou un auteur…"))
+        self.search_edit.setPlaceholderText(tr("Rechercher"))
         self.search_edit.setClearButtonEnabled(True)
         self.search_edit.setAccessibleName(tr("Rechercher dans la bibliothèque"))
         # la police du Mac est un peu plus large : le texte d'invite y tient en 320 px
@@ -132,7 +132,7 @@ class ChromeMixin:
         self._header_right = QWidget()
         hl = QHBoxLayout(self._header_right)
         hl.setContentsMargins(0, 0, 0, 0)
-        hl.setSpacing(6)
+        hl.setSpacing(8)
         root.addWidget(self._header_right, 1)
         hl.addStretch(1)
 
@@ -368,8 +368,8 @@ class ChromeMixin:
         self.toolbar = QWidget()
         self.toolbar.setObjectName("toolBar")
         hl = QHBoxLayout(self.toolbar)
-        hl.setContentsMargins(20, 6, 20, 6)
-        hl.setSpacing(6)
+        hl.setContentsMargins(20, 8, 20, 8)
+        hl.setSpacing(8)
         # « Trier par » : nom accessible et info-bulle (la liste montre le tri)
         self.sort_combo = QComboBox()
         self.sort_combo.setObjectName("sortCombo")
@@ -380,7 +380,7 @@ class ChromeMixin:
         self.sort_combo.setCurrentIndex([k for k, _ in SORTS].index(self._sort))
         self.sort_combo.currentIndexChanged.connect(self._on_sort_changed)
         hl.addWidget(self.sort_combo)
-        hl.addSpacing(18)
+        hl.addSpacing(16)
         self.status_group = QButtonGroup(self)
         self.status_group.setExclusive(True)
         for key, label in STATUS_FILTERS:
@@ -400,7 +400,7 @@ class ChromeMixin:
         self.count_label = QLabel()
         self.count_label.setObjectName("tbCount")
         hl.addWidget(self.count_label)
-        hl.addSpacing(6)
+        hl.addSpacing(8)
         hl.addWidget(self._build_view_button())
         return self.toolbar
 
@@ -432,8 +432,8 @@ class ChromeMixin:
         # curseur de taille des couvertures (vue grille), dans le menu
         size_row = QWidget()
         row = QHBoxLayout(size_row)
-        row.setContentsMargins(26, 4, 14, 4)
-        row.setSpacing(10)
+        row.setContentsMargins(24, 4, 12, 4)
+        row.setSpacing(8)
         size_label = QLabel(tr("Taille"))
         size_label.setObjectName("viewSizeLabel")
         row.addWidget(size_label)
@@ -519,7 +519,7 @@ class ChromeMixin:
             QToolButton#viewBtn {{
                 color: {c['text']}; background: transparent;
                 border: 1px solid {c['border']}; border-radius: 12px;
-                padding: 3px 12px; font-size: 12px; font-weight: 600;
+                padding: 4px 12px; font-size: 12px; font-weight: 600;
             }}
             QToolButton#viewBtn:hover, QToolButton#viewBtn:pressed {{ background: {c['button']}; }}
             QToolButton#viewBtn:focus {{ border: 2px solid {theme.ACCENT}; }}
@@ -528,7 +528,7 @@ class ChromeMixin:
             QPushButton#statusChip {{
                 color: {c['text_dim']}; background: transparent;
                 border: 1px solid {c['border']}; border-radius: 12px;
-                padding: 3px 12px; font-size: 12px; font-weight: 600;
+                padding: 4px 12px; font-size: 12px; font-weight: 600;
                 /* 24 px de haut au moins : Qt n'arrondit pas un coin dont le
                    rayon depasse la moitie de la hauteur (cas des polices du Mac) */
                 min-height: 16px;
@@ -574,7 +574,7 @@ class ChromeMixin:
             #consentText {{ color: {c['text']}; font-size: 13px; }}
             QPushButton {{
                 color: {c['text']}; background: {c['button']};
-                border: 1px solid {c['border']}; border-radius: 8px; padding: 5px 14px;
+                border: 1px solid {c['border']}; border-radius: 8px; padding: 4px 12px;
             }}
             QPushButton:hover {{ background: {c['button_hover']}; }}
         """ + style.primary_button("QPushButton#consentYes"))
@@ -619,7 +619,7 @@ class ChromeMixin:
         self.update_banner = QFrame()
         self.update_banner.setObjectName("updateBanner")
         hl = QHBoxLayout(self.update_banner)
-        hl.setContentsMargins(20, 7, 20, 7)
+        hl.setContentsMargins(20, 8, 20, 8)
         hl.setSpacing(12)
         self.update_icon = QLabel()
         hl.addWidget(self.update_icon)
@@ -666,7 +666,7 @@ class ChromeMixin:
         self.consent.setObjectName("consent")
         hl = QHBoxLayout(self.consent)
         hl.setContentsMargins(20, 8, 20, 8)
-        hl.setSpacing(10)
+        hl.setSpacing(8)
         text = QLabel(tr("Beheread peut compléter l'auteur et l'année de vos mangas en "
                       "interrogeant Google Books, AniList, MangaDex et la BnF à partir du nom "
                       "des fichiers. Rien d'autre n'est envoyé."))
@@ -705,7 +705,7 @@ class ChromeMixin:
         self.empty_panel = QWidget()
         self.empty_panel.setObjectName("emptyPanel")
         v = QVBoxLayout(self.empty_panel)
-        v.setSpacing(10)
+        v.setSpacing(8)
         v.addStretch(1)
         self.empty_icon = QLabel()
         self.empty_icon.setAlignment(Qt.AlignCenter)
@@ -728,7 +728,7 @@ class ChromeMixin:
         row.addStretch(1)
         row.addWidget(self.empty_btn)
         row.addStretch(1)
-        v.addSpacing(6)
+        v.addSpacing(8)
         v.addLayout(row)
         v.addStretch(2)
         self.empty_panel.hide()
@@ -747,11 +747,11 @@ class ChromeMixin:
         self.empty_icon.setPixmap(icons.folder_plus(c["text_dim"]).pixmap(QSize(64, 64)))
         self.empty_panel.setStyleSheet(f"""
             #emptyPanel {{ background: {c['list_bg']}; }}
-            #emptyTitle {{ color: {c['text']}; font-size: 20px; font-weight: 700; }}
+            #emptyTitle {{ color: {c['text']}; font-size: 20px; font-weight: 600; }}
             #emptyText {{ color: {c['text_dim']}; font-size: 14px; }}
             QPushButton#emptyBtn:focus {{ border: 2px solid {c['text']}; }}
         """ + style.primary_button(
-            "QPushButton#emptyBtn", "border-radius: 8px; padding: 9px 20px; font-size: 14px;"))
+            "QPushButton#emptyBtn", "border-radius: 8px; padding: 8px 20px; font-size: 14px;"))
 
     def _add_folder_dialog(self):
         """Ajout direct d'un dossier source (etat vide du premier lancement),

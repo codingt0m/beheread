@@ -503,6 +503,12 @@ class LibraryWidget(ChromeMixin, DetailPanelMixin, ActionsMixin, MenusMixin,
         (fichier ouvert hors bibliotheque)."""
         return self._entry_by_path.get(path)
 
+    def display_title(self, path):
+        """Titre d'un tome tel que la grille l'affiche (« Berserk · Tome 3 »),
+        ou None s'il n'est pas dans la bibliotheque."""
+        e = self._entry_by_path.get(path)
+        return self._display_title(e) if e is not None else None
+
     def _set_entries(self, entries):
         """Entrees de la bibliotheque : les fichiers, plus les tomes virtuels
         composes de leurs chapitres (voir VirtualMixin._virtual_entries)."""

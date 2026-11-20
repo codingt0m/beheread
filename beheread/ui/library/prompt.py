@@ -30,14 +30,14 @@ class PromptDialog(QDialog):
         self._validate = validate
         self.setStyleSheet(_dialog_css(colors) + f"""
             QLabel#promptError {{ color: {colors['warning']}; font-size: 12px; }}
-            QLineEdit, QComboBox {{ padding: 5px 8px; }}
+            QLineEdit, QComboBox {{ padding: 4px 8px; }}
         """)
         root = QVBoxLayout(self)
-        root.setContentsMargins(22, 18, 22, 16)
-        root.setSpacing(10)
+        root.setContentsMargins(24, 16, 24, 16)
+        root.setSpacing(8)
         heading = QLabel(title)
         heading.setObjectName("promptTitle")
-        heading.setStyleSheet("font-size: 15px; font-weight: 700;")
+        heading.setStyleSheet("font-size: 15px; font-weight: 600;")
         root.addWidget(heading)
         prompt = QLabel(label)
         prompt.setTextFormat(Qt.PlainText)   # nom de serie ou de fichier : non fiable

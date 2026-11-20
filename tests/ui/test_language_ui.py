@@ -42,7 +42,7 @@ def test_library_and_preferences_are_built_in_english(qtbot, store):
     qtbot.addWidget(win)
     names = {b.accessibleName() for b in win.library.header.findChildren(QToolButton, "headerBtn")}
     assert names == {"Manage source folders", "Refresh", "Reading statistics", "Preferences"}
-    assert win.library.search_edit.placeholderText().startswith("Search for")
+    assert win.library.search_edit.placeholderText() == "Search"
 
     dlg = PreferencesDialog(store, theme.colors("dark"), {})
     qtbot.addWidget(dlg)

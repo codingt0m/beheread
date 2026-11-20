@@ -102,7 +102,7 @@ class SeriesStatsView(QWidget):
         self.report = None
         v = QVBoxLayout(self)
         v.setContentsMargins(0, 0, 0, 0)
-        v.setSpacing(14)
+        v.setSpacing(12)
 
         # --- chiffres cles
         self.tiles = [StatTile(tr("Temps passé")), StatTile(tr("Un tome vous prend")),
@@ -110,7 +110,7 @@ class SeriesStatsView(QWidget):
         tiles = QWidget()
         grid = QGridLayout(tiles)
         grid.setContentsMargins(0, 0, 0, 0)
-        grid.setSpacing(10)
+        grid.setSpacing(8)
         for i, tile in enumerate(self.tiles):
             grid.addWidget(tile, 0, i)
             grid.setColumnStretch(i, 1)
@@ -126,8 +126,8 @@ class SeriesStatsView(QWidget):
         self.shelf_card = QFrame()
         self.shelf_card.setObjectName("card")
         row = QHBoxLayout(self.shelf_card)
-        row.setContentsMargins(18, 14, 18, 10)
-        row.setSpacing(18)
+        row.setContentsMargins(16, 12, 16, 8)
+        row.setSpacing(16)
         row.addWidget(self.shelf_sum, 0, Qt.AlignTop)
         row.addWidget(self.shelf, 1)
         v.addWidget(self.shelf_card)
@@ -145,7 +145,7 @@ class SeriesStatsView(QWidget):
         self.journal_grid = QGridLayout(self.journal)
         self.journal_grid.setContentsMargins(0, 4, 0, 0)
         self.journal_grid.setHorizontalSpacing(12)
-        self.journal_grid.setVerticalSpacing(10)
+        self.journal_grid.setVerticalSpacing(8)
         self.journal_grid.setColumnStretch(2, 1)
         self.journal_card = ChartCard(tr("Carnet"), self.journal,
                                       [tr("Jour"), tr("Temps"), tr("Pages"), tr("Séances"),
@@ -153,12 +153,12 @@ class SeriesStatsView(QWidget):
         self.facts = QWidget()
         self.facts_grid = QGridLayout(self.facts)
         self.facts_grid.setContentsMargins(0, 4, 0, 0)
-        self.facts_grid.setHorizontalSpacing(14)
-        self.facts_grid.setVerticalSpacing(9)
+        self.facts_grid.setHorizontalSpacing(12)
+        self.facts_grid.setVerticalSpacing(8)
         self.facts_grid.setColumnStretch(1, 1)
         self.facts_card = ChartCard(tr("Repères"), self.facts)
         row = QHBoxLayout()
-        row.setSpacing(14)
+        row.setSpacing(12)
         row.addWidget(self.bars_card, 6)
         row.addWidget(self.journal_card, 5)
         row.addWidget(self.facts_card, 4)

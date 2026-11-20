@@ -120,8 +120,8 @@ class FolderManagerDialog(QDialog):
         self.setModal(True)
 
         root = QVBoxLayout(self)
-        root.setContentsMargins(24, 20, 24, 18)
-        root.setSpacing(14)
+        root.setContentsMargins(24, 20, 24, 16)
+        root.setSpacing(12)
 
         title = QLabel(tr("Ajouter des dossiers à votre bibliothèque"))
         title.setObjectName("fmTitle")
@@ -189,8 +189,8 @@ class FolderManagerDialog(QDialog):
         row = QFrame()
         row.setObjectName("fmRow")
         rl = QHBoxLayout(row)
-        rl.setContentsMargins(14, 8, 10, 8)
-        rl.setSpacing(10)
+        rl.setContentsMargins(12, 8, 8, 8)
+        rl.setSpacing(8)
 
         path_lbl = _ElidedPathLabel(folder)
         path_lbl.setObjectName("fmPath")
@@ -267,7 +267,7 @@ class FolderManagerDialog(QDialog):
             QLabel#fmTitle {{
                 color: {c['text']};
                 font-size: 15px;
-                font-weight: 700;
+                font-weight: 600;
             }}
             QLabel#fmEmpty {{ color: {c['text_dim']}; font-size: 13px; padding: 20px; }}
             QScrollArea#fmScroll {{ border: none; background: transparent; }}
@@ -299,7 +299,7 @@ class FolderManagerDialog(QDialog):
                 background: {c['button']};
                 border: 1px solid {c['border']};
                 border-radius: 8px;
-                padding: 8px 18px;
+                padding: 8px 16px;
                 font-size: 13px;
             }}
             QPushButton#fmCancel:hover {{ background: {c['button_hover']}; }}
@@ -308,9 +308,9 @@ class FolderManagerDialog(QDialog):
                 background: {theme.ACCENT};
                 border: none;
                 border-radius: 8px;
-                padding: 8px 18px;
+                padding: 8px 16px;
                 font-size: 13px;
-                font-weight: 700;
+                font-weight: 600;
             }}
             QPushButton#fmSave:hover {{ background: {theme.ACCENT_HOVER}; }}
         """)
@@ -324,22 +324,22 @@ def _dialog_css(c):
         QLabel {{ color: {c['text']}; }}
         QLabel#hint {{ color: {c['text_dim']}; font-size: 12px; }}
         QGroupBox {{
-            color: {c['text']}; font-weight: 700;
+            color: {c['text']}; font-weight: 600;
             border: 1px solid {c['border']}; border-radius: 8px;
-            margin-top: 14px; padding: 12px 12px 10px 12px;
+            margin-top: 14px; padding: 12px 12px 8px 12px;
         }}
         QGroupBox::title {{ subcontrol-origin: margin; left: 10px; padding: 0 4px; }}
         QCheckBox {{ color: {c['text']}; }}
         QPushButton {{
             color: {c['text']}; background: {c['button']};
-            border: 1px solid {c['border']}; border-radius: 8px; padding: 6px 14px;
+            border: 1px solid {c['border']}; border-radius: 8px; padding: 8px 12px;
         }}
         QPushButton:hover {{ background: {c['button_hover']}; }}
         QPushButton:focus {{ border: 2px solid {theme.ACCENT}; }}
         QPushButton:disabled {{ color: {c['text_disabled']}; background: transparent; }}
         QSpinBox {{
             color: {c['text']}; background: {c['panel']};
-            border: 1px solid {c['border']}; border-radius: {style.RADIUS_SM}px; padding: 3px 6px;
+            border: 1px solid {c['border']}; border-radius: {style.RADIUS_SM}px; padding: 4px 8px;
         }}
     """ + style.primary_button("QPushButton#primary")
 
@@ -449,7 +449,7 @@ class PreferencesDialog(ServersTabMixin, QDialog):
         side.setObjectName("prefSide")
         side.setFixedWidth(210)
         sv = QVBoxLayout(side)
-        sv.setContentsMargins(10, 14, 10, 12)
+        sv.setContentsMargins(8, 12, 8, 12)
         sv.setSpacing(4)
         self.nav = QListWidget()
         self.nav.setObjectName("prefNav")
@@ -478,7 +478,7 @@ class PreferencesDialog(ServersTabMixin, QDialog):
         foot = QWidget()
         foot.setObjectName("prefFoot")
         fh = QHBoxLayout(foot)
-        fh.setContentsMargins(18, 10, 18, 12)
+        fh.setContentsMargins(16, 8, 16, 12)
         fh.addWidget(self._hint(tr("Les modifications s'appliquent tout de suite.")), 1)
         close = QPushButton(tr("Fermer"))
         close.setObjectName("primary")
@@ -527,14 +527,13 @@ class PreferencesDialog(ServersTabMixin, QDialog):
             #prefFoot {{ border-top: 1px solid {c['border']}; }}
             QListWidget#prefNav {{ background: transparent; color: {c['text_dim']};
                                    font-size: 13px; outline: none; }}
-            QListWidget#prefNav::item {{ padding: 7px 10px; border-radius: 6px; }}
+            QListWidget#prefNav::item {{ padding: 8px 8px; border-radius: 6px; }}
             QListWidget#prefNav::item:hover {{ background: {c['button']}; }}
             QListWidget#prefNav::item:selected {{ background: {c['button_hover']};
                                                   color: {c['text']}; font-weight: 600; }}
             QScrollArea#tabScroll, #tabPage {{ background: {c['window']}; border: none; }}
-            QLabel#prefSection {{ font-size: 20px; font-weight: 700; }}
-            QLabel#prefGroup {{ color: {c['text_dim']}; font-size: 11px; font-weight: 700;
-                                letter-spacing: 1px; }}
+            QLabel#prefSection {{ font-size: 20px; font-weight: 600; }}
+            QLabel#prefGroup {{ color: {c['text_dim']}; font-size: 13px; font-weight: 600; }}
             #settingRow {{ border-bottom: 1px solid {c['border']}; }}
             QLabel#settingTitle {{ font-weight: 600; }}
             QPushButton#detailsLink {{ color: {theme.ACCENT}; background: transparent;
@@ -544,21 +543,21 @@ class PreferencesDialog(ServersTabMixin, QDialog):
             QPushButton#cardHead {{ background: transparent; border: none; border-radius: 8px;
                                     text-align: left; padding: 0; }}
             QPushButton#cardHead:hover {{ background: {c['button']}; }}
-            QLabel#cardTitle {{ font-weight: 700; }}
+            QLabel#cardTitle {{ font-weight: 600; }}
             QFrame#card QGroupBox {{ border: none; margin: 0; padding: 0; }}
             QToolButton#accentSwatch {{ background: transparent; border: none;
                                         border-radius: 15px; }}
             QToolButton#accentSwatch:focus {{ border: 1px solid {c['text_dim']}; }}
             QScrollArea#shortcutScroll, #shortcutHost {{ background: transparent; border: none; }}
-            QPushButton#chip {{ border-radius: 12px; padding: 3px 10px; background: {c['button']}; }}
-            QLabel#shortcutGroup {{ font-size: 15px; font-weight: 700; }}
+            QPushButton#chip {{ border-radius: 12px; padding: 4px 8px; background: {c['button']}; }}
+            QLabel#shortcutGroup {{ font-size: 15px; font-weight: 600; }}
             QLabel#syncPath {{ background: {c['panel']}; border: 1px solid {c['border']};
-                               border-radius: 6px; padding: 5px 8px; font-size: 12px; }}
+                               border-radius: 6px; padding: 4px 8px; font-size: 12px; }}
             QKeySequenceEdit#captureKeys QLineEdit:focus {{ border: 1px solid {theme.ACCENT}; }}
             QLabel#syncPath[empty="true"] {{ color: {c['text_dim']}; font-style: italic; }}
             QLabel#syncWarning {{ color: {c['warning']}; background: {c['warning_bg']};
                                   border: 1px solid {c['warning_border']};
-                                  border-radius: 6px; padding: 6px 10px; font-size: 12px; }}
+                                  border-radius: 6px; padding: 8px 8px; font-size: 12px; }}
         """ + sections_css(c))
         for sw in self.findChildren(_Switch):
             sw.colors = c
@@ -587,14 +586,14 @@ class PreferencesDialog(ServersTabMixin, QDialog):
         w = QWidget()
         v = QVBoxLayout(w)
         v.setContentsMargins(0, 0, 0, 0)
-        v.setSpacing(6)
+        v.setSpacing(8)
         return w, v
 
     @staticmethod
     def _section(title):
         page = QWidget()
         v = QVBoxLayout(page)
-        v.setContentsMargins(24, 18, 24, 18)
+        v.setContentsMargins(24, 16, 24, 16)
         v.setSpacing(0)
         head = QLabel(title)
         head.setObjectName("prefSection")
@@ -604,9 +603,9 @@ class PreferencesDialog(ServersTabMixin, QDialog):
 
     @staticmethod
     def _group(v, title):
-        """Intertitre d'une rubrique (« CONFIDENTIALITE »)."""
-        v.addSpacing(18)
-        head = QLabel(title.upper())
+        """Intertitre d'une rubrique (« Confidentialité »)."""
+        v.addSpacing(16)
+        head = QLabel(title)
         head.setObjectName("prefGroup")
         v.addWidget(head)
 
@@ -630,9 +629,9 @@ class PreferencesDialog(ServersTabMixin, QDialog):
         row.setObjectName("settingRow")
         row.setAttribute(Qt.WA_StyledBackground)
         g = QGridLayout(row)
-        g.setContentsMargins(0, 10, 0, 10)
-        g.setHorizontalSpacing(18)
-        g.setVerticalSpacing(3)
+        g.setContentsMargins(0, 8, 0, 8)
+        g.setHorizontalSpacing(16)
+        g.setVerticalSpacing(4)
         label = QLabel(title)
         label.setObjectName("settingTitle")
         label.setWordWrap(True)
@@ -686,7 +685,7 @@ class PreferencesDialog(ServersTabMixin, QDialog):
         host = QWidget()
         row = QHBoxLayout(host)
         row.setContentsMargins(0, 0, 0, 0)
-        row.setSpacing(6)
+        row.setSpacing(8)
         for b in buttons:
             row.addWidget(b)
         return host
@@ -711,8 +710,8 @@ class PreferencesDialog(ServersTabMixin, QDialog):
         head.setAccessibleName(title)
         head.setMinimumHeight(42)
         h = QHBoxLayout(head)
-        h.setContentsMargins(14, 8, 14, 8)
-        h.setSpacing(10)
+        h.setContentsMargins(12, 8, 12, 8)
+        h.setSpacing(8)
         dot = QLabel()
         dot.setFixedSize(8, 8)
         name = QLabel(title)
@@ -731,7 +730,7 @@ class PreferencesDialog(ServersTabMixin, QDialog):
         v.addWidget(head)
         holder = QWidget()
         hv = QVBoxLayout(holder)
-        hv.setContentsMargins(14, 0, 14, 12)
+        hv.setContentsMargins(12, 0, 12, 12)
         hv.addWidget(body)
         holder.hide()
         v.addWidget(holder)
@@ -907,7 +906,7 @@ class PreferencesDialog(ServersTabMixin, QDialog):
         path_row = QWidget()
         pr = QHBoxLayout(path_row)
         pr.setContentsMargins(0, 0, 0, 0)
-        pr.setSpacing(6)
+        pr.setSpacing(8)
         pr.addWidget(self.capture_path, 1)
         pr.addWidget(change)
         pr.addWidget(self.capture_dir_reset)
@@ -936,7 +935,7 @@ class PreferencesDialog(ServersTabMixin, QDialog):
     def _accounts_section(self):
         page, v = self._section(tr("Comptes et synchronisation"))
         v.addWidget(self._hint(tr("Connexions de Beheread à l'extérieur, une par carte.")))
-        v.addSpacing(10)
+        v.addSpacing(8)
         if self.cloud_sync is not None:
             group = self._sync_group()
             group.setTitle("")
@@ -1134,7 +1133,7 @@ class PreferencesDialog(ServersTabMixin, QDialog):
         host = QWidget()
         host.setObjectName("shortcutHost")
         hv = QVBoxLayout(host)
-        hv.setContentsMargins(0, 0, 10, 0)
+        hv.setContentsMargins(0, 0, 8, 0)
         hv.setSpacing(12)
         for title, sections in ((tr("Dans la bibliothèque"), LIBRARY_SHORTCUTS),
                                 (tr("Dans le lecteur"), reader_shortcuts(capture.shortcut_label(
@@ -1183,7 +1182,7 @@ class PreferencesDialog(ServersTabMixin, QDialog):
         self.sync_devices_grid = QGridLayout(self.sync_devices)
         self.sync_devices_grid.setContentsMargins(0, 0, 0, 0)
         self.sync_devices_grid.setHorizontalSpacing(12)
-        self.sync_devices_grid.setVerticalSpacing(3)
+        self.sync_devices_grid.setVerticalSpacing(4)
         gv.addWidget(self.sync_devices)
         self.sync_warning = QLabel()
         self.sync_warning.setObjectName("syncWarning")
@@ -1470,7 +1469,7 @@ class AniListLoginDialog(QDialog):
         if parent is not None:
             self.setStyleSheet(parent.styleSheet())
         v = QVBoxLayout(self)
-        v.setContentsMargins(22, 18, 22, 16)
+        v.setContentsMargins(24, 16, 24, 16)
         self.message = QLabel(tr("Autorisez Beheread dans la page AniList qui vient de s'ouvrir "
                                  "dans votre navigateur…"))
         # raison d'echec transmise par le navigateur : non fiable (voir ui/safe_text.py)
@@ -1577,11 +1576,11 @@ class EditInfoDialog(QDialog):
         self.setMinimumWidth(420)
         self.setStyleSheet(_dialog_css(colors))
         root = QVBoxLayout(self)
-        root.setContentsMargins(22, 18, 22, 16)
+        root.setContentsMargins(24, 16, 24, 16)
         title = QLabel(heading)
         title.setTextFormat(Qt.PlainText)   # nom de tome ou de serie
         title.setWordWrap(True)
-        title.setStyleSheet("font-size: 15px; font-weight: 700;")
+        title.setStyleSheet("font-size: 15px; font-weight: 600;")
         root.addWidget(title)
         f = QFormLayout()
         self.author = QLineEdit(author or "")
@@ -1649,21 +1648,21 @@ class UnreadableDialog(QDialog):
         self.setStyleSheet(_dialog_css(colors) + f"""
             QLabel#detail {{
                 color: {colors['text']}; background: {colors['panel']};
-                border: 1px solid {colors['border']}; border-radius: 6px; padding: 8px 10px;
+                border: 1px solid {colors['border']}; border-radius: 6px; padding: 8px 8px;
                 font-family: Consolas, 'Cascadia Mono', Menlo, monospace; font-size: 12px;
             }}""")
         root = QVBoxLayout(self)
-        root.setContentsMargins(22, 18, 22, 16)
-        root.setSpacing(10)
+        root.setContentsMargins(24, 16, 24, 16)
+        root.setSpacing(8)
         head = QHBoxLayout()
-        head.setSpacing(10)
+        head.setSpacing(8)
         icon = QLabel()
         icon.setPixmap(icons.warning(colors["warning"]).pixmap(20, 20))
         head.addWidget(icon, 0, Qt.AlignTop)
         heading = QLabel(tr("« {title} » ne peut pas être ouvert", title=title))
         heading.setTextFormat(Qt.PlainText)   # nom de fichier : non fiable
         heading.setWordWrap(True)
-        heading.setStyleSheet("font-size: 15px; font-weight: 700;")
+        heading.setStyleSheet("font-size: 15px; font-weight: 600;")
         head.addWidget(heading, 1)
         root.addLayout(head)
         reason = QLabel(explain_archive_error(message))
@@ -1741,12 +1740,12 @@ class CoverDialog(QDialog):
             QLabel#officialPreview {{ background: {colors['cover_placeholder']};
                                       border-radius: 4px; }}""")
         root = QVBoxLayout(self)
-        root.setContentsMargins(22, 18, 22, 16)
-        root.setSpacing(10)
+        root.setContentsMargins(24, 16, 24, 16)
+        root.setSpacing(8)
         heading = QLabel(tr("Couverture de « {title} »", title=title))
         heading.setTextFormat(Qt.PlainText)   # nom de fichier : non fiable
         heading.setWordWrap(True)
-        heading.setStyleSheet("font-size: 15px; font-weight: 700;")
+        heading.setStyleSheet("font-size: 15px; font-weight: 600;")
         root.addWidget(heading)
         root.addWidget(self._hint(
             tr("La couverture officielle, une page du tome, ou une image de votre ordinateur. "
@@ -1817,7 +1816,7 @@ class CoverDialog(QDialog):
         self.official_preview.setAlignment(Qt.AlignCenter)
         row.addWidget(self.official_preview)
         texts = QVBoxLayout()
-        texts.setSpacing(6)
+        texts.setSpacing(8)
         name = QLabel(tr("Couverture officielle"))
         name.setStyleSheet("font-size: 14px; font-weight: 600;")
         texts.addWidget(name)

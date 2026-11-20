@@ -67,10 +67,10 @@ class VirtualVolumeDialog(QDialog):
         self.setMinimumWidth(460)
         self.setStyleSheet(_dialog_css(colors))
         root = QVBoxLayout(self)
-        root.setContentsMargins(22, 18, 22, 16)
+        root.setContentsMargins(24, 16, 24, 16)
         root.setSpacing(12)
         heading = QLabel(tr("Tome virtuel") if editing else tr("Regrouper en tome"))
-        heading.setStyleSheet("font-size: 15px; font-weight: 700;")
+        heading.setStyleSheet("font-size: 15px; font-weight: 600;")
         root.addWidget(heading)
         intro = QLabel(f"{series_name} · {chapters_text}")
         intro.setTextFormat(Qt.PlainText)   # nom de serie : non fiable
@@ -108,11 +108,11 @@ class ChapterPickerDialog(QDialog):
             QListWidget {{ background: {colors['panel']}; color: {colors['text']};
                            border: 1px solid {colors['border']}; border-radius: 6px; }}""")
         root = QVBoxLayout(self)
-        root.setContentsMargins(22, 18, 22, 16)
-        root.setSpacing(10)
+        root.setContentsMargins(24, 16, 24, 16)
+        root.setSpacing(8)
         heading = QLabel(title)
         heading.setTextFormat(Qt.PlainText)
-        heading.setStyleSheet("font-size: 15px; font-weight: 700;")
+        heading.setStyleSheet("font-size: 15px; font-weight: 600;")
         root.addWidget(heading)
         root.addWidget(_hint(tr("Cochez les chapitres qui composent ce tome.")))
         self.list = QListWidget()
@@ -195,7 +195,7 @@ class VirtualMixin:
         bar = QFrame(self.list_host)
         bar.setObjectName("groupBar")
         row = QHBoxLayout(bar)
-        row.setContentsMargins(18, 8, 10, 8)
+        row.setContentsMargins(16, 8, 8, 8)
         row.setSpacing(12)
         self._group_bar_text = QLabel()
         self._group_bar_text.setTextFormat(Qt.PlainText)
@@ -237,7 +237,7 @@ class VirtualMixin:
                          border-radius: 8px; }}
             QLabel {{ color: {c['text']}; font-size: 14px; }}
             QPushButton {{ color: {c['text']}; background: transparent;
-                           border: 1px solid {c['border']}; border-radius: 6px; padding: 6px 14px; }}
+                           border: 1px solid {c['border']}; border-radius: 6px; padding: 8px 12px; }}
             """ + style.primary_button("QPushButton#primary"))
         bar.adjustSize()
         area = self.list_host.rect()

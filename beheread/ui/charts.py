@@ -101,82 +101,13 @@ def _small_font(widget) -> QFont:
 
 # ---------------------------------------------------------------- briques
 
-class Sparkline(QWidget):
-    """Mini-tendance d'une tuile : une barre par jour ou par mois, sans axe
-    ni valeur. Teinte de retrait, sauf la derniere barre (jour ou mois en
-    cours), dans la couleur de la mesure."""
-
-    HEIGHT = 26
-
-    def __init__(self, color, colors):
-        super().__init__()
-        self.values = []
-        self.color = QColor(color)
-        self.c = colors
-        self.setFixedHeight(self.HEIGHT)
-
-    def set_values(self, values):
-        self.values = list(values)
-        self.update()
-
-    def paintEvent(self, _event):
-        p = QPainter(self)
-        w, h = self.width(), self.height()
-        p.setPen(QPen(theme.qcolor(self.c["border"]), 1))
-        p.drawLine(QPoint(0, h - 1), QPoint(w, h - 1))
-        n = len(self.values)
-        peak = max(self.values, default=0)
-        if n and peak > 0:
-            slot = w / n
-            bw = max(1.0, min(8.0, slot - 1))
-            dim = QColor(self.c["text_dim"])
-            dim.setAlpha(120)
-            p.setPen(Qt.NoPen)
-            for i, value in enumerate(self.values):
-                if value <= 0:
-                    continue
-                bh = max(2.0, (h - 2) * value / peak)
-                p.setBrush(self.color if i == n - 1 else dim)
-                p.drawRect(QRectF(i * slot + (slot - bw) / 2, h - 1 - bh, bw, bh))
-        p.end()
-
-
-class Meter(QWidget):
-    """Jauge d'un ratio (jours de lecture sur jours de la periode) : la piste
-    est une nuance plus claire de la meme teinte."""
-
-    def __init__(self, color):
-        super().__init__()
-        self.color = QColor(color)
-        self.ratio = 0.0
-        self.setFixedHeight(Sparkline.HEIGHT)
-
-    def set_ratio(self, ratio):
-        self.ratio = max(0.0, min(1.0, float(ratio)))
-        self.update()
-
-    def paintEvent(self, _event):
-        p = QPainter(self)
-        p.setRenderHint(QPainter.Antialiasing)
-        track = QColor(self.color)
-        track.setAlpha(55)
-        bar = QRectF(0, self.height() - 9, self.width(), 6)
-        p.setPen(Qt.NoPen)
-        p.setBrush(track)
-        p.drawRoundedRect(bar, 3, 3)
-        if self.ratio > 0:
-            p.setBrush(self.color)
-            p.drawRoundedRect(QRectF(bar.left(), bar.top(), max(6.0, bar.width() * self.ratio),
-                                     bar.height()), 3, 3)
-        p.end()
-
-
 class StatTile(QFrame):
     """Chiffre cle : libelle, valeur, ecart a la periode precedente (`delta`,
-    court : la periode comparee est nommee une fois, en tete de fenetre),
-    mini-graphique (`viz`) et precision (`sub`). `hero` : chiffre principal."""
+    court : la periode comparee est nommee une fois, en tete de fenetre) et
+    precision (`sub`). `hero` : chiffre principal. Pas de mini-graphique : la
+    tendance se lit dans le graphique principal, juste en dessous."""
 
-    def __init__(self, label, viz=None, hero=False):
+    def __init__(self, label, hero=False):
         super().__init__()
         self.setObjectName("tile")
         self.label = label
@@ -196,8 +127,6 @@ class StatTile(QFrame):
         v.addWidget(self.value)
         v.addWidget(self.delta)
         v.addStretch(1)
-        if viz is not None:
-            v.addWidget(viz)
         v.addWidget(self.sub)
 
     def set_label(self, label):
@@ -904,8 +833,8 @@ class ChartCard(QFrame):
         super().__init__()
         self.setObjectName("card")
         v = QVBoxLayout(self)
-        v.setContentsMargins(18, 14, 18, 14)
-        v.setSpacing(6)
+        v.setContentsMargins(16, 12, 16, 12)
+        v.setSpacing(8)
         head = QHBoxLayout()
         self.title = QLabel(title)
         self.title.setObjectName("cardTitle")

@@ -213,7 +213,8 @@ class MainWindow(QMainWindow):
         try:
             reader = ReaderWidget(path, self.store, direct_mode=self.direct_mode,
                                   entry=self.library.entry(path),
-                                  next_volume=self.library.next_volume)
+                                  next_volume=self.library.next_volume,
+                                  title=self.library.display_title)
         except ArchiveError as e:
             logging.warning("Ouverture impossible (%s): %s", path, e)
             QMessageBox.warning(self, tr("Impossible d'ouvrir le manga"), plain(e))

@@ -7,7 +7,7 @@ from PySide6.QtWidgets import QFrame, QGridLayout, QHBoxLayout, QLabel, QVBoxLay
 
 from beheread import platforms
 from beheread.i18n import N_, tr
-from beheread.ui import keys, style, theme
+from beheread.ui import keys, style
 
 # (titre de section, [(touches, description)]) ; plusieurs touches separees
 # par " / " sont affichees comme des pastilles distinctes. Les touches sont
@@ -81,16 +81,16 @@ def sections_layout(sections, parent, vertical=False):
     """Sections de raccourcis cote a cote (carte flottante) ou empilees
     (vertical=True : onglet des preferences, plus etroit)."""
     box = QVBoxLayout() if vertical else QHBoxLayout()
-    box.setSpacing(18 if vertical else 36)
+    box.setSpacing(16 if vertical else 36)
     for name, rows in sections:
         col = QVBoxLayout()
         col.setSpacing(8)
-        head = QLabel(tr(name).upper(), parent)
+        head = QLabel(tr(name), parent)
         head.setObjectName("helpSection")
         col.addWidget(head)
         grid = QGridLayout()
-        grid.setHorizontalSpacing(14)
-        grid.setVerticalSpacing(6)
+        grid.setHorizontalSpacing(16)
+        grid.setVerticalSpacing(8)
         if vertical:
             # descriptions alignees d'une section a l'autre, sur toute la largeur restante
             grid.setColumnMinimumWidth(0, 200)
@@ -103,12 +103,17 @@ def sections_layout(sections, parent, vertical=False):
                 kl.setObjectName("kbd")
                 keys_row.addWidget(kl)
             keys_row.addStretch(1)
-            grid.addLayout(keys_row, r, 0)
+            # en haut de la ligne : une description sur deux lignes ne doit
+            # pas etirer les touches
+            grid.addLayout(keys_row, r, 0, Qt.AlignTop)
             dl = QLabel(tr(desc), parent)
             dl.setObjectName("helpDesc")
             dl.setWordWrap(True)
+            # texte en haut de sa case, a la hauteur des touches (un QLabel
+            # centre verticalement par defaut)
+            dl.setAlignment(Qt.AlignLeft | Qt.AlignTop)
             dl.setMinimumWidth(220)
-            grid.addWidget(dl, r, 1)
+            grid.addWidget(dl, r, 1, Qt.AlignTop)
         col.addLayout(grid)
         col.addStretch(1)
         box.addLayout(col)
@@ -119,15 +124,14 @@ def sections_css(c) -> str:
     """Style des sections construites par sections_layout."""
     return f"""
         #helpSection {{
-            color: {theme.ACCENT}; font-size: 12px; font-weight: 700;
-            letter-spacing: 1px;
+            color: {c['text_dim']}; font-size: 13px; font-weight: 600;
         }}
-        #helpDesc {{ color: {c['text']}; font-size: 13px; }}
+        #helpDesc {{ color: {c['text']}; font-size: 13px; padding-top: 2px; }}
         #kbd {{
             color: {c['text']}; background: {c['button']};
             border: 1px solid {c['border']}; border-bottom-width: 2px;
-            border-radius: {style.RADIUS_SM}px; padding: 1px 7px;
-            font-size: 12px; font-weight: 600;
+            border-radius: {style.RADIUS_SM}px; padding: 1px 8px;
+            font-size: 12px; font-weight: 500;
         }}
     """
 
@@ -149,8 +153,8 @@ class ShortcutOverlay(QFrame):
         self.setObjectName("helpCard")
         self.setAccessibleName(tr("Raccourcis clavier"))
         root = QVBoxLayout(self)
-        root.setContentsMargins(28, 22, 28, 22)
-        root.setSpacing(14)
+        root.setContentsMargins(28, 24, 28, 24)
+        root.setSpacing(12)
 
         title = QLabel(tr("Raccourcis clavier"), self)
         title.setObjectName("helpTitle")
@@ -171,7 +175,7 @@ class ShortcutOverlay(QFrame):
                 border: 1px solid {c['border']};
                 border-radius: 16px;
             }}
-            #helpTitle {{ color: {c['text']}; font-size: 18px; font-weight: 700; }}
+            #helpTitle {{ color: {c['text']}; font-size: 18px; font-weight: 600; }}
             #helpFoot {{ color: {c['text_dim']}; font-size: 12px; }}
         """ + sections_css(c))
 

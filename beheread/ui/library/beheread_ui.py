@@ -67,7 +67,7 @@ def _avatar(name, color, size=24) -> QPixmap:
     if name:
         font = QFont()
         font.setPixelSize(int(size * 0.5))
-        font.setBold(True)
+        font.setWeight(QFont.DemiBold)
         p.setFont(font)
         p.setPen(QColor("#f5f0ee"))
         p.drawText(0, 0, size, size, Qt.AlignCenter, name[:1].upper())
@@ -232,13 +232,13 @@ class BeheReadMixin:
         self.server_footer.setObjectName("serverFooter")
         row = QHBoxLayout(self.server_footer)
         row.setContentsMargins(20, 8, 20, 8)
-        row.setSpacing(22)
+        row.setSpacing(24)
         self._legend_icons = {}
         for where in (WHERE_LOCAL, WHERE_SERVER, WHERE_CACHED):
             item = QWidget()
             h = QHBoxLayout(item)
             h.setContentsMargins(0, 0, 0, 0)
-            h.setSpacing(6)
+            h.setSpacing(8)
             icon = QLabel()
             icon.setFixedSize(13, 13)
             self._legend_icons[where] = icon

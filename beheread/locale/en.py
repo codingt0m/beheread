@@ -211,7 +211,6 @@ CATALOG = {
     'Recharger les métadonnées': 'Reload metadata',
     'Recharger les métadonnées ({n})': 'Reload metadata ({n})',
     'Rechercher dans la bibliothèque': 'Search the library',
-    'Rechercher un titre, une série ou un auteur…': 'Search for a title, a series or an author…',
     'Réessayer maintenant': 'Retry now',
     'Réinitialiser la progression': 'Reset progress',
     'Relire': 'Read again',

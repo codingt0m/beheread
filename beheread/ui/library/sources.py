@@ -41,7 +41,7 @@ class SourcesMixin:
         self.source_switch.setObjectName("sourceSwitch")
         self.source_switch.setAccessibleName(tr("Source de la bibliothèque"))
         layout = QHBoxLayout(self.source_switch)
-        layout.setContentsMargins(3, 3, 3, 3)
+        layout.setContentsMargins(4, 4, 4, 4)
         layout.setSpacing(2)
         self._source_group = QButtonGroup(self.source_switch)
         self._source_group.setExclusive(True)
@@ -54,7 +54,7 @@ class SourcesMixin:
             #sourceSwitch {{ background: {c['list_bg']}; border: 1px solid {c['border']};
                              border-radius: 15px; }}
             QPushButton#sourceBtn {{ color: {c['text_dim']}; background: transparent; border: none;
-                                    border-radius: 12px; padding: 3px 12px; }}
+                                    border-radius: 12px; padding: 4px 12px; }}
             QPushButton#sourceBtn:hover {{ color: {c['text']}; }}
             QPushButton#sourceBtn:checked {{ color: {c['text']}; background: {c['button']};
                                             font-weight: 600; }}

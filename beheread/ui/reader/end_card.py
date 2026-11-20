@@ -10,7 +10,7 @@ from PySide6.QtCore import (
     Qt,
     QUrl,
 )
-from PySide6.QtGui import QDesktopServices, QPixmap
+from PySide6.QtGui import QColor, QDesktopServices, QPainter, QPixmap
 from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
@@ -26,13 +26,24 @@ from beheread.infra.storage import Store
 from beheread.ui import theme
 
 
+def _with_finished_bar(pm: QPixmap) -> QPixmap:
+    """Couverture de la fiche de fin avec la barre verte pleine du bas, le
+    meme repere « termine » que sur les couvertures de la bibliotheque."""
+    pm = QPixmap(pm)
+    p = QPainter(pm)
+    h = max(4, round(4 * pm.devicePixelRatio()))
+    p.fillRect(0, pm.height() - h, pm.width(), h, QColor(theme.FINISHED))
+    p.end()
+    return pm
+
+
 class EndCardMixin:
     # ------------------------------------------------------------ fiche de fin de tome
     def _build_end_card(self):
         self.end_card = QFrame(self)
         self.end_card.setObjectName("endCard")
         v = QVBoxLayout(self.end_card)
-        v.setContentsMargins(28, 26, 28, 22)
+        v.setContentsMargins(28, 24, 28, 24)
         v.setSpacing(12)
 
         self.end_cover = QLabel(self.end_card)
@@ -52,7 +63,7 @@ class EndCardMixin:
         v.addWidget(self.end_stats)
 
         row = QHBoxLayout()
-        row.setSpacing(10)
+        row.setSpacing(8)
         self.end_next_btn = QPushButton(tr("Tome suivant"), self.end_card)
         self.end_next_btn.setCursor(Qt.PointingHandCursor)
         self.end_next_btn.setFocusPolicy(Qt.NoFocus)
@@ -86,12 +97,12 @@ class EndCardMixin:
                 border: 1px solid {c['border']};
                 border-radius: 16px;
             }}
-            #endTitle {{ color: {c['text']}; font-size: 18px; font-weight: 700; }}
+            #endTitle {{ color: {c['text']}; font-size: 18px; font-weight: 600; }}
             #endStats {{ color: {c['text_dim']}; font-size: 13px; }}
             QPushButton {{
                 color: {c['text']}; background: transparent;
-                border: 1px solid {c['border']}; padding: 9px 18px;
-                border-radius: 18px; font-size: 13px; font-weight: 600;
+                border: 1px solid {c['border']}; padding: 8px 16px;
+                border-radius: 8px; font-size: 13px; font-weight: 600;
             }}
             QPushButton:hover {{ background: {c['button']}; border-color: {c['text_dim']}; }}
             #endCard QPushButton#endNext {{ background: {theme.ACCENT}; color: {theme.ON_ACCENT}; border: none; }}
@@ -99,16 +110,22 @@ class EndCardMixin:
         """)
         self.end_next_btn.setObjectName("endNext")
 
+    def _volume_title(self, path):
+        """Titre d'un tome sur la fiche de fin : celui de la grille
+        (« Berserk · Tome 3 »), sinon le nom du fichier ou du serveur."""
+        fn = getattr(self, "_title_fn", None)
+        title = fn(path) if fn is not None else None
+        return title or servers.display_name(path)
+
     def _show_end_card(self):
-        name = servers.display_name(self.path)
-        self.end_title.setText(name)
+        self.end_title.setText(self._volume_title(self.path))
 
         cover = QPixmap(str(self.store.thumb_path(self.path)))
         if cover.isNull() and 0 in self.cache and not self.cache[0].isNull():
             cover = QPixmap.fromImage(self.cache[0])
         if not cover.isNull():
-            self.end_cover.setPixmap(cover.scaled(
-                150, 210, Qt.KeepAspectRatio, Qt.SmoothTransformation))
+            self.end_cover.setPixmap(_with_finished_bar(cover.scaled(
+                150, 210, Qt.KeepAspectRatio, Qt.SmoothTransformation)))
             self.end_cover.show()
         else:
             self.end_cover.hide()
@@ -121,7 +138,7 @@ class EndCardMixin:
 
         if self._next_volume_path:
             self.end_next_btn.setText(tr("Tome suivant : {title}",
-                                         title=servers.display_name(self._next_volume_path)))
+                                         title=self._volume_title(self._next_volume_path)))
             self.end_next_btn.show()
         else:
             self.end_next_btn.hide()

@@ -90,7 +90,7 @@ class ReaderWidget(HudMixin, EndCardMixin, DisplayMixin, InputMixin,
     fullscreen_toggled = Signal()
 
     def __init__(self, path: str, store: Store, parent=None, direct_mode=False, entry=None,
-                 next_volume=None):
+                 next_volume=None, title=None):
         super().__init__(parent)
         self.setFocusPolicy(Qt.StrongFocus)
         self.setMouseTracking(True)
@@ -107,6 +107,10 @@ class ReaderWidget(HudMixin, EndCardMixin, DisplayMixin, InputMixin,
         # tome suivant d'un tome distant (serveur de lecture), donne par la
         # bibliotheque : chemin -> chemin ou None (voir LibraryWidget.next_volume)
         self._next_volume_fn = next_volume
+        # titre affiche d'un tome de la bibliotheque (chemin -> titre ou None,
+        # voir LibraryWidget.display_title) : la fiche de fin reprend celui de
+        # la grille plutot que le nom de fichier
+        self._title_fn = title
         self._released = False   # voir release()
         self.archive = Archive(path)          # peut lever ArchiveError
         try:
@@ -287,7 +291,7 @@ class ReaderWidget(HudMixin, EndCardMixin, DisplayMixin, InputMixin,
         self.hud_info.setStyleSheet(
             f"#hudInfo {{ background: {c['hud_bg']}; border: 1px solid {c['border']};"
             " border-radius: 12px; }"
-            f"#hudPos {{ color: {c['text']}; font-size: 15px; font-weight: 700; }}"
+            f"#hudPos {{ color: {c['text']}; font-size: 15px; font-weight: 600; }}"
             f"#hudSub {{ color: {c['text_dim']}; font-size: 12px; }}")
         self.hud_bar.setStyleSheet(
             f"#hudBar {{ background: {c['hud_bg']}; border: 1px solid {c['border']};"
@@ -295,7 +299,7 @@ class ReaderWidget(HudMixin, EndCardMixin, DisplayMixin, InputMixin,
             # bascule ETEINTE : plate, sans contour, texte estompe
             f"QPushButton {{ color: {c['text_dim']}; background: transparent;"
             f" border: 1px solid transparent; border-radius: 11px;"
-            " padding: 4px 11px; font-size: 12px; font-weight: 600; }"
+            " padding: 4px 12px; font-size: 12px; font-weight: 600; }"
             f"QPushButton:hover {{ color: {c['text']};"
             f" background: {c['button']}; }}"
             # bascule ACTIVE : pastille grise pleine "enfoncee", texte plein
@@ -315,13 +319,13 @@ class ReaderWidget(HudMixin, EndCardMixin, DisplayMixin, InputMixin,
             # (le selecteur par id est plus specifique : redire :disabled ici)
             f"QPushButton#hudSel:disabled {{ color: {c['text_disabled']};"
             " background: transparent; border-color: transparent; }")
-        # meme langage visuel que la barre de reglages (#hudSel) : contour
-        # neutre permanent, survol qui remplit en gris - jamais d'accent, pour
-        # que "Bibliotheque" et "Plein ecran" s'accordent avec le reste du HUD
+        # meme surface que le compteur de pages (#hudInfo) : fond du HUD,
+        # filet neutre, rayon 12 - lisible sur une page claire comme sur le
+        # fond noir ; survol qui remplit en gris, jamais d'accent
         button_css = (
-            f"QPushButton {{ color: {c['text']}; background: transparent;"
-            f" border: 1px solid {c['border']}; padding: 7px 16px 7px 12px;"
-            " border-radius: 18px; font-size: 13px; font-weight: 600; }"
+            f"QPushButton {{ color: {c['text']}; background: {c['hud_bg']};"
+            f" border: 1px solid {c['border']}; padding: 8px 16px 8px 12px;"
+            " border-radius: 12px; font-size: 13px; font-weight: 500; }"
             f"QPushButton:hover {{ background: {c['button']};"
             f" border-color: {c['text_dim']}; }}")
         self.back_button.setStyleSheet(button_css)

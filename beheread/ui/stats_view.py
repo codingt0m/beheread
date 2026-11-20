@@ -77,8 +77,6 @@ from beheread.ui.charts import (
     ChartCard,
     FinishedList,
     HBarList,
-    Meter,
-    Sparkline,
     StackedBar,
     StatTile,
     _fmt_int,
@@ -229,8 +227,8 @@ class StatsDialog(QDialog):
         self.report = None
 
         self.root = QVBoxLayout(self)
-        self.root.setContentsMargins(22, 18, 22, 10)
-        self.root.setSpacing(14)
+        self.root.setContentsMargins(24, 16, 24, 8)
+        self.root.setSpacing(12)
         # c'est le contenu qui s'adapte a la fenetre, en defilant au besoin,
         # jamais la fenetre qui grandit avec lui
         self.root.setSizeConstraint(QLayout.SetNoConstraint)
@@ -266,9 +264,9 @@ class StatsDialog(QDialog):
             QLabel {{ color: {c['text']}; }}
             QToolTip {{
                 color: {c['text']}; background: {c['panel']};
-                border: 1px solid {c['border']}; padding: 4px 6px;
+                border: 1px solid {c['border']}; padding: 4px 8px;
             }}
-            #statsTitle {{ font-size: 20px; font-weight: 700; }}
+            #statsTitle {{ font-size: 20px; font-weight: 600; }}
             #crumbSep {{ font-size: 20px; color: {c['text_dim']}; }}
             #tile, #card {{
                 background: {c['panel']}; border: 1px solid {c['border']}; border-radius: {style.RADIUS_MD}px;
@@ -278,18 +276,18 @@ class StatsDialog(QDialog):
             #heroValue {{ font-size: 44px; font-weight: 600; }}
             #tileDelta {{ font-size: 13px; }}
             #tileSub, #cardSub, #caption {{ color: {c['text_dim']}; font-size: 12px; }}
-            #cardTitle {{ font-size: 14px; font-weight: 700; }}
+            #cardTitle {{ font-size: 14px; font-weight: 600; }}
             #backlogValue {{ font-size: 24px; font-weight: 600; }}
             #shelfSum {{ font-size: 15px; font-weight: 600; }}
             #journalTime {{ font-weight: 600; }}
             #emptyTitle {{ font-size: 15px; font-weight: 600; }}
             QPushButton {{
                 color: {c['text']}; background: {c['button']};
-                border: 1px solid {c['border']}; border-radius: 8px; padding: 5px 14px;
+                border: 1px solid {c['border']}; border-radius: 8px; padding: 4px 12px;
             }}
             QPushButton:hover {{ background: {c['button_hover']}; }}
             QPushButton:focus {{ border: 2px solid {theme.ACCENT}; }}
-            QPushButton#toggle {{ padding: 2px 10px; font-size: 12px; }}
+            QPushButton#toggle {{ padding: 2px 8px; font-size: 12px; }}
             QPushButton#link {{
                 background: transparent; border: none; padding: 2px 0;
                 color: {c['text_dim']}; font-size: 12px; text-decoration: underline;
@@ -301,7 +299,7 @@ class StatsDialog(QDialog):
             }}
             QPushButton#crumb:hover {{ color: {c['text']}; }}
             QPushButton#seg {{
-                padding: 5px 14px; font-size: 12px; border-radius: 0; margin-left: -1px;
+                padding: 4px 12px; font-size: 12px; border-radius: 0; margin-left: -1px;
             }}
             QPushButton#seg[segPos="first"] {{
                 margin-left: 0; border-top-left-radius: 8px; border-bottom-left-radius: 8px;
@@ -310,7 +308,7 @@ class StatsDialog(QDialog):
                 border-top-right-radius: 8px; border-bottom-right-radius: 8px;
             }}
             QPushButton#seg:checked {{
-                background: {theme.ACCENT_SOFT}; border: 1px solid {theme.ACCENT};
+                color: {c['text']}; background: {c['button_hover']};
             }}
             QTableWidget {{
                 color: {c['text']}; background: {c['panel']};
@@ -373,7 +371,7 @@ class StatsDialog(QDialog):
         outer.addWidget(content)
         layout = QVBoxLayout(content)
         layout.setContentsMargins(0, 0, 0, 8)
-        layout.setSpacing(14)
+        layout.setSpacing(12)
         scroll.setWidget(page)
         self.pages.addWidget(scroll)
         if self.pages.count() == 1:
@@ -472,7 +470,7 @@ class StatsDialog(QDialog):
         self.empty_card.setObjectName("card")
         ev = QVBoxLayout(self.empty_card)
         ev.setContentsMargins(24, 28, 24, 28)
-        ev.setSpacing(6)
+        ev.setSpacing(8)
         empty_title = QLabel(tr("Aucune lecture enregistrée pour l'instant"))
         empty_title.setObjectName("emptyTitle")
         empty_title.setAlignment(Qt.AlignCenter)
@@ -488,16 +486,14 @@ class StatsDialog(QDialog):
         body.addWidget(self.empty_card, 1)
 
         # --- chiffres cles
-        self.pages_spark = Sparkline(dc["activity"], c)
-        self.days_meter = Meter(dc["activity"])
         self.tiles = [StatTile(tr("Temps de lecture"), hero=True),
-                      StatTile(tr("Pages lues"), self.pages_spark),
+                      StatTile(tr("Pages lues")),
                       StatTile(tr("Tomes terminés")),
-                      StatTile(tr("Jours de lecture"), self.days_meter)]
+                      StatTile(tr("Jours de lecture"))]
         self.tiles_host = QWidget()
         grid = QGridLayout(self.tiles_host)
         grid.setContentsMargins(0, 0, 0, 0)
-        grid.setSpacing(10)
+        grid.setSpacing(8)
         grid.addWidget(self.tiles[0], 0, 0, 1, 2)    # chiffre principal : double largeur
         for i, tile in enumerate(self.tiles[1:]):
             grid.addWidget(tile, 0, 2 + i)
@@ -519,7 +515,7 @@ class StatsDialog(QDialog):
         self.detail = QWidget()
         row = QHBoxLayout(self.detail)
         row.setContentsMargins(0, 0, 0, 0)
-        row.setSpacing(14)
+        row.setSpacing(12)
         row.addWidget(self.time_card, 3)
         row.addWidget(self.series_card, 1)
         body.addWidget(self.detail, 1)
@@ -542,7 +538,7 @@ class StatsDialog(QDialog):
         self.habits = QWidget()
         row = QHBoxLayout(self.habits)
         row.setContentsMargins(0, 0, 0, 0)
-        row.setSpacing(14)
+        row.setSpacing(12)
         row.addWidget(self.calendar_card, 2)
         row.addWidget(self.finished_card, 1)
         row.addWidget(self.library_card, 1)
@@ -571,7 +567,7 @@ class StatsDialog(QDialog):
         self.backlog_value.setObjectName("backlogValue")
         self.backlog_value.setVisible(bool(value))
         line = QHBoxLayout()
-        line.setSpacing(6)
+        line.setSpacing(8)
         self.backlog_detail = QLabel(short)
         self.backlog_detail.setObjectName("cardSub")
         self.backlog_detail.setWordWrap(True)
@@ -751,7 +747,6 @@ class StatsDialog(QDialog):
         else:
             within = trn(t.volumes, "dans {n} tome", "dans {n} tomes") if t.volumes else ""
         pages.set_content(_fmt_int(t.pages), delta, within, tip)
-        self.pages_spark.set_values(b.pages for b in report.buckets)
 
         # tomes seuls ; les chapitres termines et le dernier tome en sous-titre
         # (une mini-tendance de fins de tome, evenements rares, restait vide)
@@ -772,7 +767,6 @@ class StatsDialog(QDialog):
                             lambda n: trn(n, "{n} jour", "{n} jours"), report, measured)
         days.set_content(tr("{n} sur {total}", n=_fmt_int(t.active_days),
                             total=_fmt_int(period.days)), delta, "", tip)
-        self.days_meter.set_ratio(t.active_days / period.days)
 
     def _refresh_time(self, report):
         grain = report.period.grain

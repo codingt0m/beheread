@@ -325,7 +325,7 @@ class CaptureToast(QFrame):
         super().__init__(parent)
         self.setObjectName("captureToast")
         row = QHBoxLayout(self)
-        row.setContentsMargins(10, 10, 14, 10)
+        row.setContentsMargins(8, 8, 12, 8)
         row.setSpacing(12)
         self.thumb = QLabel(self)
         self.thumb.setFixedSize(64, 64)
@@ -356,10 +356,10 @@ class CaptureToast(QFrame):
         self.setStyleSheet(
             f"#captureToast {{ background: {c['hud_bg']}; border: 1px solid {c['border']};"
             " border-radius: 12px; }"
-            f"#captureTitle {{ color: {c['text']}; font-size: 13px; font-weight: 700; }}"
+            f"#captureTitle {{ color: {c['text']}; font-size: 13px; font-weight: 600; }}"
             f"#captureDetail {{ color: {c['text_dim']}; font-size: 12px; }}"
             f"QPushButton {{ color: {theme.ON_ACCENT}; background: {theme.ACCENT};"
-            " border: none; border-radius: 9px; padding: 3px 10px; margin-top: 4px;"
+            " border: none; border-radius: 9px; padding: 4px 8px; margin-top: 4px;"
             " font-size: 12px; font-weight: 600; }"
             f"QPushButton:hover {{ background: {theme.ACCENT_HOVER}; }}")
 

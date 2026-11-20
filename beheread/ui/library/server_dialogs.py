@@ -63,12 +63,12 @@ def _dialog_css(c) -> str:
         QDialog {{ background: {c['window']}; }}
         QLabel {{ color: {c['text']}; }}
         QLabel#dim {{ color: {c['text_dim']}; }}
-        QLabel#title {{ font-size: 18px; font-weight: 700; }}
-        #box {{ background: {c['panel']}; border: 1px solid {c['border']}; border-radius: 10px; }}
+        QLabel#title {{ font-size: 18px; font-weight: 600; }}
+        #box {{ background: {c['panel']}; border: 1px solid {c['border']}; border-radius: 12px; }}
         QPushButton {{ color: {c['text']}; background: {c['button']}; border: none;
-                       border-radius: 6px; padding: 7px 14px; }}
+                       border-radius: 6px; padding: 8px 12px; }}
         QPushButton:hover {{ background: {c['button_hover']}; }}
-        QPushButton#primary {{ color: #f5f0ee; background: {theme.ACCENT}; font-weight: 700;
+        QPushButton#primary {{ color: #f5f0ee; background: {theme.ACCENT}; font-weight: 600;
                                padding: 8px 16px; }}
         QPushButton#primary:hover {{ background: {theme.ACCENT_HOVER}; }}
     """
@@ -99,7 +99,7 @@ class AddDeviceDialog(QDialog):
         c = theme.colors(sync.store.ui_pref("theme", "dark"))
         self.setStyleSheet(_dialog_css(c))
         root = QVBoxLayout(self)
-        root.setContentsMargins(28, 26, 28, 22)
+        root.setContentsMargins(28, 24, 28, 24)
         root.setSpacing(16)
         root.addWidget(_label(tr("Ajouter un appareil"), "title"))
         root.addWidget(_label(tr("Sur votre autre appareil, ouvrez Beheread (web ou desktop), "
@@ -110,15 +110,15 @@ class AddDeviceDialog(QDialog):
         box = QFrame()
         box.setObjectName("box")
         row = QHBoxLayout(box)
-        row.setContentsMargins(18, 18, 18, 18)
-        row.setSpacing(22)
+        row.setContentsMargins(16, 16, 16, 16)
+        row.setSpacing(24)
         self.qr = QLabel()
         self.qr.setFixedSize(QR_SIZE, QR_SIZE)
         self.qr.setAccessibleName(tr("QR code d'ajout d'appareil"))
         self.qr.setStyleSheet("background: #ffffff; border-radius: 6px;")
         row.addWidget(self.qr)
         col = QVBoxLayout()
-        col.setSpacing(10)
+        col.setSpacing(8)
         self.code = _label(tr("Code en cours…"))
         mono = QFont("Consolas")
         mono.setStyleHint(QFont.Monospace)
@@ -142,7 +142,7 @@ class AddDeviceDialog(QDialog):
         self.devices = QFrame()
         self.devices.setObjectName("box")
         self.devices_layout = QVBoxLayout(self.devices)
-        self.devices_layout.setContentsMargins(12, 6, 12, 6)
+        self.devices_layout.setContentsMargins(12, 8, 12, 8)
         root.addWidget(self.devices)
         self.lost = _label("", "dim", wrap=True)
         root.addWidget(self.lost)
@@ -200,7 +200,7 @@ class AddDeviceDialog(QDialog):
             line = QWidget()
             h = QHBoxLayout(line)
             h.setContentsMargins(0, 4, 0, 4)
-            h.setSpacing(10)
+            h.setSpacing(8)
             current = bool(d.get("current"))
             name = _label(tr("Ce PC") if current else str(d.get("name") or "?"))
             name.setStyleSheet("font-weight: 600;")
@@ -252,11 +252,11 @@ class UpdateRequiredDialog(QDialog):
         c = theme.colors(store.ui_pref("theme", "dark") if store is not None else "dark")
         self.setStyleSheet(_dialog_css(c))
         root = QVBoxLayout(self)
-        root.setContentsMargins(28, 26, 28, 22)
+        root.setContentsMargins(28, 24, 28, 24)
         root.setSpacing(16)
 
         top = QHBoxLayout()
-        top.setSpacing(14)
+        top.setSpacing(12)
         icon = QLabel()
         icon.setFixedSize(40, 40)
         icon.setAlignment(Qt.AlignCenter)
@@ -264,7 +264,7 @@ class UpdateRequiredDialog(QDialog):
         icon.setPixmap(icons.download(UPDATE_ICON).pixmap(20, 20))
         top.addWidget(icon, 0, Qt.AlignTop)
         texts = QVBoxLayout()
-        texts.setSpacing(6)
+        texts.setSpacing(8)
         texts.addWidget(_label(tr("Mettez Beheread à jour pour lire sur ce serveur"), "title",
                                wrap=True))
         host = urllib.parse.urlsplit(config.url).hostname if config is not None else ""
@@ -276,7 +276,7 @@ class UpdateRequiredDialog(QDialog):
         box = QFrame()
         box.setObjectName("box")
         grid = QGridLayout(box)
-        grid.setContentsMargins(18, 14, 18, 14)
+        grid.setContentsMargins(16, 12, 16, 12)
         grid.setHorizontalSpacing(24)
         grid.setVerticalSpacing(8)
         grid.addWidget(_label(tr("Votre version"), "dim"), 0, 0)

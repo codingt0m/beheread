@@ -166,7 +166,7 @@ class HudMixin:
         self.hud_info.setObjectName("hudInfo")
         self.hud_info.setAttribute(Qt.WA_TransparentForMouseEvents)
         info_col = QVBoxLayout(self.hud_info)
-        info_col.setContentsMargins(14, 8, 14, 8)
+        info_col.setContentsMargins(12, 8, 12, 8)
         info_col.setSpacing(1)
         self.hud_pos = QLabel(self.hud_info)
         self.hud_pos.setObjectName("hudPos")
@@ -180,7 +180,7 @@ class HudMixin:
         self.hud_bar = QFrame(self)
         self.hud_bar.setObjectName("hudBar")
         bar = QHBoxLayout(self.hud_bar)
-        bar.setContentsMargins(6, 5, 6, 5)
+        bar.setContentsMargins(8, 4, 8, 4)
         bar.setSpacing(4)
 
         def chip(text, handler, tip, checkable=True, name=None):

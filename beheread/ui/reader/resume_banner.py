@@ -55,8 +55,8 @@ class ResumeMixin:
         self.resume_banner.setObjectName("resumeBanner")
         self.resume_banner.setAccessibleName(tr("Reprise de la lecture"))
         row = QHBoxLayout(self.resume_banner)
-        row.setContentsMargins(16, 6, 6, 6)
-        row.setSpacing(14)
+        row.setContentsMargins(16, 8, 8, 8)
+        row.setSpacing(12)
         self._resume_icon = QLabel()
         row.addWidget(self._resume_icon)
         self._resume_text = QLabel()
@@ -90,7 +90,7 @@ class ResumeMixin:
             " border-radius: 8px; }"
             f"#resumeText {{ color: {c['text']}; font-size: 14px; }}"
             f"QPushButton#resumeBack {{ color: {theme.ACCENT}; background: {c['button_hover']};"
-            " border: none; border-radius: 6px; padding: 6px 12px; font-weight: 600; }"
+            " border: none; border-radius: 6px; padding: 8px 12px; font-weight: 600; }"
             f"QPushButton#resumeBack:hover {{ background: {c['border']}; }}"
             "QPushButton#resumeClose { background: transparent; border: none;"
             " border-radius: 6px; padding: 8px; }"

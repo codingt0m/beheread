@@ -198,7 +198,7 @@ def _draw_unreadable(painter, rect, c, font):
     icon = max(16, min(30, rect.width() // 5))
     _warning_icon(painter, rect.center().x(), rect.center().y() - icon, icon, color)
     f = QFont(font)
-    f.setBold(True)
+    f.setWeight(QFont.DemiBold)
     painter.setFont(f)
     painter.setPen(color)
     painter.drawText(QRect(rect.x(), rect.center().y() - 2, rect.width(), 20),
@@ -244,7 +244,7 @@ def _paint_section(painter, option, index, store, left_pad):
     top = rect.top() + 8
     painter.drawLine(rect.left() + left_pad, top, rect.right() - left_pad, top)
     font = QFont(option.font)
-    font.setBold(True)
+    font.setWeight(QFont.DemiBold)
     font.setPointSizeF(font.pointSizeF() * 1.15)
     painter.setFont(font)
     painter.setPen(QColor(c["text"]))
@@ -267,7 +267,8 @@ def _paint_section(painter, option, index, store, left_pad):
 def draw_where_badge(painter, cover, where, c, shift=0):
     """Provenance d'un tome (bibliotheque unifiee, maquette validee) : sur ce
     PC, sur le serveur, ou du serveur et garde hors ligne. Pastille sombre en
-    haut a droite de la couverture, a gauche de la coche « termine »."""
+    haut a droite de la couverture (a gauche de la coche « termine » d'un
+    dossier de serie)."""
     from beheread.ui.library.beheread_ui import where_icon
     d = 22
     badge = QRect(cover.right() - 6 - d - shift, cover.y() + 6, d, d)
@@ -476,11 +477,11 @@ class MangaDelegate(QStyledItemDelegate):
             painter.setBrush(color)
             painter.drawRect(QRect(bar.x(), bar.y(), w, bar.height()))
 
-        if finished:
-            self._draw_finished_badge(painter, cover)
+        # « termine » : barre verte pleine, couverture et legende attenuees -
+        # sans pastille en plus (retouches d'interface 2026-11)
         where = index.data(ROLE_WHERE)
         if where:
-            draw_where_badge(painter, cover, where, c, shift=26 if finished else 0)
+            draw_where_badge(painter, cover, where, c)
         if index.data(ROLE_VIRTUAL):
             _draw_virtual_chip(painter, cover, c, option.font)
 
@@ -524,7 +525,7 @@ class MangaDelegate(QStyledItemDelegate):
                 detail = (tr("Non possédé") if first == last
                           else tr("{n} tomes non possédés", n=last - first + 1))
         bold = QFont(option.font)
-        bold.setBold(True)
+        bold.setWeight(QFont.DemiBold)
         painter.setFont(bold)
         painter.setPen(dim)
         if painter.fontMetrics().horizontalAdvance(label) > cover.width() - 8:
@@ -550,7 +551,8 @@ class MangaDelegate(QStyledItemDelegate):
     # ----- blocs communs (tome simple / dossier de serie) -----
     @staticmethod
     def _draw_finished_badge(painter, cover):
-        """Pastille verte "termine" (coche) en haut a droite de la couverture."""
+        """Pastille verte "termine" (coche) en haut a droite de la couverture
+        d'un dossier de serie termine (un tome a sa barre verte pleine)."""
         badge = QRect(cover.right() - 26, cover.y() + 6, 20, 20)
         painter.setBrush(QColor(theme.FINISHED))
         painter.setPen(Qt.NoPen)
@@ -649,7 +651,7 @@ class MangaDelegate(QStyledItemDelegate):
         count = index.data(ROLE_SERIES_COUNT) or 0
         label = f"{count}"
         f = QFont(option.font)
-        f.setBold(True)
+        f.setWeight(QFont.DemiBold)
         f.setPointSizeF(f.pointSizeF() * 0.95)
         painter.setFont(f)
         fm = painter.fontMetrics()

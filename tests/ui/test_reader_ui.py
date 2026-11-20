@@ -7,8 +7,9 @@ from PySide6.QtCore import QEvent, QPoint, QPointF, QRect, Qt
 from PySide6.QtGui import QKeyEvent, QMouseEvent, QWheelEvent
 from PySide6.QtWidgets import QApplication, QPushButton
 
+from beheread.ui import theme
 from beheread.ui.reader.constants import FIT_HEIGHT, FIT_WIDTH
-from tests.ui.conftest import make_cbz, make_pdf
+from tests.ui.conftest import make_cbz, make_pdf, scanned
 
 
 def _open(window, qtbot, path):
@@ -449,6 +450,24 @@ def test_end_card_babelio_button_follows_the_preference(window, qtbot, mangas, s
     store.set_reader_pref("babelio_button", False)
     reader._show_end_card()
     assert not reader.end_babelio_btn.isVisible()
+
+
+def test_end_card_names_volumes_like_the_library_grid(window, qtbot, mangas, store):
+    """La fiche de fin reprend le titre de la grille (« Berserk · Tome 1 »)
+    plutot que le nom de fichier, et sa couverture porte la barre verte."""
+    first = make_cbz(mangas, "Berserk T01 (Miura) [Digital]", pages=3, seed=1)
+    second = make_cbz(mangas, "Berserk T02 (Miura) [Digital]", pages=3, seed=2)
+    store.set_folders([str(mangas)])
+    window.library.refresh()
+    scanned(qtbot, window.library, 2)
+    reader = _open(window, qtbot, first)
+    for _ in range(3):
+        reader.next_page(animate=False)
+    assert reader.end_card.isVisible()
+    assert reader.end_title.text() == "Berserk · Tome 1"
+    assert reader._volume_title(second) == "Berserk · Tome 2"   # « Tome suivant : … »
+    cover = reader.end_cover.pixmap().toImage()
+    assert cover.pixelColor(cover.width() // 2, cover.height() - 1).name() == theme.FINISHED
 
 
 def test_end_card_opens_the_volume_on_babelio(window, qtbot, mangas, store, monkeypatch):

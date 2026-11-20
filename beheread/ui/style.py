@@ -15,7 +15,7 @@ RADIUS_SM, RADIUS_MD, RADIUS_PILL = 6, 8, 16
 TEXT_SM, TEXT_MD, TEXT_LG, TEXT_XL = 12, 13, 15, 20
 
 # espacements (px) : de la marge serree au gouttiere de page
-SPACE_XS, SPACE_SM, SPACE_MD, SPACE_LG = 4, 8, 14, 24
+SPACE_XS, SPACE_SM, SPACE_MD, SPACE_LG = 4, 8, 12, 24
 
 
 def primary_button(selector: str, extra: str = "") -> str:
@@ -25,7 +25,7 @@ def primary_button(selector: str, extra: str = "") -> str:
     return f"""
         {selector} {{
             color: {theme.ON_ACCENT}; background: {theme.ACCENT}; border: none;
-            font-weight: 700; {extra}
+            font-weight: 600; {extra}
         }}
         {selector}:hover {{ background: {theme.ACCENT_HOVER}; }}
         {selector}:disabled {{ color: rgba(128, 128, 128, 170); background: rgba(128, 128, 128, 50); }}
