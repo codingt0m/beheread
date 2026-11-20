@@ -1,6 +1,6 @@
 """Capture d'une zone de la planche, a la maniere de Win + Maj + S.
 
-Le raccourci (reglable, Ctrl + Maj + S par defaut) assombrit le lecteur ; on
+Le raccourci (reglable, P par defaut) assombrit le lecteur ; on
 trace un rectangle a la souris, et la zone est copiee dans le presse-papiers
 et enregistree en PNG (dossier reglable, Images/Beheread par defaut).
 
@@ -49,7 +49,9 @@ from beheread import platforms
 from beheread.i18n import tr
 from beheread.ui import keys, theme
 
-DEFAULT_SHORTCUT = "Ctrl+Shift+S"   # QKeySequence.PortableText
+DEFAULT_SHORTCUT = "P"             # QKeySequence.PortableText
+# premier raccourci par defaut, trop proche de S (decalage) : vaut le nouveau
+_OLD_DEFAULTS = ("Ctrl+Shift+S",)
 MIN_DRAG = 6                        # px : en deca, un clic (annule la capture)
 TOAST_MS = 5000
 MAX_SIDE = 16384                    # garde-fou : image assemblee demesuree
@@ -67,10 +69,15 @@ def capture_dir(store) -> str:
     return store.reader_pref("capture_dir") or default_capture_dir()
 
 
+def shortcut_text(store) -> str:
+    """Raccourci de capture des preferences, en texte portable (vide =
+    desactive ; None enregistre = celui par defaut)."""
+    text = store.reader_pref("capture_shortcut")
+    return DEFAULT_SHORTCUT if text is None or text in _OLD_DEFAULTS else text
+
+
 def shortcut_sequence(store) -> QKeySequence:
-    """Raccourci de capture des preferences (vide = desactive)."""
-    text = store.reader_pref("capture_shortcut", DEFAULT_SHORTCUT)
-    return QKeySequence(text or "", QKeySequence.PortableText)
+    return QKeySequence(shortcut_text(store), QKeySequence.PortableText)
 
 
 def shortcut_label(text: str) -> str:

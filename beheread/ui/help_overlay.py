@@ -17,7 +17,7 @@ from beheread.ui import keys, style, theme
 _GLOBAL_BOSS = ([("Ctrl + Alt + C", N_("Masquer / réafficher depuis n'importe où"))]
                 if platforms.GLOBAL_HOTKEY else [])
 
-def reader_shortcuts(capture="Ctrl + Maj + S"):
+def reader_shortcuts(capture="P"):
     """Raccourcis du lecteur ; `capture` : raccourci de capture choisi dans
     les preferences, ecrit a la maniere de Windows (vide : desactive)."""
     return [

@@ -97,9 +97,9 @@ def test_shortcut_captures_an_area_to_clipboard_and_folder(window, qtbot, mangas
     reader = _open(window, qtbot, make_cbz(mangas, "Alpha - Tome 1", size=(600, 840)))
     QGuiApplication.clipboard().clear()
 
-    _key(reader, Qt.Key_S, Qt.ControlModifier | Qt.ShiftModifier)
+    _key(reader, Qt.Key_P)
     overlay = reader._capture_overlay
-    assert overlay.isVisible() and reader.page_offset == 0   # pas le decalage (S seul)
+    assert overlay.isVisible()
     _key(overlay, Qt.Key_Right)                    # aucune touche du lecteur pendant la selection
     assert reader.page == 0
 
@@ -131,20 +131,20 @@ def test_escape_or_a_simple_click_cancels(window, qtbot, mangas, store, tmp_path
 
 def test_shortcut_and_destination_follow_the_preferences(window, qtbot, mangas, store,
                                                          tmp_path):
-    store.set_reader_pref("capture_shortcut", "P")
+    store.set_reader_pref("capture_shortcut", "Ctrl+K")
     store.set_reader_pref("capture_save", False)
     store.set_reader_pref("capture_dir", str(tmp_path / "captures"))
     reader = _open(window, qtbot, make_cbz(mangas, "Alpha - Tome 1"))
-    _key(reader, Qt.Key_S, Qt.ControlModifier | Qt.ShiftModifier)
-    assert not reader._capture_overlay.isVisible()
     _key(reader, Qt.Key_P)
+    assert not reader._capture_overlay.isVisible()
+    _key(reader, Qt.Key_K, Qt.ControlModifier)
     assert reader._capture_overlay.isVisible()
     _drag(reader._capture_overlay, (300, 200), (400, 300))
     assert not (tmp_path / "captures").exists()   # presse-papiers seulement
     assert not QGuiApplication.clipboard().image().isNull()
 
     store.set_reader_pref("capture_shortcut", "")    # desactive
-    _key(reader, Qt.Key_P)
+    _key(reader, Qt.Key_K, Qt.ControlModifier)
     assert not reader._capture_overlay.isVisible()
 
 
@@ -154,15 +154,20 @@ def test_default_folder_is_in_pictures():
     assert QKeySequence(capture.DEFAULT_SHORTCUT, QKeySequence.PortableText).count() == 1
 
 
+def test_first_default_shortcut_becomes_the_new_one(store):
+    store.set_reader_pref("capture_shortcut", "Ctrl+Shift+S")   # ancien defaut enregistre
+    assert capture.shortcut_text(store) == "P"
+
+
 def test_preferences_set_the_shortcut_and_the_folder(store, qtbot, tmp_path):
     dlg = PreferencesDialog(store, theme.colors("dark"), {})
     qtbot.addWidget(dlg)
-    assert dlg.capture_keys.keySequence().toString(QKeySequence.PortableText) == "Ctrl+Shift+S"
+    assert dlg.capture_keys.keySequence().toString(QKeySequence.PortableText) == "P"
     assert dlg.capture_clipboard.isChecked() and dlg.capture_save.isChecked()
     assert not dlg.capture_dir_reset.isEnabled()          # dossier par defaut
-    dlg.capture_keys.setKeySequence(QKeySequence("P"))
+    dlg.capture_keys.setKeySequence(QKeySequence("Ctrl+K"))
     dlg.capture_keys.editingFinished.emit()
-    assert store.reader_pref("capture_shortcut") == "P"
+    assert store.reader_pref("capture_shortcut") == "Ctrl+K"
     dlg._set_capture_dir(str(tmp_path))
     assert store.reader_pref("capture_dir") == str(tmp_path) and dlg.capture_dir_reset.isEnabled()
     dlg.capture_save.setChecked(False)
@@ -170,4 +175,7 @@ def test_preferences_set_the_shortcut_and_the_folder(store, qtbot, tmp_path):
     dlg._set_capture_dir(None)
     assert store.reader_pref("capture_dir") is None
     dlg._reset_capture_keys()
-    assert store.reader_pref("capture_shortcut") == "Ctrl+Shift+S"
+    assert store.reader_pref("capture_shortcut") is None   # defaut : rien d'enregistre
+    dlg.capture_keys.clear()
+    dlg.capture_keys.editingFinished.emit()
+    assert store.reader_pref("capture_shortcut") == ""     # desactive

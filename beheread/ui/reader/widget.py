@@ -261,7 +261,7 @@ class ReaderWidget(HudMixin, EndCardMixin, DisplayMixin, InputMixin,
         self._build_resume_banner()
         # aide des raccourcis (F1 ou ?), par-dessus la page
         self._help = ShortcutOverlay(reader_shortcuts(capture.shortcut_label(
-            store.reader_pref("capture_shortcut", capture.DEFAULT_SHORTCUT))), self)
+            capture.shortcut_text(store))), self)
         # capture d'une zone de la page (raccourci des preferences)
         self._build_capture()
 

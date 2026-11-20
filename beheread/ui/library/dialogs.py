@@ -1138,8 +1138,7 @@ class PreferencesDialog(ServersTabMixin, QDialog):
         hv.setSpacing(12)
         for title, sections in ((tr("Dans la bibliothèque"), LIBRARY_SHORTCUTS),
                                 (tr("Dans le lecteur"), reader_shortcuts(capture.shortcut_label(
-                                    self.store.reader_pref("capture_shortcut",
-                                                           capture.DEFAULT_SHORTCUT))))):
+                                    capture.shortcut_text(self.store))))):
             head = QLabel(title)
             head.setObjectName("shortcutGroup")
             hv.addWidget(head)
@@ -1430,8 +1429,10 @@ class PreferencesDialog(ServersTabMixin, QDialog):
         s.set_reader_pref("ambilight", self.ambilight.isChecked())
         s.set_reader_pref("page_fade", self.page_fade.isChecked())
         s.set_reader_pref("boss_key", self.boss_key.isChecked())
+        # raccourci d'origine : rien d'enregistre (il suivra un changement du defaut)
+        keys_text = self.capture_keys.keySequence().toString(QKeySequence.PortableText)
         s.set_reader_pref("capture_shortcut",
-                          self.capture_keys.keySequence().toString(QKeySequence.PortableText))
+                          None if keys_text == capture.DEFAULT_SHORTCUT else keys_text)
         s.set_reader_pref("capture_clipboard", self.capture_clipboard.isChecked())
         s.set_reader_pref("capture_save", self.capture_save.isChecked())
         s.set_reader_pref("babelio_button", self.babelio.isChecked())
