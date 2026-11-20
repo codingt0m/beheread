@@ -1062,4 +1062,6 @@ CATALOG = {
     'Capture faite, mais ni copiée ni enregistrée': 'Captured, but neither copied nor saved',
     'Voir les préférences, Lecture': 'See Preferences, Reading',
     'Capture copiée': 'Capture copied',
+    'Capture': 'Capture',
+    'Enregistrement…': 'Saving…',
 }

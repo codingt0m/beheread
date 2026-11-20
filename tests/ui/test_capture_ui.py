@@ -112,9 +112,46 @@ def test_shortcut_captures_an_area_to_clipboard_and_folder(window, qtbot, mangas
     scale = 840 / page_rect.height()
     assert abs(clip.width() - 40 * scale) <= 2 and abs(clip.height() - 40 * scale) <= 2
     assert clip.pixelColor(clip.width() // 2, clip.height() // 2).red() > 100   # COLORS[0]
+    # l'enregistrement se fait hors du fil de l'interface : vignette tout de
+    # suite, texte final une fois le fichier ecrit
+    toast = reader._capture_toast
+    assert toast.isVisible() and toast.detail.text() == "Enregistrement…"
+    qtbot.waitUntil(lambda: toast.title.text() == "Capture copiée et enregistrée", timeout=5000)
     files = list((tmp_path / "captures").glob("*.png"))
     assert len(files) == 1 and files[0].name.startswith("Alpha - Tome 1 - p001 - ")
-    assert reader._capture_toast.isVisible()
+    assert files[0].name in toast.detail.text() and toast.reveal.isVisibleTo(toast)
+
+
+def test_captures_in_a_row_never_share_a_file(window, qtbot, mangas, store, tmp_path):
+    store.set_reader_pref("capture_dir", str(tmp_path / "captures"))
+    reader = _open(window, qtbot, make_cbz(mangas, "Alpha - Tome 1"))
+    for _ in range(3):   # meme seconde : meme nom de base
+        reader.start_capture()
+        _drag(reader._capture_overlay, (300, 200), (400, 300))
+    qtbot.waitUntil(lambda: len(list((tmp_path / "captures").glob("*.png"))) == 3, timeout=5000)
+    qtbot.waitUntil(lambda: not reader._capture_savers, timeout=5000)
+
+
+def test_grayscale_scan_is_saved_in_grayscale(qapp, tmp_path):
+    img = QImage(40, 40, QImage.Format_RGB32)
+    img.fill(QColor("#808080"))
+    saver = capture.CaptureSaver(1, img, str(tmp_path), "Alpha", 1)
+    got = []
+    saver.signals.done.connect(lambda *a: got.append(a))
+    saver.run()
+    path = got[0][1]
+    assert QImage(str(path)).isGrayscale() and QImage(str(path)).depth() == 8
+
+
+def test_unwritable_folder_is_reported(qapp, tmp_path):
+    blocker = tmp_path / "file"
+    blocker.write_text("x")
+    saver = capture.CaptureSaver(1, QImage(4, 4, QImage.Format_RGB32), str(blocker / "sub"),
+                                 "Alpha", 1)
+    got = []
+    saver.signals.done.connect(lambda *a: got.append(a))
+    saver.run()
+    assert got == [(1, None, str(blocker / "sub"))]
 
 
 def test_escape_or_a_simple_click_cancels(window, qtbot, mangas, store, tmp_path):

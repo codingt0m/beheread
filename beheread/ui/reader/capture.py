@@ -9,7 +9,13 @@ a l'ecran : une case reste nette, sans le fond ni l'Ambilight. En double page,
 une zone a cheval sur les deux pages donne une seule image qui les assemble.
 
 Mixin de ReaderWidget pour le branchement ; l'assemblage (compose_capture) et
-le nommage des fichiers sont des fonctions pures, testees isolement."""
+le nommage des fichiers sont des fonctions pures, testees isolement.
+
+Performances : l'assemblage (quelques dizaines de ms pour une double page
+entiere) et la copie restent dans le fil de l'interface ; l'encodage PNG, qui
+prend jusqu'a deux secondes pour une double page en pleine resolution, se fait
+dans un fil a part (CaptureSaver), une capture apres l'autre. Pendant la
+selection, seule la partie de l'ecran qui change est redessinee."""
 
 import logging
 import re
@@ -18,12 +24,15 @@ from pathlib import Path
 
 from PySide6.QtCore import (
     QKeyCombination,
+    QObject,
     QPointF,
     QRect,
     QRectF,
+    QRunnable,
     QSize,
     QStandardPaths,
     Qt,
+    QThreadPool,
     QTimer,
     Signal,
 )
@@ -226,9 +235,18 @@ class CaptureOverlay(QWidget):
 
     def mouseMoveEvent(self, event):
         if self._start is not None:
+            old = self._rect
             self._rect = QRectF(self._start, event.position()).normalized()
-            self.update()
+            # seule la zone qui change (ancien et nouveau cadre, avec leur
+            # badge de taille) est redessinee, pas tout l'ecran
+            self.update(self._dirty(old).united(self._dirty(self._rect)))
         event.accept()
+
+    @staticmethod
+    def _dirty(r):
+        if r.isEmpty():
+            return QRect()
+        return r.adjusted(-8, -40, 160, 40).toAlignedRect()
 
     def mouseReleaseEvent(self, event):
         if event.button() != Qt.LeftButton or self._start is None:
@@ -364,11 +382,16 @@ class CaptureToast(QFrame):
             f"QPushButton:hover {{ background: {theme.ACCENT_HOVER}; }}")
 
     def show_result(self, image: QImage, title: str, detail: str, path=None):
-        pm = QPixmap.fromImage(image).scaled(
-            self.thumb.size() * self.devicePixelRatioF(), Qt.KeepAspectRatio,
-            Qt.SmoothTransformation)
-        pm.setDevicePixelRatio(self.devicePixelRatioF())
+        # vignette reduite avant conversion : pas de pixmap de la taille de la capture
+        dpr = self.devicePixelRatioF()
+        pm = QPixmap.fromImage(image.scaled(self.thumb.size() * dpr, Qt.KeepAspectRatio,
+                                            Qt.SmoothTransformation))
+        pm.setDevicePixelRatio(dpr)
         self.thumb.setPixmap(pm)
+        self.update_result(title, detail, path)
+
+    def update_result(self, title: str, detail: str, path=None):
+        """Nouveau texte (fin de l'enregistrement), meme vignette."""
         self.title.setText(title)
         self.detail.setText(detail)
         self._path = path
@@ -389,6 +412,45 @@ class CaptureToast(QFrame):
         self.hide()
 
 
+# ------------------------------------------------------------ enregistrement
+
+class _SaverSignals(QObject):
+    done = Signal(int, object, str)   # numero de capture, Path ou None, dossier en echec
+
+
+class CaptureSaver(QRunnable):
+    """Encode et ecrit la capture en PNG hors du fil de l'interface. Le nom
+    est choisi ici (unique_path) : les captures passent une par une
+    (SAVE_POOL a un seul fil), deux captures de la meme seconde ne se
+    disputent donc jamais le meme nom."""
+
+    def __init__(self, ticket, image, folder, stem, page):
+        super().__init__()
+        self.ticket, self.image, self.folder = ticket, image, folder
+        self.stem, self.page = stem, page
+        self.signals = _SaverSignals()
+
+    def run(self):
+        try:
+            folder = Path(self.folder)
+            folder.mkdir(parents=True, exist_ok=True)
+            path = unique_path(folder, capture_filename(self.stem, self.page))
+            image = self.image
+            if image.isGrayscale():   # scan en noir et blanc : PNG bien plus leger
+                image = image.convertToFormat(QImage.Format_Grayscale8)
+            if not image.save(str(path), "PNG"):
+                raise OSError(f"écriture impossible : {path}")
+        except OSError:
+            logging.warning("Capture non enregistree", exc_info=True)
+            self.signals.done.emit(self.ticket, None, self.folder)
+            return
+        self.signals.done.emit(self.ticket, path, "")
+
+
+SAVE_POOL = QThreadPool()
+SAVE_POOL.setMaxThreadCount(1)
+
+
 # ------------------------------------------------------------ branchement au lecteur
 
 class CaptureMixin:
@@ -397,6 +459,10 @@ class CaptureMixin:
         self._capture_overlay = CaptureOverlay(self, self._capture_size)
         self._capture_overlay.selected.connect(self._on_capture_selected)
         self._capture_toast = CaptureToast(self)
+        self._capture_ticket = 0      # derniere capture : seule elle met a jour la vignette
+        self._capture_savers = set()  # enregistrements en cours (gardes en vie)
+        self._capture_copied = False
+        self._capture_px = ""
 
     def _placed_images(self):
         out = []
@@ -425,29 +491,36 @@ class CaptureMixin:
         save = store.reader_pref("capture_save", True)
         if copy:
             QGuiApplication.clipboard().setImage(image)
-        saved, error = None, False
+        self._capture_ticket += 1
+        self._capture_copied = copy
+        self._capture_px = f"{image.width()} × {image.height()} px"
         if save:
-            try:
-                folder = Path(capture_dir(store))
-                folder.mkdir(parents=True, exist_ok=True)
-                page = min(i for i, _src, _screen in self._placed_pages) + 1
-                path = unique_path(folder, capture_filename(Path(self.path).stem, page))
-                if not image.save(str(path), "PNG"):
-                    raise OSError(f"écriture impossible : {path}")
-                saved = path
-            except OSError:
-                logging.warning("Capture non enregistree", exc_info=True)
-                error = True
-        size = f"{image.width()} × {image.height()} px"
-        if error:
-            title = tr("Capture copiée, non enregistrée") if copy else tr("Capture non enregistrée")
-            detail = tr("Dossier inaccessible : {folder}", folder=capture_dir(store))
-        elif saved is not None:
-            title = tr("Capture copiée et enregistrée") if copy else tr("Capture enregistrée")
-            detail = f"{size} · {saved.name}"
+            # vignette tout de suite ; texte final a la fin de l'enregistrement
+            self._capture_toast.show_result(
+                image, tr("Capture copiée") if copy else tr("Capture"), tr("Enregistrement…"))
+            page = min(i for i, _src, _screen in self._placed_pages) + 1
+            saver = CaptureSaver(self._capture_ticket, image, capture_dir(store),
+                                 Path(self.path).stem, page)
+            saver.setAutoDelete(False)
+            self._capture_savers.add(saver)
+            saver.signals.done.connect(self._on_capture_saved)
+            SAVE_POOL.start(saver)
         elif copy:
-            title, detail = tr("Capture copiée"), size
+            self._capture_toast.show_result(image, tr("Capture copiée"), self._capture_px)
         else:
-            title = tr("Capture faite, mais ni copiée ni enregistrée")
-            detail = tr("Voir les préférences, Lecture")
-        self._capture_toast.show_result(image, title, detail, saved)
+            self._capture_toast.show_result(
+                image, tr("Capture faite, mais ni copiée ni enregistrée"),
+                tr("Voir les préférences, Lecture"))
+
+    def _on_capture_saved(self, ticket, path, failed_folder):
+        self._capture_savers = {s for s in self._capture_savers if s.ticket != ticket}
+        if ticket != self._capture_ticket or not self._capture_toast.isVisible():
+            return   # une capture plus recente occupe deja la vignette
+        copy = self._capture_copied
+        if path is None:
+            title = tr("Capture copiée, non enregistrée") if copy else tr("Capture non enregistrée")
+            detail = tr("Dossier inaccessible : {folder}", folder=failed_folder)
+        else:
+            title = tr("Capture copiée et enregistrée") if copy else tr("Capture enregistrée")
+            detail = f"{self._capture_px} · {path.name}"
+        self._capture_toast.update_result(title, detail, path)
